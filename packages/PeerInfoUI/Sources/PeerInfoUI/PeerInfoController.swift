@@ -1,3 +1,4 @@
+import ChargedGramSettings
 import Cocoa
 import TGUIKit
 import TelegramCore
@@ -1180,7 +1181,18 @@ public class PeerInfoController<Context: AccountContextProtocol>: EditableViewCo
             
             
             
-            return combineLatest(queue: prepareQueue, context.account.viewTracker.peerView(peerId, updateData: true), arguments.statePromise, appearanceSignal, inputActivityState.get(), channelMembersPromise.get(), mediaTabsData, mediaReady, inviteLinksCount, joinRequestsCount, availableReactions, threadData, threadPeer, storiesSignal, personalChannelSignal, revenueState, tonRevenueState, webAppPermissionsState(context: context, peerId: peerId), savedMuicProfileState)
+            let hidePhoneNumbers = Signal<Bool, NoError> { subscriber in
+                let observer = NotificationCenter.default.addObserver(forName: ChargedGramSettings.didChange, object: nil, queue: nil) { _ in
+                    subscriber.putNext(ChargedGramSettings.shared.hidePhoneNumbers)
+                }
+                subscriber.putNext(ChargedGramSettings.shared.hidePhoneNumbers)
+                return ActionDisposable {
+                    NotificationCenter.default.removeObserver(observer)
+                }
+            } |> distinctUntilChanged
+            let chargedGramAppearance = combineLatest(appearanceSignal, hidePhoneNumbers) |> map { appearance, _ in appearance }
+
+            return combineLatest(queue: prepareQueue, context.account.viewTracker.peerView(peerId, updateData: true), arguments.statePromise, chargedGramAppearance, inputActivityState.get(), channelMembersPromise.get(), mediaTabsData, mediaReady, inviteLinksCount, joinRequestsCount, availableReactions, threadData, threadPeer, storiesSignal, personalChannelSignal, revenueState, tonRevenueState, webAppPermissionsState(context: context, peerId: peerId), savedMuicProfileState)
             |> mapToQueue { view, state, appearance, inputActivities, channelMembers, mediaTabsData, _, inviteLinksCount, joinRequestsCount, availableReactions, threadData, threadPeer, stories, personalChannel, revenueState, tonRevenueState, webAppPermissionsState, savedMuicProfileState -> Signal<(PeerView, TableUpdateTransition, MessageHistoryThreadData?, EnginePeer?), NoError> in
                     
                     

@@ -21,6 +21,7 @@ final class ChargedGramSettingsTests: XCTestCase {
         let settings = ChargedGramSettings(defaults: fixture.defaults)
         XCTAssertFalse(settings.keepChatsUnread)
         XCTAssertFalse(settings.confirmCalls)
+        XCTAssertFalse(settings.hidePhoneNumbers)
     }
 
     func testRetainsExistingUnreadPreference() {
@@ -33,11 +34,14 @@ final class ChargedGramSettingsTests: XCTestCase {
         let fixture = SettingsFixture()
         let settings = ChargedGramSettings(defaults: fixture.defaults)
         settings.confirmCalls = true
+        settings.hidePhoneNumbers = true
         let restored = ChargedGramSettings(defaults: UserDefaults(suiteName: fixture.suiteName)!)
         XCTAssertTrue(restored.confirmCalls)
+        XCTAssertTrue(restored.hidePhoneNumbers)
         XCTAssertFalse(restored.keepChatsUnread)
         restored.confirmCalls = false
         XCTAssertFalse(settings.confirmCalls)
+        XCTAssertTrue(settings.hidePhoneNumbers)
     }
 
     func testPersistsEnablingAndDisabling() {
@@ -75,16 +79,18 @@ final class ChargedGramSettingsTests: XCTestCase {
         let settings = ChargedGramSettings(defaults: fixture.defaults, notificationCenter: center)
         var values: [[Bool]] = []
         let observer = center.addObserver(forName: ChargedGramSettings.didChange, object: nil, queue: nil) { _ in
-            values.append([settings.confirmCalls])
+            values.append([settings.confirmCalls, settings.hidePhoneNumbers])
         }
         defer { center.removeObserver(observer) }
         settings.confirmCalls = true
         settings.confirmCalls = true
-        XCTAssertEqual(values, [[true]])
+        settings.hidePhoneNumbers = true
+        settings.hidePhoneNumbers = false
+        XCTAssertEqual(values, [[true, false], [true, true], [true, false]])
     }
 
     func testTranslationsAndLanguageFallback() {
-        let keys = ["KeepChatsUnread", "KeepChatsUnreadInfo", "ConfirmCalls", "ConfirmCallsInfo", "ConfirmCallTitle", "ConfirmVoiceCall", "ConfirmVideoCall", "Call"]
+        let keys = ["KeepChatsUnread", "KeepChatsUnreadInfo", "ConfirmCalls", "ConfirmCallsInfo", "HidePhoneNumbers", "HidePhoneNumbersInfo", "ConfirmCallTitle", "ConfirmVoiceCall", "ConfirmVideoCall", "Call"]
         for key in keys {
             let english = ChargedGramStrings.text(key, languageCode: "en")
             let russian = ChargedGramStrings.text(key, languageCode: "ru")

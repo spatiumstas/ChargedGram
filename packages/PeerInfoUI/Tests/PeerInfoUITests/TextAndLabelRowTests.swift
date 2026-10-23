@@ -124,4 +124,43 @@ final class TextAndLabelRowTests: XCTestCase {
         XCTAssertEqual(toggled, 1)
         XCTAssertTrue(buttons.allSatisfy { $0.scaleOnClick && !$0.autohighlight })
     }
+
+    func testPhoneSpoilerRevealsWithoutTriggeringRowActionsAndResetsWhenReused() throws {
+        var actions = 0
+        var copies = 0
+        let phone = "+1 202 555 0123"
+        func phoneItem(spoiler: Bool) -> TextAndLabelItem {
+            let item = TextAndLabelItem(NSMakeSize(width, 50), stableId: 0, label: "Phone", copyMenuText: "Copy", text: phone, context: nil, viewType: .singleItem, callback: { actions += 1 }, _copyToClipboard: { copies += 1 }, linkInteractions: TextViewInteractions(), spoiler: spoiler)
+            _ = item.makeSize(width, oldWidth: 0)
+            return item
+        }
+        let item = phoneItem(spoiler: true)
+        let row = TextAndLabelRowView(frame: NSMakeRect(0, 0, width, item.height))
+        let window = Window(contentRect: row.bounds, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = row
+        defer { window.close() }
+        show(row, item)
+        row.layoutSubtreeIfNeeded()
+        let text = (container(row).subviews.first as! InteractiveTextView).textView
+        func dustCount() -> Int {
+            return text.subviews.filter { $0 is InvisibleInkDustView }.count
+        }
+        XCTAssertEqual(text.textLayout?.attributedString.string, phone)
+        XCTAssertEqual(dustCount(), 1)
+        let point = NSPoint(x: text.bounds.midX, y: text.bounds.midY)
+        let target = try XCTUnwrap(row.hitTest(text.convert(point, to: row.superview)))
+        XCTAssertTrue(target === text || target.isDescendant(of: text), "Unexpected target: \(type(of: target))")
+        let click = NSEvent.mouseEvent(with: .leftMouseUp, location: text.convert(point, to: nil), modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 0)!
+        target.mouseUp(with: click)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertEqual(dustCount(), 0)
+        XCTAssertEqual(text.textLayout?.attributedString.string, phone)
+        XCTAssertEqual(actions, 0)
+        XCTAssertEqual(copies, 0)
+        show(row, phoneItem(spoiler: true))
+        XCTAssertEqual(dustCount(), 1)
+        show(row, phoneItem(spoiler: false))
+        XCTAssertEqual(dustCount(), 0)
+    }
 }

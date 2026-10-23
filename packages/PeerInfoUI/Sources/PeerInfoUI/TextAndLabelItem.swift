@@ -60,7 +60,7 @@ public class TextAndLabelItem: GeneralRowItem {
     let canTranslate: Bool
     let context: (any AccountContextProtocol)?
     private let added_contextItems: [ContextMenuItem]
-    public init(_ initialSize:NSSize, stableId:AnyHashable, label:String, copyMenuText: String, labelColor: NSColor = theme.colors.accent, textColor: NSColor = theme.colors.text, backgroundColor: NSColor = theme.colors.background, text:String, context: (any AccountContextProtocol)?, viewType: GeneralViewType = .legacy, detectLinks:Bool = false, onlyInApp: Bool = false, isTextSelectable:Bool = true, callback:@escaping ()->Void = {}, openInfo:((PeerId, Bool, MessageId?, ChatInitialAction?)->Void)? = nil, hashtag:((String)->Void)? = nil, selectFullWord: Bool = false, canCopy: Bool = true, _copyToClipboard:(()->Void)? = nil, textFont: NSFont = .normal(.title), hideText: Bool? = nil, toggleHide: (()->Void)? = nil, accentColor: NSColor = theme.colors.accent, borderColor: NSColor = theme.colors.border, linkInteractions: TextViewInteractions = LinkHooks.shared.globalLinkExecutor(), contextItems:[ContextMenuItem] = [], gift: (()->Void)? = nil, launchApp:(()->Void)? = nil, canTranslate: Bool = false, description: String? = nil, entities: [MessageTextEntity] = []) {
+    public init(_ initialSize:NSSize, stableId:AnyHashable, label:String, copyMenuText: String, labelColor: NSColor = theme.colors.accent, textColor: NSColor = theme.colors.text, backgroundColor: NSColor = theme.colors.background, text:String, context: (any AccountContextProtocol)?, viewType: GeneralViewType = .legacy, detectLinks:Bool = false, onlyInApp: Bool = false, isTextSelectable:Bool = true, callback:@escaping ()->Void = {}, openInfo:((PeerId, Bool, MessageId?, ChatInitialAction?)->Void)? = nil, hashtag:((String)->Void)? = nil, selectFullWord: Bool = false, canCopy: Bool = true, _copyToClipboard:(()->Void)? = nil, textFont: NSFont = .normal(.title), hideText: Bool? = nil, toggleHide: (()->Void)? = nil, accentColor: NSColor = theme.colors.accent, borderColor: NSColor = theme.colors.border, linkInteractions: TextViewInteractions = LinkHooks.shared.globalLinkExecutor(), contextItems:[ContextMenuItem] = [], gift: (()->Void)? = nil, launchApp:(()->Void)? = nil, canTranslate: Bool = false, description: String? = nil, entities: [MessageTextEntity] = [], spoiler: Bool = false) {
         self.callback = callback
         self.launchApp = launchApp
         self.accentColor = accentColor
@@ -88,6 +88,9 @@ public class TextAndLabelItem: GeneralRowItem {
                 })
             }
         }
+        if spoiler {
+            attr.addAttribute(TextInputAttributes.spoiler, value: true as NSNumber, range: attr.range)
+        }
         self.canCopy = canCopy
         if canCopy {
             self._copyToClipboard = _copyToClipboard
@@ -102,7 +105,7 @@ public class TextAndLabelItem: GeneralRowItem {
             self.descriptionLayout = nil
         }
         
-        textLayout = TextViewLayout(attr, maximumNumberOfLines: 0, alwaysStaticItems: !detectLinks)
+        textLayout = TextViewLayout(attr, maximumNumberOfLines: 0, alwaysStaticItems: !detectLinks, spoilerColor: textColor)
         textLayout.interactions = linkInteractions
         textLayout.selectWholeText = !detectLinks
         if selectFullWord {

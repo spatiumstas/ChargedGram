@@ -38,6 +38,7 @@ public class AccountInfoItem: GeneralRowItem {
 
     fileprivate let context: any AccountContextProtocol
     public let peer: TelegramUser
+    fileprivate let hidePhoneNumbers: Bool
     public let storyStats: EngineStorySubscriptions.Item?
     private(set) var photos: [TelegramPeerPhoto] = []
 
@@ -48,9 +49,10 @@ public class AccountInfoItem: GeneralRowItem {
     
     public let avatarStoryIndicator: AvatarStoryIndicatorComponent?
     public let openStory:(StoryInitialIndex?)->Void
-    public init(_ initialSize:NSSize, stableId:AnyHashable, viewType: GeneralViewType, inset: NSEdgeInsets = NSEdgeInsets(left: 20, right: 20), context: any AccountContextProtocol, peer: TelegramUser, storyStats: EngineStorySubscriptions.Item?, action: @escaping()->Void, setStatus: @escaping(Control, TelegramUser)->Void, openStory:@escaping(StoryInitialIndex?)->Void) {
+    public init(_ initialSize:NSSize, stableId:AnyHashable, viewType: GeneralViewType, inset: NSEdgeInsets = NSEdgeInsets(left: 20, right: 20), context: any AccountContextProtocol, peer: TelegramUser, storyStats: EngineStorySubscriptions.Item?, hidePhoneNumbers: Bool = false, action: @escaping()->Void, setStatus: @escaping(Control, TelegramUser)->Void, openStory:@escaping(StoryInitialIndex?)->Void) {
         self.context = context
         self.peer = peer
+        self.hidePhoneNumbers = hidePhoneNumbers
         self.storyStats = storyStats
         self.setStatus = setStatus
         self.openStory = openStory
@@ -71,6 +73,9 @@ public class AccountInfoItem: GeneralRowItem {
         
         if let phone = peer.phone {
             _ = attr.append(string: SettingsHooks.shared.formatPhoneNumber(context, phone), color: theme.colors.grayText, font: .normal(.text))
+            if hidePhoneNumbers {
+                attr.addAttribute(TextInputAttributes.spoiler, value: true as NSNumber, range: attr.range)
+            }
         }
         if let username = peer.username, !username.isEmpty {
             if !attr.string.isEmpty {
@@ -79,11 +84,11 @@ public class AccountInfoItem: GeneralRowItem {
             _ = attr.append(string: "@\(username)", color: theme.colors.grayText, font: .normal(.text))
         }
         
-        textLayout = TextViewLayout(attr, maximumNumberOfLines: 4)
+        textLayout = TextViewLayout(attr, maximumNumberOfLines: 4, spoilerColor: theme.colors.grayText)
         
         let active = attr.mutableCopy() as! NSMutableAttributedString
         active.addAttribute(.foregroundColor, value: theme.colors.underSelectedColor, range: active.range)
-        activeTextlayout = TextViewLayout(active, maximumNumberOfLines: 4)
+        activeTextlayout = TextViewLayout(active, maximumNumberOfLines: 4, spoilerColor: theme.colors.underSelectedColor)
         super.init(initialSize, height: 90, stableId: stableId, viewType: viewType, action: action, inset: inset)
         
         self.photos = syncPeerPhotos(peerId: peer.id).map { $0.value }
@@ -366,6 +371,7 @@ private class AccountInfoView : GeneralContainableRowView {
             actionView.image = item.isSelected ? nil : theme.icons.generalNext
             actionView.sizeToFit()
             avatarView.setPeer(account: item.context.account, peer: item.peer)
+            textView.userInteractionEnabled = item.hidePhoneNumbers
             textView.update(isSelect ? item.activeTextlayout : item.textLayout)
             if !item.photos.isEmpty {
                 if let first = item.photos.first, let video = first.image.videoRepresentations.last {

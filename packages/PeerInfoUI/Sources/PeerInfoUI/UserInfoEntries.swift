@@ -1,4 +1,5 @@
 import Cocoa
+import ChargedGramSettings
 import TelegramCore
 import CurrencyFormat
 import SwiftSignalKit
@@ -1260,7 +1261,7 @@ enum UserInfoEntry<Context: AccountContextProtocol>: PeerInfoEntry {
     case birthday(sectionId:Int, text: String, Bool, viewType: GeneralViewType)
     case scam(sectionId:Int, title: String, text: String, viewType: GeneralViewType)
     case unofficialWarning(sectionId:Int, text: String, viewType: GeneralViewType)
-    case phoneNumber(sectionId:Int, index: Int, value: PhoneNumberWithLabel, canCopy: Bool, viewType: GeneralViewType)
+    case phoneNumber(sectionId:Int, index: Int, value: PhoneNumberWithLabel, canCopy: Bool, spoiler: Bool, viewType: GeneralViewType)
     case notes(sectionId:Int, index: Int, value: CachedUserData.Note, viewType: GeneralViewType)
     case peerId(sectionId:Int, value: String, viewType: GeneralViewType)
     case userName(sectionId:Int, value: [UserInfoAddress], viewType: GeneralViewType)
@@ -1353,7 +1354,7 @@ enum UserInfoEntry<Context: AccountContextProtocol>: PeerInfoEntry {
             return viewType
         case .unofficialWarning(_, _, let viewType):
             return viewType
-        case .phoneNumber(_, _, _, _, let viewType):
+        case .phoneNumber(_, _, _, _, _, let viewType):
             return viewType
         case .notes(_, _, _, let viewType):
             return viewType
@@ -1460,7 +1461,7 @@ enum UserInfoEntry<Context: AccountContextProtocol>: PeerInfoEntry {
         case let .birthday(sectionId, text, peer, _): return .birthday(sectionId: sectionId, text: text, peer, viewType: viewType)
         case let .scam(sectionId, title, text, _): return .scam(sectionId: sectionId, title: title, text: text, viewType: viewType)
         case let .unofficialWarning(sectionId, text, _): return .unofficialWarning(sectionId: sectionId, text: text, viewType: viewType)
-        case let .phoneNumber(sectionId, index, value, canCopy, _): return .phoneNumber(sectionId: sectionId, index: index, value: value, canCopy: canCopy, viewType: viewType)
+        case let .phoneNumber(sectionId, index, value, canCopy, spoiler, _): return .phoneNumber(sectionId: sectionId, index: index, value: value, canCopy: canCopy, spoiler: spoiler, viewType: viewType)
         case let .notes(sectionId, index, value, _): return .notes(sectionId: sectionId, index: index, value: value, viewType: viewType)
         case let .userName(sectionId, value, _): return .userName(sectionId: sectionId, value: value, viewType: viewType)
         case let .verifiedInfo(sectionId, value, _): return .verifiedInfo(sectionId: sectionId, value: value, viewType: viewType)
@@ -1740,9 +1741,9 @@ enum UserInfoEntry<Context: AccountContextProtocol>: PeerInfoEntry {
             default:
                 return false
             }
-        case let .phoneNumber(sectionid, index, value, canCopy, viewType):
+        case let .phoneNumber(sectionid, index, value, canCopy, spoiler, viewType):
             switch entry {
-            case .phoneNumber(sectionid, index, value, canCopy, viewType):
+            case .phoneNumber(sectionid, index, value, canCopy, spoiler, viewType):
                 return true
             default:
                 return false
@@ -2197,7 +2198,7 @@ enum UserInfoEntry<Context: AccountContextProtocol>: PeerInfoEntry {
             return (sectionId * 1000) + stableIndex
         case let .birthday(sectionId, _, _, _):
             return (sectionId * 1000) + stableIndex
-        case let .phoneNumber(sectionId, _, _, _, _):
+        case let .phoneNumber(sectionId, _, _, _, _, _):
             return (sectionId * 1000) + stableIndex
         case let .notes(sectionId, _, _, _):
             return (sectionId * 1000) + stableIndex
@@ -2440,7 +2441,7 @@ enum UserInfoEntry<Context: AccountContextProtocol>: PeerInfoEntry {
             return GeneralTextRowItem(initialSize, stableId: stableId.hashValue, text: .attributed(attr), viewType: viewType, context: arguments.context)
         case let .birthday(_, text, canBirth, viewType):
             return  TextAndLabelItem(initialSize, stableId:stableId.hashValue, label: strings().peerInfoBirthday, copyMenuText: strings().textCopyLabelBio, text:text, context: arguments.context, viewType: viewType, gift: canBirth ? arguments.giftBirthday : nil)
-        case let .phoneNumber(_, _, value, canCopy, viewType):
+        case let .phoneNumber(_, _, value, canCopy, spoiler, viewType):
             var items:[ContextMenuItem] = []
             if value.number.hasPrefix("888") {
                 if canCopy {
@@ -2457,7 +2458,7 @@ enum UserInfoEntry<Context: AccountContextProtocol>: PeerInfoEntry {
                 } else {
                     arguments.copy("+\(value.number)")
                 }
-            }, contextItems: items)
+            }, contextItems: items, spoiler: spoiler)
         case let .notes(_, _, value, viewType):
             return TextAndLabelItem(
                 initialSize,
@@ -2764,9 +2765,9 @@ func userInfoEntries<Context: AccountContextProtocol>(view: PeerView, arguments:
                     infoBlock.append(UserInfoEntry<Context>.scam(sectionId: sectionId, title: strings().peerInfoFake, text: strings().peerInfoFakeWarning, viewType: .singleItem))
                 }
                 if let phoneNumber = user.phone, !phoneNumber.isEmpty {
-                    infoBlock.append(.phoneNumber(sectionId: sectionId, index: 0, value: PhoneNumberWithLabel(label: phoneNumber.hasPrefix("888") ? strings().peerInfoAnonymousPhone : strings().peerInfoPhone, number: phoneNumber), canCopy: true, viewType: .singleItem))
+                    infoBlock.append(.phoneNumber(sectionId: sectionId, index: 0, value: PhoneNumberWithLabel(label: phoneNumber.hasPrefix("888") ? strings().peerInfoAnonymousPhone : strings().peerInfoPhone, number: phoneNumber), canCopy: true, spoiler: ChargedGramSettings.shared.hidePhoneNumbers, viewType: .singleItem))
                 } else if view.peerIsContact {
-                    infoBlock.append(.phoneNumber(sectionId: sectionId, index: 0, value: PhoneNumberWithLabel(label: strings().peerInfoPhone, number: strings().newContactPhoneHidden), canCopy: false, viewType: .singleItem))
+                    infoBlock.append(.phoneNumber(sectionId: sectionId, index: 0, value: PhoneNumberWithLabel(label: strings().peerInfoPhone, number: strings().newContactPhoneHidden), canCopy: false, spoiler: false, viewType: .singleItem))
                 }
 
                 
