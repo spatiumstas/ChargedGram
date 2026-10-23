@@ -8,7 +8,13 @@
 
 ![Telegram macOS screenshot](images/tg.png)
 
-ChargedGram is a fork of [Telegram for macOS](https://macos.telegram.org/) with optional features available in Settings → ChargedGram. See [the feature guide](docs/mod-features.md) and [local build instructions](INSTALL.md#signing).
+ChargedGram is a fork of [Telegram for macOS](https://macos.telegram.org/) with optional features available in Settings → ChargedGram. See [the features below](#chargedgram-features) and [local build instructions](INSTALL.md#signing).
+
+## ChargedGram features
+
+- **Keep Chats Unread** — stops chats and topics from being marked as read automatically.
+- **Confirm Calls** — asks for confirmation before starting an outgoing voice or video call to prevent accidental calls.
+- **Hide Phone Numbers** — covers phone numbers in profiles and your account header with spoilers. Click a hidden number to reveal it.
 
 ## Upstream client
 

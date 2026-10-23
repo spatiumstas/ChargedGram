@@ -30,7 +30,7 @@ root_items=$(ls -A "$APP")
 nested_apps=$(find "$APP" -mindepth 1 -name "Telegram.app")
 [ -z "$nested_apps" ] || fail "Telegram.app contains another copy of itself: $nested_apps"
 
-main_binaries=$(find "$APP" -type f -path "*/MacOS/Telegram" | wc -l | tr -d ' ')
+main_binaries=$(find "$APP" -type f -path "*/MacOS/ChargedGram" | wc -l | tr -d ' ')
 [ "$main_binaries" = "1" ] || fail "Telegram.app contains $main_binaries main executables instead of 1"
 
 size=$(du -sk "$APP" | cut -f1)

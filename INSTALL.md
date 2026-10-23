@@ -148,6 +148,45 @@ own team means changing the identifier and team everywhere (see "Forking" below)
 switching the targets to a personal team with automatic signing and removing the
 entitlements you cannot request.
 
+### ChargedGram Release builds
+
+Local builds and GitHub Actions use `scripts/build-release.sh`. After preparing the
+native libraries and generating your fork configuration with
+`python3 scripts/configure-fork.py`, run:
+
+```bash
+RELEASE_SIGNING_IDENTITY='ChargedGram' bash scripts/build-release.sh
+```
+
+For faster local builds on Apple Silicon, build only `arm64`:
+
+```bash
+RELEASE_SIGNING_IDENTITY='ChargedGram' bash scripts/build-release.sh --arm64
+```
+
+This produces `ChargedGram-macos-arm64.zip`, which runs on Macs with M1 or newer.
+Without the flag, the script builds both architectures and produces
+`ChargedGram-macos-universal.zip`, as used by GitHub Actions. Universal builds reuse
+`.build/release`; ARM-only builds use `.build/release-arm64`. Each variant keeps its
+own build cache, so the first ARM-only build starts with a new cache.
+
+Use the exact name or SHA-1 fingerprint of your self-signed code-signing certificate
+with its private key in Keychain Access. No paid Apple account is required. Keep the
+same certificate for local builds and CI. The script builds an optimized Release
+app and writes the app ZIP, SHA-256 checksum and debug symbols to a new directory
+under `.build/releases/`.
+
+In GitHub Actions, configure `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `APP_BUNDLE_ID`,
+`SIGNING_CERTIFICATE_BASE64` and `SIGNING_CERTIFICATE_PASSWORD` as repository secrets.
+The certificate secret is your exported `.p12` encoded in Base64. The import step
+sets `RELEASE_SIGNING_IDENTITY` automatically. The workflow uploads the app ZIP and
+checksum together, with debug symbols in a separate artifact.
+
+The app keeps the configured Bundle ID without a `.local` suffix and stores data in
+`~/Library/Application Support/<APP_BUNDLE_ID>/local`. Share Extension and automatic
+updates are excluded. The app is not notarized; downloaded builds may require users
+to allow the first launch in System Settings → Privacy & Security → Open Anyway.
+
 ## Build configurations and release channels
 
 `Telegram-Mac/common.xcconfig` holds the shared settings. The channel is selected by an

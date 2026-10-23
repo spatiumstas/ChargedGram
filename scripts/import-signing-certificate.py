@@ -66,7 +66,7 @@ try:
     if identity not in valid_identities.upper():
         sys.exit("The imported signing certificate is expired or its certificate chain is not trusted")
     with open(os.environ["GITHUB_ENV"], "a") as environment:
-        environment.write(f"LOCAL_SIGNING_IDENTITY={identity}\n")
+        environment.write(f"RELEASE_SIGNING_IDENTITY={identity}\n")
 finally:
     certificate_path.unlink(missing_ok=True)
 

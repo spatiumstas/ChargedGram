@@ -56,8 +56,8 @@ archive="./telegrammacos.xcarchive"
 appname="Telegram.app"
 
 rm -rf ${appname} ${appname}.dSYM ${appname}.DSYM.zip
-cp -R "${archive}/Products/Applications/Telegram.app" ${appname}
-cp -R "${archive}/dSYMs/Telegram.app.dSYM" ${appname}.dSYM
+cp -R "${archive}/Products/Applications/ChargedGram.app" ${appname}
+cp -R "${archive}/dSYMs/ChargedGram.app.dSYM" ${appname}.dSYM
 
 
 ditto -c -k --sequesterRsrc --keepParent ${appname}.dSYM ${appname}.DSYM.zip

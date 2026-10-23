@@ -44,14 +44,26 @@ jobs:
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - name: Prepare dependencies and native libraries
         run: bash scripts/setup_build_env.sh --build
-      - name: Build and sign local app
-        run: bash scripts/build-local.sh
-      - name: Archive app
-        run: ditto -c -k --sequesterRsrc --keepParent .build/local-run/ChargedGram.app "$RUNNER_TEMP/ChargedGram-macos-arm64.zip"
+      - name: Build and sign release app
+        run: bash scripts/build-release.sh
+      - name: Collect release archives
+        run: |
+          cp .build/releases/*/ChargedGram-macos-universal.zip \
+            .build/releases/*/ChargedGram-macos-universal.zip.sha256 \
+            .build/releases/*/ChargedGram-macos-universal.dSYM.zip \
+            "$RUNNER_TEMP/"
       - uses: actions/upload-artifact@v7
         with:
-          name: ChargedGram-macos-arm64
-          path: ${{ runner.temp }}/ChargedGram-macos-arm64.zip
+          name: ChargedGram-macos-universal
+          path: |
+            ${{ runner.temp }}/ChargedGram-macos-universal.zip
+            ${{ runner.temp }}/ChargedGram-macos-universal.zip.sha256
+          if-no-files-found: error
+          retention-days: 1
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ChargedGram-macos-universal-symbols
+          path: ${{ runner.temp }}/ChargedGram-macos-universal.dSYM.zip
           if-no-files-found: error
           retention-days: 1
       - name: Remove signing keychain and generated configuration
