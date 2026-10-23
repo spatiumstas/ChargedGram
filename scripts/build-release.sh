@@ -95,6 +95,7 @@ for path in paths:
         with path.open("rb") as stream:
             if stream.read(4) not in mach_o_magic:
                 continue
+        subprocess.run(["xcrun", "strip", "-S", "-x", str(path)], check=True)
     elif path.suffix not in {".framework", ".app", ".xpc", ".appex"}:
         continue
     subprocess.run(["codesign", "--force", "--sign", signing_identity, "--timestamp=none", str(path)], check=True)
