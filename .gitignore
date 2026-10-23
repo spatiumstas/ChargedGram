@@ -27,3 +27,5 @@ core-xprojects/mtproto-engine/build
 .build/
 .swiftpm/
 .vscode/
+packages/ApiCredentials/Sources/ApiCredentials/ForkCredentials.generated.swift
+configurations/Fork.generated.xcconfig

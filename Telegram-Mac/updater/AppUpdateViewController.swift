@@ -657,8 +657,11 @@ enum UpdaterSource : Equatable {
 }
 
 
-private var updateFeedURL: URL {
-    return URL(string: Bundle.main.infoDictionary!["SUFeedURL"] as! String)!
+private var updateFeedURL: URL? {
+    guard let value = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String else {
+        return nil
+    }
+    return URL(string: value)
 }
 
 private func makeUpdateDriver(_ source: UpdaterSource) -> ExternalUpdateDriver {
@@ -675,7 +678,7 @@ private var stagedStartedAt: CFAbsoluteTime = 0
 private let stagedUpdateTimeout: CFAbsoluteTime = 60 * 60
 
 private func stageNewerUpdate() {
-    guard case let .readyToInstall(item) = stateValue.with({ $0.loadingState }), let source = updaterSource else {
+    guard let updateFeedURL = updateFeedURL, case let .readyToInstall(item) = stateValue.with({ $0.loadingState }), let source = updaterSource else {
         return
     }
     if stagedDriver != nil {
@@ -733,6 +736,7 @@ private func cancelStagedUpdate() {
 }
 
 private func resetUpdater() {
+    guard let updateFeedURL = updateFeedURL else { return }
     
     #if !GITHUB
         let update:()->Void = {
@@ -764,7 +768,7 @@ private func resetUpdater() {
 private var updaterSource: UpdaterSource? = nil
 
 func updater_resetWithUpdaterSource(_ source: UpdaterSource, force: Bool = true) {
-    guard !ApiEnvironment.isLocalBuild else { return }
+    guard !ApiEnvironment.isLocalBuild, updateFeedURL != nil else { return }
     let state = stateValue.with { $0 }
     switch state.loadingState {
     case .readyToInstall:

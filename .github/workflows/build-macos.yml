@@ -19,6 +19,18 @@ jobs:
       HOMEBREW_NO_AUTO_UPDATE: '1'
     steps:
       - uses: actions/checkout@v7
+      - name: Configure fork
+        env:
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          APP_BUNDLE_ID: ${{ secrets.APP_BUNDLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: python3 scripts/configure-fork.py
+      - name: Import signing certificate
+        env:
+          SIGNING_CERTIFICATE_BASE64: ${{ secrets.SIGNING_CERTIFICATE_BASE64 }}
+          SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.SIGNING_CERTIFICATE_PASSWORD }}
+        run: python3 scripts/import-signing-certificate.py
       - name: Select Xcode
         run: |
           sudo xcode-select -s "$DEVELOPER_DIR"
@@ -42,3 +54,16 @@ jobs:
           path: ${{ runner.temp }}/ChargedGram-macos-arm64.zip
           if-no-files-found: error
           retention-days: 1
+      - name: Remove signing keychain and generated configuration
+        if: always()
+        run: |
+          cleanup_status=0
+          if [ -n "${CHARGEDGRAM_SIGNING_ROOT:-}" ] && [ -f "$CHARGEDGRAM_SIGNING_ROOT" ]; then
+            sudo security remove-trusted-cert -d "$CHARGEDGRAM_SIGNING_ROOT" || cleanup_status=$?
+            rm -f "$CHARGEDGRAM_SIGNING_ROOT"
+          fi
+          if [ -n "${CHARGEDGRAM_SIGNING_KEYCHAIN:-}" ] && [ -f "$CHARGEDGRAM_SIGNING_KEYCHAIN" ]; then
+            security delete-keychain "$CHARGEDGRAM_SIGNING_KEYCHAIN" || cleanup_status=$?
+          fi
+          rm -f "$RUNNER_TEMP/chargedgram-signing.p12" packages/ApiCredentials/Sources/ApiCredentials/ForkCredentials.generated.swift configurations/Fork.generated.xcconfig
+          exit "$cleanup_status"

@@ -13,6 +13,12 @@ LOCAL_APP="$ROOT_DIR/.build/local-run/ChargedGram.app"
 SIGNING_IDENTITY="${LOCAL_SIGNING_IDENTITY:--}"
 
 cd "$ROOT_DIR"
+for config in packages/ApiCredentials/Sources/ApiCredentials/ForkCredentials.generated.swift configurations/Fork.generated.xcconfig; do
+    if [ ! -f "$config" ]; then
+        echo "Missing fork configuration. Set TELEGRAM_API_ID, TELEGRAM_API_HASH, APP_BUNDLE_ID and run python3 scripts/configure-fork.py. See INSTALL.md." >&2
+        exit 1
+    fi
+done
 bash "$ROOT_DIR/scripts/fix-recent-inline-bots.sh"
 xcodebuild -workspace Telegram-Mac.xcworkspace \
     -scheme Telegram \
