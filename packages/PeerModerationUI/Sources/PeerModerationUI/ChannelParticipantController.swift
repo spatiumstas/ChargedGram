@@ -100,6 +100,10 @@ private final class TagPreviewRowItem: GeneralRowItem {
     override func viewClass() -> AnyClass {
         return TagPreviewRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return chatItem.accessibilityLabel ?? strings().channelParticipantPreviewMessage
+    }
 }
 
 private final class TagPreviewRowView: GeneralContainableRowView {
@@ -313,18 +317,23 @@ public func ChannelParticipantController<Context: AccountContextProtocol>(contex
         }
     }
 
-    let arguments = Arguments(context: context, peerId: peerId, promote: { participant in
-        close?()
-        if let controller = FeatureNavigationHooks.shared.makeChannelAdminController(context, peerId, participant.peerId, participant, { _ in }, { _, _ in }) { showModal(with: controller, for: context.window) }
-    }, restrict: { participant in
+    let openRestrictions: (ChannelParticipant) -> Void = { participant in
         close?()
         showModal(with: RestrictedModalController(context, peerId: peerId, memberId: participant.peerId, initialParticipant: participant, updated: { updatedRights in
-            _ = context.peerChannelMemberCategoriesContextsManager.updateMemberBannedRights(peerId: peerId, memberId: participant.peerId, bannedRights: updatedRights).start()
+            let signal = context.peerChannelMemberCategoriesContextsManager.updateMemberBannedRights(peerId: peerId, memberId: participant.peerId, bannedRights: updatedRights)
+            _ = (signal).start()
         }), for: context.window)
+    }
+
+    let arguments = Arguments(context: context, peerId: peerId, promote: { participant in
+        close?()
+        if let controller = FeatureNavigationHooks.shared.makeChannelAdminControllerObserved(context, peerId, participant.peerId, participant, { _ in }, { _, _ in }) { showModal(with: controller, for: context.window) }
+    }, restrict: { participant in
+        openRestrictions(participant)
     }, remove: { channelParticipant in
         verifyAlert_button(for: context.window, information: strings().peerInfoConfirmRemovePeer(participant.peer._asPeer().compactDisplayTitle), ok: strings().modalRemove, successHandler: { _ in
             let signal = context.peerChannelMemberCategoriesContextsManager.updateMemberBannedRights(peerId: peerId, memberId: channelParticipant.peerId, bannedRights: TelegramChatBannedRights(flags: [.banReadMessages], untilDate: 0))
-            actionsDisposable.add(signal.start())
+            actionsDisposable.add((signal).start())
             close?()
         })
     }, updateTag: { tag in
@@ -334,10 +343,7 @@ public func ChannelParticipantController<Context: AccountContextProtocol>(contex
             return state
         }
     }, openPermissions: { participant in
-        close?()
-        showModal(with: RestrictedModalController(context, peerId: peerId, memberId: participant.peerId, initialParticipant: participant, updated: { updatedRights in
-            _ = context.peerChannelMemberCategoriesContextsManager.updateMemberBannedRights(peerId: peerId, memberId: participant.peerId, bannedRights: updatedRights).start()
-        }), for: context.window)
+        openRestrictions(participant)
     })
 
     let signal = statePromise.get() |> filter { $0.channel != nil } |> deliverOnPrepareQueue |> map { state in
@@ -362,7 +368,7 @@ public func ChannelParticipantController<Context: AccountContextProtocol>(contex
         let tag = state.tag.trimmingCharacters(in: .whitespacesAndNewlines)
         if tag != state.initialTag {
             let signal = showModalProgress(signal: context.peerChannelMemberCategoriesContextsManager.updateChatRank(peerId: peerId, memberId: participant.peer.id, rank: tag.isEmpty ? nil : tag, participant: participant), for: context.window) |> deliverOnMainQueue
-            actionsDisposable.add(signal.start(error: { _ in
+            actionsDisposable.add((signal).start(error: { _ in
                 showModalText(for: context.window, text: strings().channelParticipantTagUpdateError)
             }, completed: {
                 close?()

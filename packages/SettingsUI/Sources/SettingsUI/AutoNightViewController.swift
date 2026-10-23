@@ -234,7 +234,11 @@ public func AutoNightSettingsController(context: any AccountContextProtocol) -> 
             return settings
         }).start())
     }, disable: {
+        let isDark = theme.colors.isDark
         updateDisposable.set(updateAutoNightSettingsInteractively(accountManager: context.sharedContext.accountManager, { current in
+            if current.systemBased {
+                sendThemeModeChange(dark: isDark)
+            }
             return current.withUpdatedSchedule(nil).withUpdatedSystemBased(false)
         }).start())
     }, scheduled: {
@@ -255,6 +259,9 @@ public func AutoNightSettingsController(context: any AccountContextProtocol) -> 
         }
     }, systemBased: {
         updateDisposable.set(updateAutoNightSettingsInteractively(accountManager: context.sharedContext.accountManager, { current in
+            if !current.systemBased {
+                sendThemeModeSystem()
+            }
             return current.withUpdatedSchedule(nil).withUpdatedSystemBased(true)
         }).start())
     }, selectTimeFrom: { value in
@@ -298,7 +305,7 @@ public func AutoNightSettingsController(context: any AccountContextProtocol) -> 
         autoNightEntries(appearance: $0, settings: $1, cloudThemes: $2, arguments: arguments)
     }
     
-    return InputDataController(dataSignal: signal |> map { InputDataSignalValue(entries: $0, animated: false) },
+    let controller = InputDataController(dataSignal: signal |> map { InputDataSignalValue(entries: $0, animated: false) },
         title: strings().autoNightSettingsTitle,
         afterDisappear: {
             updateDisposable.dispose()
@@ -307,6 +314,7 @@ public func AutoNightSettingsController(context: any AccountContextProtocol) -> 
         removeAfterDisappear: true,
         hasDone: false,
         identifier: "auto-night")
+    return controller
 }
 
 

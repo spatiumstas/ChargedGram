@@ -367,7 +367,8 @@ private func generalSettingsEntries(arguments:GeneralSettingsArguments, baseSett
 
     entries.append(.header(sectionId: sectionId, uniqueId: headerUnique, text: strings().generalSettingsEmoji))
     headerUnique -= 1
-    entries.append(.emojiReplacements(sectionId: sectionId, enabled: FastSettings.isPossibleReplaceEmojies, viewType: .firstItem))
+    entries.append(.sidebar(sectionId: sectionId, enabled: FastSettings.sidebarEnabled, viewType: .firstItem))
+    entries.append(.emojiReplacements(sectionId: sectionId, enabled: FastSettings.isPossibleReplaceEmojies, viewType: .innerItem))
     if !baseSettings.predictEmoji {
         entries.append(.predictEmoji(sectionId: sectionId, enabled: baseSettings.predictEmoji, viewType: .innerItem))
     }
@@ -482,6 +483,8 @@ open class GeneralSettingsViewController<Context: AccountContextProtocol>: Table
                 return settings.withUpdatedInAppKeyHandle(enable)
             }).start()
         }, toggleInput: { input in
+            if FastSettings.sendingType != input {
+            }
             FastSettings.changeSendingType(input)
             inputPromise.set(input)
         }, toggleSidebar: { enable in

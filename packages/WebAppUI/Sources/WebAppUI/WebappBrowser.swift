@@ -32,9 +32,16 @@ public protocol BrowserPage {
     func contextMenu() -> ContextMenu
     func backButtonPressed()
     func reloadPage()
+    func cancelPendingInvoices()
+    func cancelPendingPageActions()
     var externalState: Signal<WebpageModalState, NoError> { get }
     
     func add(_ tab: BrowserTabData.Data) -> Bool
+}
+
+public extension BrowserPage {
+    func cancelPendingInvoices() {}
+    func cancelPendingPageActions() { cancelPendingInvoices() }
 }
 
 private func makeWebViewController(context: (any AccountContextProtocol), data: BrowserTabData.Data, unique: BrowserTabData.Unique, makeLinkManager:@escaping(BrowserTabData.Unique)->BrowserLinkManager?) -> Signal<WebpageModalController, RequestWebViewError> {
@@ -86,7 +93,7 @@ private func makeWebViewController(context: (any AccountContextProtocol), data: 
         settings = context.engine.data.get(TelegramEngine.EngineData.Item.Peer.BotAppSettings(id: bot.id)) |> deliverOnMainQueue |> castError(RequestWebViewError.self)
 
         
-        let disposable = combineLatest(signal, attach, settings).start(next: { values in
+        let disposable = (combineLatest(signal, attach, settings)).start(next: { values in
             let url = values.0.0
             let requestData = values.0.1
             let attach = values.1
@@ -101,7 +108,8 @@ private func makeWebViewController(context: (any AccountContextProtocol), data: 
                     thumbFile = MenuAnimation.menu_folder_bot.file
                 }
             }
-            subscriber.putNext(WebpageModalController(context: context, url: url, title: bot.displayTitle, requestData: requestData, thumbFile: thumbFile, fromMenu: true, hasSettings: hasSettings, browser: makeLinkManager(unique), settings: settings))
+            let controller = WebpageModalController(context: context, url: url, title: bot.displayTitle, requestData: requestData, thumbFile: thumbFile, fromMenu: true, hasSettings: hasSettings, browser: makeLinkManager(unique), settings: settings)
+            subscriber.putNext(controller)
 
             subscriber.putCompletion()
         }, error: { error in
@@ -110,6 +118,8 @@ private func makeWebViewController(context: (any AccountContextProtocol), data: 
         return disposable
     }
 }
+
+
 
 
 
@@ -129,14 +139,15 @@ private final class Arguments {
     public let setLoadingState:(BrowserTabData.Unique, BrowserTabData.LoadingState)->Void
     public let setExternalState:(BrowserTabData.Unique, WebpageModalState)->Void
     public let closeTab:(BrowserTabData.Unique?, Bool)->Void
+    public let removeTab:(BrowserTabData.Unique)->Void
     public let selectAtIndex:(Int)->Void
     public let makeLinkManager:(BrowserTabData.Unique)->BrowserLinkManager
     public let contextMenu:(BrowserTabData)->ContextMenu?
-    public let insertTab:(BrowserTabData.Data)->Void
+    public let insertTab:(BrowserTabData.Data, BrowserTabData.Unique?)->Void
     public let shake:(BrowserTabData.Unique)->Void
     public let getExternalState: (BrowserTabData.Unique)->WebpageModalState?
     public let updateFullscreen:(Bool)->Void
-    public init(context: (any AccountContextProtocol), add: @escaping(Control)->Void, close:@escaping()->Void, select:@escaping(BrowserTabData.Unique)->Void, setLoadingState:@escaping(BrowserTabData.Unique, BrowserTabData.LoadingState)->Void, setExternalState:@escaping(BrowserTabData.Unique, WebpageModalState)->Void, closeTab:@escaping(BrowserTabData.Unique?, Bool)->Void, selectAtIndex:@escaping(Int)->Void, makeLinkManager:@escaping(BrowserTabData.Unique)->BrowserLinkManager, contextMenu:@escaping(BrowserTabData)->ContextMenu?, insertTab:@escaping(BrowserTabData.Data)->Void, shake:@escaping(BrowserTabData.Unique)->Void, getExternalState: @escaping(BrowserTabData.Unique)->WebpageModalState?, updateFullscreen:@escaping(Bool)->Void) {
+    public init(context: (any AccountContextProtocol), add: @escaping(Control)->Void, close:@escaping()->Void, select:@escaping(BrowserTabData.Unique)->Void, setLoadingState:@escaping(BrowserTabData.Unique, BrowserTabData.LoadingState)->Void, setExternalState:@escaping(BrowserTabData.Unique, WebpageModalState)->Void, closeTab:@escaping(BrowserTabData.Unique?, Bool)->Void, removeTab:@escaping(BrowserTabData.Unique)->Void, selectAtIndex:@escaping(Int)->Void, makeLinkManager:@escaping(BrowserTabData.Unique)->BrowserLinkManager, contextMenu:@escaping(BrowserTabData)->ContextMenu?, insertTab:@escaping(BrowserTabData.Data, BrowserTabData.Unique?)->Void, shake:@escaping(BrowserTabData.Unique)->Void, getExternalState: @escaping(BrowserTabData.Unique)->WebpageModalState?, updateFullscreen:@escaping(Bool)->Void) {
         self.context = context
         self.add = add
         self.close = close
@@ -144,6 +155,7 @@ private final class Arguments {
         self.setLoadingState = setLoadingState
         self.setExternalState = setExternalState
         self.closeTab = closeTab
+        self.removeTab = removeTab
         self.selectAtIndex = selectAtIndex
         self.makeLinkManager = makeLinkManager
         self.contextMenu = contextMenu
@@ -386,6 +398,7 @@ private final class TabView: Control {
         }
         
         self.toolTip = item.external?.url
+        self.setAccessibilityLabel(item.titleText)
         
 
         if let enginePeer = item.peer {
@@ -419,6 +432,7 @@ private final class TabView: Control {
                 current.setFrameSize(20, 20)
                 current.isEventLess = true
                 current.layer?.cornerRadius = 4
+                current.isAccessibilityDecorative = true
                 self.iconView = current
                 addSubview(current)
                 current.animates = true
@@ -1184,6 +1198,14 @@ private final class BackOrClose : Control {
         }
         
         self.state = state
+        switch state {
+        case .back:
+            setAccessibilityLabel(strings().voiceOverCommonBack)
+        case .close:
+            setAccessibilityLabel(strings().voiceOverCommonClose)
+        case .none:
+            break
+        }
     }
     
     public override func layout() {
@@ -1198,6 +1220,7 @@ private final class MoreControl : Control {
     public required init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         addSubview(animationView)
+        setAccessibilityLabel(strings().voiceOverCommonMore)
         set(handler: { [weak self] _ in
             self?.animationView.set(self?.lottieAnimation?.withUpdatedPolicy(.onceEnd), reset: true)
         }, for: .Down)
@@ -1281,9 +1304,13 @@ private final class FullscreenControls : View {
         
         more.more.userInteractionEnabled = false
         more.more.isEventLess = true
+        more.more.isAccessibilityDecorative = true
+        more.setAccessibilityLabel(strings().voiceOverCommonMore)
         
         close.close.userInteractionEnabled = false
         close.close.isEventLess = true
+        close.close.isAccessibilityDecorative = true
+        close.setAccessibilityLabel(strings().voiceOverCommonClose)
 
         close.scaleOnClick = true
         more.scaleOnClick = true
@@ -1301,6 +1328,14 @@ private final class FullscreenControls : View {
     
     public func updateState(state: BackOrClose.State, animated: Bool) {
         self.close.close.updateState(state: state, animated: animated)
+        switch state {
+        case .back:
+            self.close.setAccessibilityLabel(strings().voiceOverCommonBack)
+        case .close:
+            self.close.setAccessibilityLabel(strings().voiceOverCommonClose)
+        case .none:
+            break
+        }
     }
     public func set(color: NSColor) {
         self.more.more.set(color: color)
@@ -1616,6 +1651,7 @@ private final class WebpageContainerController : GenericViewController<WebpageCo
     private let disposable = MetaDisposable()
     private let externalState = MetaDisposable()
 
+
     private var appeared: Bool = false
     
     public init(data: BrowserTabData, context: (any AccountContextProtocol), arguments: Arguments) {
@@ -1626,6 +1662,7 @@ private final class WebpageContainerController : GenericViewController<WebpageCo
         self.bar = .init(height: 0)
     }
     
+
     public func contextMenu() -> ContextMenu? {
         return self.controller?.contextMenu()
     }
@@ -1642,6 +1679,10 @@ private final class WebpageContainerController : GenericViewController<WebpageCo
         return controller?.add(tab) ?? false
     }
     
+    func cancelPendingPageActions() {
+        controller?.cancelPendingPageActions()
+    }
+
     deinit {
         disposable.dispose()
         externalState.dispose()
@@ -1667,7 +1708,7 @@ private final class WebpageContainerController : GenericViewController<WebpageCo
             arguments.setLoadingState(data.unique, .none)
         case .mainapp, .simple, .straight, .webapp:
             let signal = makeWebViewController(context: context, data: data.data, unique: data.unique, makeLinkManager: arguments.makeLinkManager) |> deliverOnMainQueue
-            disposable.set(signal.startStrict(next: { [weak self] controller in
+            disposable.set((signal).startStrict(next: { [weak self] controller in
                 guard let self else {
                     return
                 }
@@ -1719,7 +1760,7 @@ private final class WebpageContainerController : GenericViewController<WebpageCo
             controller.viewDidAppear(animated)
         }
         
-        externalState.set(controller.externalState.startStrict(next: { [weak self] state in
+        externalState.set((controller.externalState).startStrict(next: { [weak self] state in
             guard let self else {
                 return
             }
@@ -1752,7 +1793,7 @@ public final class BrowserLinkManager {
         arguments?.closeTab(unique, confirm)
     }
     public func open(_ tab: BrowserTabData.Data) {
-        arguments?.insertTab(tab)
+        arguments?.insertTab(tab, nil)
     }
     
     public func getExternal() -> WebpageModalState? {
@@ -1769,33 +1810,50 @@ public final class WebappBrowserController : ViewController {
     private var arguments: Arguments?
     
     private var initialTab: BrowserTabData.Data?
+    private var initialUniqueId: BrowserTabData.Unique?
     
     public private(set) var markAsDeinit: Bool = false
+    private var visibilityGeneration: UInt64 = 0
+    private var isHidden = true
     
     private let publicStateValue: Promise<[BrowserTabData]> = Promise()
     public var publicState:Signal<[BrowserTabData], NoError> {
         return publicStateValue.get()
     }
     
-    public init(context: (any AccountContextProtocol), initialTab: BrowserTabData.Data? = nil) {
+    public convenience init(context: (any AccountContextProtocol), initialTab: BrowserTabData.Data? = nil) {
+        self.init(context: context, initialTab: initialTab)
+    }
+
+
+    public init(context: any AccountContextProtocol, initialTab: BrowserTabData.Data?, initialUniqueId: BrowserTabData.Unique?) {
         self.context = context
         self.initialTab = initialTab
+        self.initialUniqueId = initialUniqueId
         super.init()
         bar = .init(height: 0)
         _window = WebappBrowser(parent: context.window)
     }
     
+
     public func add(_ tab: BrowserTabData.Data, uniqueId: BrowserTabData.Unique? = nil) {
-        if let uniqueId, let webpage = webpages[uniqueId] {
-            arguments?.select(uniqueId)
-            _ = webpage.add(tab)
-        } else {
-            arguments?.insertTab(tab)
+        do {
+            if let uniqueId, let webpage = webpages[uniqueId] {
+                arguments?.select(uniqueId)
+                _ = webpage.add(tab)
+            } else {
+                arguments?.insertTab(tab, uniqueId)
+            }
         }
     }
-    
+
     public func makeKeyAndOrderFront() {
-        browser.makeKeyAndOrderFront(nil)
+        guard !markAsDeinit, let browser = _window as? WebappBrowser else { return }
+        if isHidden {
+            show()
+        } else {
+            browser.makeKeyAndOrderFront(nil)
+        }
     }
     
     public func closeTab() {
@@ -1806,13 +1864,20 @@ public final class WebappBrowserController : ViewController {
         self.arguments?.closeTab(unique, false)
     }
     
+    func removeTab(_ unique: BrowserTabData.Unique) {
+        self.arguments?.removeTab(unique)
+    }
+
     private var browser: WebappBrowser {
         return _window! as! WebappBrowser
     }
     
     public func show() {
-                
+        guard !markAsDeinit, let browser = _window as? WebappBrowser else { return }
+        visibilityGeneration &+= 1
+        isHidden = false
         loadViewIfNeeded()
+        browser.removeAllHandlers(for: self)
         browser.contentView?.addSubview(self.view)
         browser.show()
         
@@ -1889,20 +1954,42 @@ public final class WebappBrowserController : ViewController {
     }
     
     public func hide(_ completion: @escaping()->Void, close: Bool = true) {
-        markAsDeinit = true
+        guard !markAsDeinit, let browser = _window as? WebappBrowser else {
+            completion()
+            return
+        }
+        markAsDeinit = close
+        isHidden = true
+        visibilityGeneration &+= 1
+        let generation = visibilityGeneration
         if close {
+            for page in Array(webpages.values) { page.cancelPendingPageActions() }
             closeAllModals(window: browser)
         }
         
         browser.removeAllHandlers(for: self)
         
-        self.browser.contentView?.layer?.animateAlpha(from: 1, to: 0, duration: 0.2, removeOnCompletion: false, completion: { [weak self] _ in
-            self?.browser.orderOut(nil)
-            if close {
-                self?._window = nil
+        var completed = false
+        let finish: () -> Void = { [weak self] in
+            guard !completed else { return }
+            completed = true
+            if let self {
+                guard self.visibilityGeneration == generation, self._window === browser else {
+                    completion()
+                    return
+                }
+                browser.orderOut(nil)
+                if close { self._window = nil }
+            } else {
+                browser.orderOut(nil)
             }
             completion()
-        })
+        }
+        if let layer = browser.contentView?.layer {
+            layer.animateAlpha(from: 1, to: 0, duration: 0.2, removeOnCompletion: false, completion: { _ in finish() })
+        } else {
+            finish()
+        }
     }
     
     
@@ -1935,9 +2022,9 @@ public final class WebappBrowserController : ViewController {
         
         var getArguments:(()->Arguments?)? = nil
         
-        let insertTab:(BrowserTabData.Data)->Void = { [weak self] data in
+        let insertTab:(BrowserTabData.Data, BrowserTabData.Unique?)->Void = { [weak self] data, uniqueId in
             
-            let unique = data.newUniqueId
+            let unique = uniqueId ?? data.newUniqueId
             
             let invoke:()->Void = {
                 
@@ -2081,36 +2168,55 @@ public final class WebappBrowserController : ViewController {
             BrowserStateContext.get(context).setExternalState(unique, external: state)
         }, closeTab: { [weak self] unique, checkAdmission in
             let unique = unique ?? stateValue.with { $0.selected?.unique }
-            let count = stateValue.with { $0.tabs.count }
             let data = stateValue.with { $0.tabs.first(where: { $0.unique == unique }) }
 
-            guard let unique, let data else {
+            guard self?.markAsDeinit == false, let unique, let data, let controller = self?.webpages[unique] else {
                 return
             }
-            let invoke:()->Void = {
-                
-                if count == 1, let window = self?.window, !hasModals(window) {
-                    if window.isFullScreen == true {
-                        window.toggleFullScreen(nil)
+            let decision = BrowserDecision()
+            let invoke: () -> Void = { [weak self, weak controller] in
+                decision.resolve {
+                    guard let self, !self.markAsDeinit, let controller, self.webpages[unique] === controller,
+                          stateValue.with({ $0.tabs.contains(where: { $0.unique == unique }) }) else {
+                        return
+                    }
+                    let count = stateValue.with { $0.tabs.count }
+                    if count == 1, let window = self.window, !hasModals(window) {
+                        if window.isFullScreen == true {
+                            window.toggleFullScreen(nil)
+                        } else if BrowserStateContext.get(context).browser === self {
+                            BrowserStateContext.get(context).hide()
+                        }
                     } else {
-                        BrowserStateContext.get(context).hide()
+                        controller.cancelPendingPageActions()
+                        updateState {
+                            $0.closeTab(unique)
+                        }
+                        self.webpages.removeValue(forKey: unique)
+                        BrowserStateContext.get(context).cancelJoinChatOperation(uniqueId: unique)
                     }
-                } else {
-                    updateState {
-                        $0.closeTab(unique)
-                    }
-                    self?.webpages.removeValue(forKey: unique)
                 }
             }
             let needAdmit = data.external?.needConfirmation ?? false
-            if needAdmit, checkAdmission, let window = self?.browser, window.isFullScreen == false {
+            if needAdmit, checkAdmission, let window = self?.window, window.isFullScreen == false {
                 verifyAlert_button(for: window, information: strings().webpageConfirmClose, ok: strings().webpageConfirmOk, successHandler: { _ in
-                   invoke()
+                    invoke()
+                }, cancelHandler: {
+                    decision.resolve {}
+                }, onDeinit: {
+                    decision.dismissed()
                 })
             } else {
                 invoke()
             }
-            
+        }, removeTab: { [weak self] unique in
+            guard let self, !self.markAsDeinit, let controller = self.webpages[unique] else { return }
+            controller.cancelPendingPageActions()
+            updateState { $0.closeTab(unique) }
+            self.webpages.removeValue(forKey: unique)
+            if stateValue.with({ $0.tabs.isEmpty }), BrowserStateContext.get(context).browser === self {
+                BrowserStateContext.get(context).hide(close: true, cancelJoinOperations: false)
+            }
         }, selectAtIndex: { index in
             updateState { current in
                 var current = current
@@ -2148,8 +2254,8 @@ public final class WebappBrowserController : ViewController {
                 return menu
             }
             return nil
-        }, insertTab: { data in
-            insertTab(data)
+        }, insertTab: { data, uniqueId in
+            insertTab(data, uniqueId)
         }, shake: { [weak self] unique in
             self?.tabs.shake(unique)
         }, getExternalState: { unique in
@@ -2211,7 +2317,9 @@ public final class WebappBrowserController : ViewController {
         }
         
         if let initialTab {
-            insertTab(initialTab)
+            insertTab(initialTab, initialUniqueId)
+            self.initialTab = nil
+            self.initialUniqueId = nil
         }
         
         publicStateValue.set(statePromise.get() |> map { $0.tabs })

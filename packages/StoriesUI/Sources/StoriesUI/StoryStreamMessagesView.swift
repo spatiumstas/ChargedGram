@@ -245,6 +245,25 @@ public final class StoryMessageItemRow : TableRowItem {
     public override func viewClass() -> AnyClass {
         return MessageItemView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return message.author?._asPeer().compactDisplayTitle
+    }
+
+    public override var accessibilityValue: String? {
+        var parts: [String] = []
+        if !message.text.isEmpty {
+            parts.append(message.text)
+        }
+        if let paidStars = message.paidStars {
+            parts.append("\(paidStars) " + strings().voiceOverCommonStars)
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: "\n")
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
     
     public override var height: CGFloat {
         var height: CGFloat = max(32, 10 + self.textLayout.layoutSize.height)
@@ -268,6 +287,7 @@ private final class MessageItemView: TableRowView {
             addSubview(textView)
             self.imageView.image = crown
             self.imageView.sizeToFit()
+            self.imageView.isAccessibilityDecorative = true
             textView.userInteractionEnabled = false
             textView.isSelectable = false
             setFrameSize(self.imageView.frame.size)
@@ -457,6 +477,7 @@ private final class MessageItemView: TableRowView {
                 current = view
             } else {
                 current = ImageView()
+                current.isAccessibilityDecorative = true
                 self.adminLiveView = current
                 dataView.addSubview(current)
             }
@@ -669,6 +690,27 @@ final class StoryMessageFixedItemRow : TableRowItem {
     override func viewClass() -> AnyClass {
         return FixedMessageItemView.self
     }
+
+    override var accessibilityLabel: String? {
+        return message.author?._asPeer().compactDisplayTitle
+    }
+
+    override var accessibilityValue: String? {
+        return "\(paidStars) " + strings().voiceOverCommonStars
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        arguments.focusMessage(message)
+        return true
+    }
     
     //WIDTH
     override var height: CGFloat {
@@ -718,6 +760,7 @@ private final class FixedMessageItemView: HorizontalRowView {
                 item.arguments.focusMessage(item.message)
             }
         }, for: .Click)
+        overlay.setAccessibilityLabel(strings().voiceOverCommonOpen)
         
         self.layer?.masksToBounds = false
         self.overlay.layer?.masksToBounds = false

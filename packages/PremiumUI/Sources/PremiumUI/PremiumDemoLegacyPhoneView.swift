@@ -35,6 +35,7 @@ public final class PremiumDemoLegacyPhoneView : View {
         addSubview(videoView)
         videoView.cornerRadius = 0
         addSubview(phoneView)
+        phoneView.isAccessibilityDecorative = true
         phoneView.sizeToFit()
     }
     

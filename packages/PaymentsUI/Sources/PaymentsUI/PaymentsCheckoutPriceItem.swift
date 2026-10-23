@@ -69,6 +69,14 @@ public final class PaymentsCheckoutPriceItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return PaymentsCheckoutPriceView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return priceLayout.attributedString.string
+    }
     
     public override var hasBorder: Bool {
         return false

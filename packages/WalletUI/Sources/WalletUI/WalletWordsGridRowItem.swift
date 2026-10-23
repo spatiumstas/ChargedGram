@@ -3,6 +3,7 @@ import TGUIKit
 import TelegramTheme
 import TelegramContext
 import GeneralRows
+import Localization
 
 public final class WalletWordsGridRowItem: GeneralRowItem {
 
@@ -99,6 +100,10 @@ public final class WalletWordsGridRowItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return WalletWordsGridRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return strings().walletWordsControllerPhraseTitle
+    }
 }
 
 private final class WalletWordsGridRowView: GeneralContainableRowView {
@@ -137,6 +142,7 @@ private final class WalletWordsGridRowView: GeneralContainableRowView {
             let wordView = TextView()
             wordView.userInteractionEnabled = false
             wordView.isSelectable = false
+            wordView.isAccessibilitySensitive = true
             addSubview(wordView)
             wordViews.append(wordView)
         }

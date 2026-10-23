@@ -217,6 +217,19 @@ public class ContextSearchMessageItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return ContextSearchMessageView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return displayTextLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        let parts = [messageLayout.attributedString.string, dateTextLayout?.attributedString.string].compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 private class ContextSearchMessageView : GeneralRowView {

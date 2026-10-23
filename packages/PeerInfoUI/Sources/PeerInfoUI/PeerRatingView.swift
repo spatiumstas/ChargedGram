@@ -32,9 +32,18 @@ public final class PeerRatingView : Control {
 
         addSubview(borderView)
         addSubview(backgroundView)
+        borderView.isAccessibilityDecorative = true
+        backgroundView.isAccessibilityDecorative = true
         
         self.scaleOnClick = true
 
+    }
+    
+    public override func accessibilityLabel() -> String? {
+        if data.level < 0 {
+            return strings().peerRatingPreviewNegative
+        }
+        return strings().peerRatingPreviewLevel(Int(data.level))
     }
     
     public required init?(coder: NSCoder) {

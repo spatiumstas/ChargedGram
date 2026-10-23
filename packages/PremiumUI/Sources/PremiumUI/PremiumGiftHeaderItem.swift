@@ -66,6 +66,14 @@ public final class PremiumGiftHeaderItem : GeneralRowItem {
         _ = makeSize(initialSize.width)
     }
     
+    public override var accessibilityLabel: String? {
+        return titleLayout?.attributedString.string ?? textLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return titleLayout != nil ? textLayout.attributedString.string : nil
+    }
+
     public override func makeSize(_ width: CGFloat, oldWidth: CGFloat = 0) -> Bool {
         _ = super.makeSize(width, oldWidth: oldWidth)
         

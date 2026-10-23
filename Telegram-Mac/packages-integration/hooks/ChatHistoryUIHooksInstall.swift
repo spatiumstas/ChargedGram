@@ -32,6 +32,23 @@ extension ForwardMessagesObject: @retroactive ChatHistoryForwardMessagesObject {
     public func chatHistoryPerform(to peerIds: [PeerId], threadId: Int64?) -> Signal<Never, String> {
         return self.perform(to: peerIds, threadId: threadId)
     }
+
+    public func chatHistoryPerformObserved(to peerId: PeerId, threadId: Int64?) -> Signal<ChatHistoryForwardResult, String> {
+        return self.performObserved(to: peerId, threadId: threadId) |> map { result in
+            switch result {
+            case .draftPrepared: return .draftPrepared
+            case .destinationReady: return .destinationReady
+            case .accepted: return .accepted
+            case .partiallyAccepted: return .partiallyAccepted
+            case .rejected: return .rejected
+            case .acceptanceUnknown: return .acceptanceUnknown
+            case .sourceUnavailable: return .sourceUnavailable
+            case .targetUnavailable: return .targetUnavailable
+            case .restricted: return .restricted
+            case .completionUnknown: return .completionUnknown
+            }
+        }
+    }
 }
 
 extension AntiSpamBotConfiguration: @retroactive ChatHistoryAntiSpamBotConfiguration {
@@ -246,7 +263,7 @@ private func makeChatHistoryRichTextHooks() -> Any? {
 }
 
 func installChatHistoryUIHooks() {
-    ChatHistoryUIHooks.install(ChatHistoryUIHooks(peerInfoLink: { link, peerId, action, openChat, postId, callback in
+    var hooks = ChatHistoryUIHooks(peerInfoLink: { link, peerId, action, openChat, postId, callback in
         return inAppLink.peerInfo(link: link, peerId: peerId, action: action, openChat: openChat, postId: postId, callback: callback)
     }, followResolvedNameLink: { link, username, postId, forceProfile, context, action, callback in
         return inAppLink.followResolvedName(link: link, username: username, postId: postId, forceProfile: forceProfile, context: context as! AccountContext, action: action, callback: callback)
@@ -379,7 +396,38 @@ func installChatHistoryUIHooks() {
         showCommunityView(context, communityId: communityId)
     }, emptyChatControllerType: {
         return EmptyChatViewController.self
-    }, wallet: makeChatHistoryWalletHooks(), richText: makeChatHistoryRichTextHooks()))
+    }, wallet: makeChatHistoryWalletHooks(), richText: makeChatHistoryRichTextHooks())
+    hooks.makeShareMessagesModalWithContext = { context, message, groupedMessages in
+        let controller = ShareModalController(ShareMessageObject(context.concrete, message, groupedMessages ?? []))
+        return controller
+    }
+    hooks.makeForwardMessagesObjectWithContext = { context, messages, album, getMessages in
+        return ForwardMessagesObject(context.concrete, messages: messages, album: album, getMessages: getMessages)
+    }
+    hooks.pushReactionPeerInfoWithContext = { navigation, context, peerId, messageId in
+        PeerInfoController.push(navigation: navigation, context: context.concrete, peerId: peerId, source: .reaction(messageId))
+    }
+    hooks.makeChannelParticipantControllerWithContext = { context, peerId, participant in
+        return ChannelParticipantController(context: context.concrete, peerId: peerId, participant: participant)
+    }
+    hooks.makeTranslateModalWithContext = { context, from, toLang, text, entities, source, onToneChanged, translateEntireChat in
+        switch source {
+        case let .richMessage(id, page):
+            return TranslateModalController(context: context.concrete, from: from, toLang: toLang, text: text, entities: entities, canBreak: true, messageId: id, isRichMessage: true, richMessagePage: page, dismissOnly: true, onToneChanged: onToneChanged, translateEntireChat: translateEntireChat)
+        case let .poll(id):
+            return TranslateModalController(context: context.concrete, from: from, toLang: toLang, text: text, entities: entities, canBreak: false, messageId: id, dismissOnly: true, onToneChanged: onToneChanged, translateEntireChat: translateEntireChat)
+        case let .message(id):
+            return TranslateModalController(context: context.concrete, from: from, toLang: toLang, text: text, entities: entities, messageId: id, dismissOnly: true, onToneChanged: onToneChanged, translateEntireChat: translateEntireChat)
+        case .selectedText:
+            return TranslateModalController(context: context.concrete, from: from, toLang: toLang, text: text, entities: entities, dismissOnly: true, onToneChanged: onToneChanged, translateEntireChat: translateEntireChat)
+        case let .transcription(id):
+            return TranslateModalController(context: context.concrete, from: from, toLang: toLang, text: text, messageId: id, dismissOnly: true, onToneChanged: onToneChanged, translateEntireChat: translateEntireChat)
+        }
+    }
+    hooks.executeLinkWithContext = { link in
+        execute(inapp: link as! inAppLink)
+    }
+    ChatHistoryUIHooks.install(hooks)
 }
 
 @available(macOS 10.15, *)

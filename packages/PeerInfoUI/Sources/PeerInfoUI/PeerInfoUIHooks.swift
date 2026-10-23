@@ -16,11 +16,36 @@ public protocol PeerInfoPremiumConfiguration {
 public struct PeerInfoWalletHooks {
     public let hasWallet: (any AccountContextProtocol) -> Bool
     public let sendMoney: (any AccountContextProtocol, Peer) -> Void
+    public let preloadPeerCard: (any AccountContextProtocol, WalletCard) -> Void
+    public let showPeerBalance: (any AccountContextProtocol, Peer, (() -> NSView?)?) -> Void
+
+    public var sendMoneyWithContext: ((any AccountContextProtocol, Peer) -> Void)?
+    public var showPeerBalanceWithContext: ((any AccountContextProtocol, Peer, (() -> NSView?)?) -> Void)?
+
+    public func sendMoneyObserved(_ context: any AccountContextProtocol, _ peer: Peer) {
+        if let sendMoneyWithContext {
+            sendMoneyWithContext(context, peer)
+        } else {
+            sendMoney(context, peer)
+        }
+    }
+
+    public func showPeerBalanceObserved(_ context: any AccountContextProtocol, _ peer: Peer, _ morphSource: (() -> NSView?)?) {
+        if let showPeerBalanceWithContext {
+            showPeerBalanceWithContext(context, peer, morphSource)
+        } else {
+            showPeerBalance(context, peer, morphSource)
+        }
+    }
 
     public init(hasWallet: @escaping (any AccountContextProtocol) -> Bool,
-                sendMoney: @escaping (any AccountContextProtocol, Peer) -> Void) {
+                sendMoney: @escaping (any AccountContextProtocol, Peer) -> Void,
+                preloadPeerCard: @escaping (any AccountContextProtocol, WalletCard) -> Void,
+                showPeerBalance: @escaping (any AccountContextProtocol, Peer, (() -> NSView?)?) -> Void) {
         self.hasWallet = hasWallet
         self.sendMoney = sendMoney
+        self.preloadPeerCard = preloadPeerCard
+        self.showPeerBalance = showPeerBalance
     }
 }
 
@@ -34,6 +59,14 @@ public struct PeerInfoUIHooks {
     public let showProfileMusicPlayerList: (any AccountContextProtocol, EnginePeer, TelegramMediaFile, ProfileSavedMusicContext.State, ProfileSavedMusicContext) -> Void
     public let executeNftLink: (String, String, any AccountContextProtocol) -> Void
     public let navigateToChat: (NavigationViewController?, any AccountContextProtocol, ChatLocation, ChatMode, ChatFocusTarget?, Atomic<ChatLocationContextHolder?>?) -> Void
+    public var navigateToChatWithContext: ((NavigationViewController?, any AccountContextProtocol, ChatLocation, ChatMode, ChatFocusTarget?, Atomic<ChatLocationContextHolder?>?) -> Void)?
+    public func navigateToChatObserved(_ navigation: NavigationViewController?, _ context: any AccountContextProtocol, _ location: ChatLocation, _ mode: ChatMode, _ focus: ChatFocusTarget?, _ holder: Atomic<ChatLocationContextHolder?>?) {
+        if let navigateToChatWithContext {
+            navigateToChatWithContext(navigation, context, location, mode, focus, holder)
+        } else {
+            navigateToChat(navigation, context, location, mode, focus, holder)
+        }
+    }
     public let wallet: Any?
 
     public init(freezeAlert: @escaping (any AccountContextProtocol) -> Void,

@@ -61,6 +61,23 @@ public final class SearchTopicRowItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return SearchTopicRowView.self
     }
+    
+    public override var accessibilityLabel: String? {
+        return nameLayout.attributedString.string
+    }
+    
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+    
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+    
+    public override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
+    }
 }
 
 private class SearchTopicRowView : TableRowView {
@@ -72,6 +89,7 @@ private class SearchTopicRowView : TableRowView {
     required init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         addSubview(containerView)
+        containerView.setAccessibilityLabel(strings().voiceOverCommonOpen)
         self.addSubview(nameView)
         nameView.userInteractionEnabled = false
         nameView.isSelectable = false

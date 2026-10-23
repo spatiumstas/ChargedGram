@@ -417,6 +417,10 @@ public final class ChatTodoItemView : ChatRowView {
         return NSPointInRect(point, NSMakeRect(0, contentNode.titleView.frame.minY, contentNode.frame.width, contentNode.titleView.frame.height))
     }
     
+    override var textSelectionSources: ChatTextSelectionSources {
+        return .views(selectableTextViews)
+    }
+
     public override var selectableTextViews: [TextView] {
         return [contentNode.titleView.textView]
     }
@@ -611,6 +615,7 @@ private final class TodoOptionView : Control {
                 
         if selectingView == nil {
             selectingView = ImageView(frame: NSMakeRect(0, 0, 22, 22))
+            selectingView?.isAccessibilityDecorative = true
             addSubview(selectingView!)
             if animated {
                 selectingView?.layer?.animateAlpha(from: 0, to: 1, duration: duration / 2)

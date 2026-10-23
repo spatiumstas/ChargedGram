@@ -7,7 +7,8 @@ import SwiftSignalKit
 import LocationUI
 
 func installLocationUIHooks() {
-    installLocationHooks(.init(confirmSend: { interaction, invoke in
+    let confirmSend: (any LocationChatInteraction, @escaping () -> Void) -> Void = { interaction, invoke in
+        let accountContext = interaction.locationContext
         guard let chatInteraction = interaction as? ChatInteraction else {
             invoke()
             return
@@ -51,6 +52,11 @@ func installLocationUIHooks() {
                 buyMore()
             }
         }
-    }))
+    }
+    var hooks = LocationHooks(confirmSend: { interaction, invoke in
+        confirmSend(interaction, invoke)
+    })
+    hooks.confirmSendWithContext = confirmSend
+    installLocationHooks(hooks)
 }
 

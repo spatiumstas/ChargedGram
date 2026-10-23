@@ -100,7 +100,11 @@ private final class MessageItemRow : TableRowItem {
     override func menuItems(in location: NSPoint) -> Signal<[ContextMenuItem], NoError> {
         return .single(arguments.contextMenuItems(self.message))
     }
-    
+
+    override var accessibilityLabel: String? {
+        return nameLayout.attributedString.string
+    }
+
     override func makeSize(_ width: CGFloat = CGFloat.greatestFiniteMagnitude, oldWidth: CGFloat = 0) -> Bool {
         _ = super.makeSize(width, oldWidth: oldWidth)
         self.textLayout.measure(width: 240)

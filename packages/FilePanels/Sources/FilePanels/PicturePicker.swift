@@ -4,9 +4,14 @@ import TelegramTheme
 import Quartz
 
 fileprivate class PickerObserver {
-    fileprivate var completion:(NSImage?) -> Void = {_ in}
+    fileprivate var completion: ((NSImage?) -> Void)?
     
     @objc fileprivate func validated(_ picker:IKPictureTaker, _ code:Int, _ contextInfo:Any?) {
+        guard let completion = self.completion else { return }
+        self.completion = nil
+        if activePicturePicker === self {
+            activePicturePicker = nil
+        }
         if code == NSApplication.ModalResponse.OK.rawValue {
             var image = picker.outputImage()
             if let img = image {
@@ -18,21 +23,30 @@ fileprivate class PickerObserver {
                 image = NSImage(cgImage: resized, size: size)
             }
             completion(image)
+        } else {
+            completion(nil)
         }
     }
 }
 
-private let observer:PickerObserver = {
-    let observer = PickerObserver()
-    return observer
-}()
+private var activePicturePicker: PickerObserver?
+
+
 public func pickImage(for window:Window, maxSize:NSSize = NSMakeSize(640, 640), fileFirst: Bool = false, completion:@escaping (NSImage?) -> Void) {
+    guard activePicturePicker == nil else {
+        completion(nil)
+        return
+    }
+    let observer = PickerObserver()
+    activePicturePicker = observer
     let taker:IKPictureTaker = IKPictureTaker.pictureTaker()
     taker.setValue(NSNumber(value: true), forKey: IKPictureTakerShowEffectsKey)
     taker.setValue(NSValue(size: maxSize), forKey: IKPictureTakerOutputImageMaxSizeKey)
     if fileFirst {
     }
-    observer.completion = completion
+    observer.completion = { image in
+        completion(image)
+    }
     
     if let window = NSApp.window(withWindowNumber: taker.windowNumber) {
         window.appearance = theme.appearance

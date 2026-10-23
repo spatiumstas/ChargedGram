@@ -15,6 +15,22 @@ public protocol LocationChatInteraction: AnyObject {
 public struct LocationHooks {
     public let confirmSend: (any LocationChatInteraction, @escaping () -> Void) -> Void
 
+    public var confirmSendWithContext: ((any LocationChatInteraction, @escaping () -> Void) -> Void)?
+
+    public func confirmSendObserved(_ interaction: any LocationChatInteraction, invoke: @escaping () -> Void) {
+        let context = interaction.locationContext
+        let confirmed = {
+            invoke()
+        }
+        if let confirmSendWithContext {
+            confirmSendWithContext(interaction, confirmed)
+        } else {
+            confirmSend(interaction) {
+                confirmed()
+            }
+        }
+    }
+
     public init(confirmSend: @escaping (any LocationChatInteraction, @escaping () -> Void) -> Void) {
         self.confirmSend = confirmSend
     }

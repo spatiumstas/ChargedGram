@@ -11,6 +11,7 @@ import PremiumStatusUI
 import TelegramCallsCore
 import TelegramTheme
 import TelegramUtils
+import Localization
 
 private var fakeIcon: CGImage {
     GroupCallScreenUIHooks.shared.generateFakeIconReversed(GroupCallTheme.customTheme.redColor, GroupCallTheme.customTheme.backgroundColor)
@@ -175,6 +176,43 @@ public final class GroupCallParticipantRowItem : GeneralRowItem {
     }
     public override var instantlyResize: Bool {
         return true
+    }
+
+    public override var accessibilityLabel: String? {
+        return data.peer.displayTitle
+    }
+
+    public override var accessibilityValue: String? {
+        var parts: [String] = [statusLayout.attributedString.string]
+        if data.isSpeaking, data.state?.muteState == nil, parts[0] != strings().voiceChatStatusSpeaking {
+            parts.append(strings().voiceChatStatusSpeaking)
+        }
+        if let muteState = data.state?.muteState, !muteState.mutedByYou {
+            parts.append(strings().voiceOverCommonMuted)
+        }
+        if let volume = volume {
+            parts.append(volume.attributedString.string)
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        if data.state == nil {
+            guard actionInteractionEnabled else {
+                return false
+            }
+            invite(data.peer.id)
+            return true
+        }
+        if isVertical {
+            focusVideo(baseEndpoint)
+            return true
+        }
+        return false
     }
     
     public override func makeSize(_ width: CGFloat, oldWidth: CGFloat = 0) -> Bool {
@@ -417,6 +455,7 @@ public final class VerticalContainerView : GeneralContainableRowView, GroupCallP
         nameContainer.addSubview(titleView)
         nameContainer.addSubview(imagesView)
         addSubview(statusView)
+        statusView.isAccessibilityDecorative = true
        
         addSubview(nameContainer)
         
@@ -823,6 +862,7 @@ private final class HorizontalContainerView : GeneralContainableRowView, GroupCa
             button.sizeToFit(.zero, NSMakeSize(28, 28), thatFit: true)
         }
         button.userInteractionEnabled = item.actionInteractionEnabled
+        button.setAccessibilityLabel(item.data.state == nil ? strings().voiceOverCommonInvite : strings().voiceOverCommonMore)
         button.isHidden = item.data.videoMode
         photoView.update(item.audioLevel, data: item.data, activityColor: item.activityColor, account: item.account, animated: animated)
 
@@ -835,6 +875,7 @@ private final class HorizontalContainerView : GeneralContainableRowView, GroupCa
         }
         while statusImageContainer.subviews.count < item.statusImage.count {
             let statusImageView = ImageView()
+            statusImageView.isAccessibilityDecorative = true
             statusImageContainer.addSubview(statusImageView)
         }
         

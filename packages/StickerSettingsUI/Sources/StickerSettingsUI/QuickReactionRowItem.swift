@@ -31,6 +31,22 @@ public final class QuickReactionRowItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return QuickReactionRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return strings().reactionSettingsQuickTitle
+    }
+
+    public override var accessibilityValue: String? {
+        switch reaction {
+        case let .builtin(value, _, _, _, _):
+            if case let .builtin(emoji) = value {
+                return emoji
+            }
+            return nil
+        default:
+            return nil
+        }
+    }
 }
 
 private final class QuickReactionRowView : GeneralContainableRowView {
@@ -43,6 +59,8 @@ private final class QuickReactionRowView : GeneralContainableRowView {
         addSubview(control)
         addSubview(textView)
         addSubview(imageView)
+        control.setAccessibilityLabel(strings().voiceOverCommonReactions)
+        imageView.isAccessibilityDecorative = true
         textView.userInteractionEnabled = false
         textView.isSelectable = false
         

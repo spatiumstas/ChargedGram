@@ -7,6 +7,7 @@ import TelegramCore
 import TelegramContext
 import TelegramUtils
 import TelegramTheme
+import Localization
 
 public class ContextAccountMenuItem : ContextMenuItem {
 
@@ -35,9 +36,11 @@ public class ContextAccountMenuItem : ContextMenuItem {
 
 private final class ContextAccountMenuRowItem : AppMenuRowItem {
     let badge: GlobalBadgeNode?
+    private let peerTitle: String
     private let disposable = MetaDisposable()
     init(_ initialSize: NSSize, item: ContextMenuItem, interaction: AppMenuBasicItem.Interaction, presentation: AppMenu.Presentation, account: AccountWithInfo, badge: GlobalBadgeNode?) {
         self.badge = badge
+        self.peerTitle = account.peer.displayTitle
         badge?.customLayout = true
 
         item.image = NSImage(size: NSMakeSize(18, 18))
@@ -67,6 +70,17 @@ private final class ContextAccountMenuRowItem : AppMenuRowItem {
 
     override func viewClass() -> AnyClass {
         return ContextAccountMenuRowView.self
+    }
+
+    override var accessibilityLabel: String? {
+        return peerTitle.isEmpty ? super.accessibilityLabel : peerTitle
+    }
+
+    override var accessibilityValue: String? {
+        if let badge = badge, badge.unreadCount > 0 {
+            return strings().voiceOverChatUnreadMessagesOther(Int(badge.unreadCount))
+        }
+        return super.accessibilityValue
     }
 }
 

@@ -36,6 +36,10 @@ final class ForumNameRowItem : InputDataRowItem {
     override func viewClass() -> AnyClass {
         return ForumNameRowItemView.self
     }
+
+    override var accessibilityLabel: String? {
+        return strings().forumTopicNamePlaceholder
+    }
 }
 
 

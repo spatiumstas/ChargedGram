@@ -1,5 +1,6 @@
 import Foundation
 import TGUIKit
+import ColorPalette
 import ComponentsUI
 import SwiftSignalKit
 import Postbox
@@ -83,6 +84,7 @@ private struct State : Equatable {
         var request: String
         var nextOffset: String?
         var items: [Entry]
+        var isLoading: Bool = true
     }
     
     var tabs:[TabEntryId] = []
@@ -144,17 +146,21 @@ private func packEntries(_ state: State, arguments: Arguments, presentation: Tel
         let tuple = Tuple(tab: tab, selected: tab == state.tab)
         
         let source: GifKeyboardTabRowItem.Source
+        let title: String?
         switch tab {
         case .recent:
             source = .icon(tuple.selected ? theme.icons.gif_recent_active : theme.icons.gif_recent)
+            title = strings().emojiRecent
         case .trending:
             source = .icon(tuple.selected ? theme.icons.gif_trending_active : theme.icons.gif_trending)
+            title = strings().gifsPaneTrending
         case let .recommended(file):
             source = .file(file)
+            title = nil
         }
         
         entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: _id_tab(tuple.tab.stableId), equatable: InputDataEquatable(tuple), comparable: nil, item: { initialSize, stableId in
-            return GifKeyboardTabRowItem(initialSize, stableId: stableId, selected: tuple.selected, context: arguments.context, source: source, select: {
+            return GifKeyboardTabRowItem(initialSize, stableId: stableId, selected: tuple.selected, context: arguments.context, source: source, title: title, select: {
                 arguments.selectTab(tab)
             }, theme: presentation)
         }))
@@ -235,9 +241,21 @@ public final class GifKeyboardView : View {
     public let searchView = SearchView(frame: .zero)
     private let searchContainer = View()
     private let searchBorder = View()
+    private let searchBackdrop = View()
+    private let searchStatusView = PanelSearchStatusView(frame: .zero)
+    private var searchStatus: PanelSearchPresentation = .hidden
 
     
     public var presentation: TelegramPresentationTheme?
+
+    public var isGlass: Bool = false {
+        didSet {
+            if oldValue != isGlass {
+                updateLocalizationAndTheme(theme: presentation ?? theme)
+                needsLayout = true
+            }
+        }
+    }
     
     public required init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -251,6 +269,7 @@ public final class GifKeyboardView : View {
         }
         addSubview(self.tableView)
 
+        searchContainer.addSubview(searchBackdrop)
         searchContainer.addSubview(searchView)
         searchContainer.addSubview(searchBorder)
         addSubview(searchContainer)
@@ -258,6 +277,7 @@ public final class GifKeyboardView : View {
         tabs.addSubview(self.packsView)
         addSubview(self.borderView)
         addSubview(tabs)
+        addSubview(searchStatusView)
         
         
         
@@ -315,24 +335,42 @@ public final class GifKeyboardView : View {
         
         transition.updateFrame(view: tableView, frame: NSMakeRect(0, tabs.frame.maxY, size.width, size.height))
 
+        transition.updateFrame(view: searchStatusView, frame: NSMakeRect(0, searchContainer.frame.maxY, size.width, max(0, size.height - searchContainer.frame.maxY - 56)))
+
         if let restrictedView = restrictedView {
             transition.updateFrame(view: restrictedView, frame: size.bounds)
         }
 
         let alpha: CGFloat = searchState?.state == .Focus && tableView.documentOffset.y > 0 ? 1 : 0
         transition.updateAlpha(view: searchBorder, alpha: alpha)
-                
+        transition.updateFrame(view: searchBackdrop, frame: searchContainer.bounds)
+        if isGlass {
+            transition.updateAlpha(view: searchBackdrop, alpha: alpha)
+            let hidden = searchState?.state == .Focus ? 0 : searchDest / 46
+            transition.updateAlpha(view: searchContainer, alpha: 1 - hidden)
+        } else {
+            transition.updateAlpha(view: searchContainer, alpha: 1)
+        }
     }
     
     public override func updateLocalizationAndTheme(theme: PresentationTheme) {
         super.updateLocalizationAndTheme(theme: theme)
-        self.backgroundColor = theme.colors.background
-        borderView.backgroundColor = theme.colors.border
-        tabs.backgroundColor = theme.colors.background
-        searchContainer.backgroundColor = theme.colors.background
-        searchBorder.backgroundColor = theme.colors.border
+        let border: NSColor = isGlass ? theme.colors.grayIcon.withAlphaComponent(0.1) : theme.colors.border
+        self.backgroundColor = isGlass ? .clear : theme.colors.background
+        searchStatusView.updateSearchStatus(searchStatus, kind: .gifs, query: searchView.query, theme: presentation ?? (theme as! TelegramPresentationTheme))
+        borderView.backgroundColor = border
+        tabs.backgroundColor = isGlass ? .clear : theme.colors.background
+        searchContainer.backgroundColor = isGlass ? .clear : theme.colors.background
+        searchBorder.backgroundColor = border
+        searchBackdrop.backgroundColor = theme.colors.background.withAlphaComponent(0.85)
+        searchBackdrop.isHidden = !isGlass
         self.searchView.updateLocalizationAndTheme(theme: theme)
-        self.searchView.searchTheme = theme.search
+        if isGlass {
+            let searchBackground = theme.colors.vibrant.mixedWith(NSColor(0x000000), alpha: 0.1)
+            self.searchView.searchTheme = SearchTheme(searchBackground, theme.search.searchImage, theme.search.clearImage, theme.search.placeholder, theme.search.textColor, theme.search.placeholderColor)
+        } else {
+            self.searchView.searchTheme = theme.search
+        }
     }
     
     public required init?(coder: NSCoder) {
@@ -352,7 +390,9 @@ public final class GifKeyboardView : View {
         self.updateLayout(self.frame.size, transition: transition)
     }
     
-    public func update(sections: TableUpdateTransition, packs: TableUpdateTransition) {
+    func update(sections: TableUpdateTransition, packs: TableUpdateTransition, searchStatus: PanelSearchPresentation) {
+        self.searchStatus = searchStatus
+        searchStatusView.updateSearchStatus(searchStatus, kind: .gifs, query: searchView.query, theme: presentation ?? theme)
         self.tableView.merge(with: sections)
         self.packsView.merge(with: packs)
     }
@@ -395,8 +435,9 @@ public final class GifKeyboardController<Context: AccountContextProtocol> : Tele
 
     
     private func updateSearchState(_ state: SearchState) {
+        let changed = self.searchState.request.trimmingCharacters(in: .whitespacesAndNewlines) != state.request.trimmingCharacters(in: .whitespacesAndNewlines)
         self.searchState = state
-        if !state.request.isEmpty {
+        if changed && !state.request.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             self.makeSearchCommand?(.loading)
         }
         if self.isLoaded() == true {
@@ -461,60 +502,68 @@ public final class GifKeyboardController<Context: AccountContextProtocol> : Tele
         let updateSearchCommand:()->Void = { [weak self] in
             self?.makeSearchCommand?(.normal)
         }
+        var searchRequests = PanelSearchRequestTracker<AnyHashable>()
         let makeSearch:(State.TabEntryId?, String, String)->Void = { tab, query, nextOffset in
-            let searchSignal = context.engine.stickers.searchGifs(query: query, nextOffset: nextOffset)
-            
             let stableId: AnyHashable = tab?.stableId ?? State.Search.stableId
-
-            disposableDict.set(searchSignal.start(next: { result in
-                
-                let values = result?.results ?? []
-                var entries:[State.Entry] = []
-                for value in values {
-                    entries.append(.init(collection: nil, row: value))
+            if tab != nil && nextOffset.isEmpty && stateValue.with({ $0.entries[stableId] == nil }) {
+                searchRequests.clearCompleted(stableId)
+            }
+            guard let request = searchRequests.begin(key: stableId, query: query, offset: nextOffset) else { return }
+            var searchSignal = context.engine.stickers.searchGifs(query: query, nextOffset: nextOffset)
+            if tab == nil && nextOffset.isEmpty {
+                searchSignal = searchSignal |> delay(0.2, queue: .mainQueue())
+            }
+            let applyResult: (ChatContextResultCollection?) -> Void = { result in
+                guard let completion = searchRequests.finish(request, nextOffset: result?.nextOffset) else { return }
+                let entries = (result?.results ?? []).map { State.Entry(collection: nil, row: $0) }
+                let id: (State.Entry) -> AnyHashable = { entry in
+                    if case let .internalReference(value) = entry.row, let file = value.file {
+                        return AnyHashable(file.fileId)
+                    }
+                    return AnyHashable(entry.row.id)
                 }
                 updateState { current in
                     var current = current
                     if tab == nil {
-                        let items = current.search?.items ?? []
-                        current.search?.items = items + entries
-                        current.search?.nextOffset = nextOffset
+                        guard var search = current.search, search.request == query else { return current }
+                        search.items = panelSearchAppendingUnique(search.items, entries, id: id)
+                        search.nextOffset = completion.nextOffset
+                        search.isLoading = false
+                        current.search = search
                     } else {
                         var state = current.entries[stableId] ?? .init(items: [], nextOffset: nil)
-                        state.items = state.items + entries
-                        state.nextOffset = result?.nextOffset
+                        state.items = panelSearchAppendingUnique(state.items, entries, id: id)
+                        state.nextOffset = completion.nextOffset
                         current.entries[stableId] = state
                     }
                     return current
                 }
-                DispatchQueue.main.async {
+                if tab == nil {
                     updateSearchCommand()
                 }
+            }
+            disposableDict.set((searchSignal |> take(1) |> deliverOnMainQueue).start(next: applyResult, completed: {
+                applyResult(nil)
             }), forKey: stableId)
         }
-        
+
         let updateSearchState:(SearchState)->Void = { searchState in
-            switch searchState.state {
-            case .Focus:
-                updateState { current in
-                    var current = current
-                    if !searchState.request.isEmpty {
-                        current.search = .init(request: searchState.request, nextOffset: "", items: [])
-                    } else {
-                        current.search = nil
-                    }
-                    return current
-                }
-                makeSearch(nil, searchState.request, "")
-            case .None:
-                updateState { current in
-                    var current = current
-                    current.search = nil
-                    return current
-                }
+            let query = searchState.state == .Focus ? searchState.request.trimmingCharacters(in: .whitespacesAndNewlines) : ""
+            guard stateValue.with({ $0.search?.request ?? "" }) != query else { return }
+            searchRequests.reset(State.Search.stableId)
+            disposableDict.set(nil, forKey: State.Search.stableId)
+            updateState { current in
+                var current = current
+                current.search = query.isEmpty ? nil : .init(request: query, nextOffset: nil, items: [])
+                return current
+            }
+            if query.isEmpty {
+                updateSearchCommand()
+            } else {
+                makeSearch(nil, query, "")
             }
         }
-        
+
         let searchInteractions = SearchInteractions({ [weak self] state, _ in
             self?.updateSearchState(state)
             updateSearchState(state)
@@ -681,7 +730,7 @@ public final class GifKeyboardController<Context: AccountContextProtocol> : Tele
         
         
         self.disposable.set(transition.start(next: { [weak self] sections, packs, state in
-            self?.genericView.update(sections: sections, packs: packs)
+            self?.genericView.update(sections: sections, packs: packs, searchStatus: .resolve(isSearching: state.search != nil, isLoading: state.search?.isLoading ?? false, hasResults: !(state.search?.items.isEmpty ?? true)))
             self?.readyOnce()
         }))
         
@@ -746,8 +795,10 @@ public final class GifKeyboardController<Context: AccountContextProtocol> : Tele
             switch position.direction {
             case .bottom:
                 let state = stateValue.with { $0 }
-                if let search = state.search, let nextOffset = search.nextOffset {
-                    makeSearch(nil, search.request, nextOffset)
+                if let search = state.search {
+                    if let nextOffset = search.nextOffset {
+                        makeSearch(nil, search.request, nextOffset)
+                    }
                 } else {
                     if let value = state.entries[state.tab.stableId], let nextOffset = value.nextOffset {
                         if let search = state.tab.search {

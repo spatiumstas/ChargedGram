@@ -175,6 +175,9 @@ final class ChatWalletTransferAnimation {
     }
 
     func arrivalRise(_ message: Message) -> Bool? {
+        guard self.chatInteraction?.mode != .preview else {
+            return nil
+        }
         let rise = message.timestamp >= self.openTimestamp
         let isUnread = self.openReadStates?[message.id.peerId].map { !$0.isIncomingMessageIndexRead(message.index) } ?? false
         guard !self.seenArrivals.contains(message.id), message.flags.contains(.Incoming), isUnread || rise else {

@@ -8,6 +8,7 @@ import TelegramTheme
 import TelegramUtils
 import GeneralRows
 import InlineMediaGrid
+import Localization
 
 public final class StoryMonthRowItem : GeneralRowItem {
     private var contentHeight: CGFloat = 0
@@ -56,6 +57,22 @@ public final class StoryMonthRowItem : GeneralRowItem {
         return super.menuItems(in: location)
     }
     
+    public override var accessibilityLabel: String? {
+        return strings().voiceOverCommonStories
+    }
+
+    public override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        return layoutItems.map { layoutItem in
+            let peerId = layoutItem.peerId
+            let storyId = layoutItem.item.storyItem.id
+            let name = strings().voiceOverCommonStory + ", " + stringForFullDate(timestamp: layoutItem.item.storyItem.timestamp)
+            return NSAccessibilityCustomAction(name: name, handler: { [weak self] in
+                self?.openPeerStory(peerId: peerId, storyId: storyId)
+                return true
+            })
+        }
+    }
+
     public func openPeerStory(peerId: PeerId, storyId: Int32) {
         let table = self.table
         self.openStory(.init(peerId: peerId, id: storyId, messageId: nil, takeControl: { [weak table] peerId, _, storyId in
@@ -180,6 +197,13 @@ public final class StoryMonthRowItem : GeneralRowItem {
             }
             let corners = ImageCorners(topLeft: topLeft, topRight: topRight, bottomLeft: bottomLeft, bottomRight: bottomRight)
             
+            let peerId = item.id.peerId
+            let peerReference = item.peer.flatMap { peer -> PeerReference? in
+                guard peer.id == peerId else {
+                    return nil
+                }
+                return PeerReference(peer._asPeer())
+            } ?? self.peerReference
             let cell = StoryCellLayoutItem(item: item, peerReference: peerReference, peerId: peerId, frame: CGRect(origin: point.offsetBy(dx: 0, dy: -itemSize.height), size: itemSize), viewType: viewType, corners: corners, context: context, isPinned: self.pinnedIds.contains(item.storyItem.id))
             
             self.layoutItems.append(cell)

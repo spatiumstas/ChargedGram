@@ -90,6 +90,30 @@ public class PeerMediaFileRowItem: PeerMediaRowItem {
     public override func viewClass() -> AnyClass {
         return PeerMediaFileRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return nameLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return actionLayout.attributedString.string
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        if interface.presentation.state == .selecting {
+            interface.update({ $0.withToggledSelectedMessage(message.id) })
+            return true
+        }
+        guard let view = view as? PeerMediaFileRowView else {
+            return false
+        }
+        view.executeInteraction(true)
+        return true
+    }
 }
 
 public class PeerMediaFileRowView : PeerMediaRowView {

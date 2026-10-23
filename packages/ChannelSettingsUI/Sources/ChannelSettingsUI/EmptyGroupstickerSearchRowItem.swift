@@ -19,6 +19,14 @@ class EmptyGroupstickerSearchRowItem: GeneralRowItem {
     override func viewClass() -> AnyClass {
         return EmptyGroupstickerSearchRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return packType == .stickers ? strings().groupStickersEmptyHeader : strings().groupStickersEmptyHeaderEmoji
+    }
+
+    override var accessibilityValue: String? {
+        return packType == .stickers ? strings().groupStickersEmptyDesc : strings().groupStickersEmptyDescEmoji
+    }
 }
 
 
@@ -33,6 +41,7 @@ private class EmptyGroupstickerSearchRowView : TableRowView {
         containerView.addSubview(headerView)
         containerView.addSubview(descView)
         addSubview(containerView)
+        imageView.isAccessibilityDecorative = true
     }
     
     override func set(item: TableRowItem, animated: Bool) {

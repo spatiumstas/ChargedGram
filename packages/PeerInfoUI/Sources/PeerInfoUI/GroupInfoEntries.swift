@@ -1802,7 +1802,9 @@ enum GroupInfoEntry<Context: AccountContextProtocol>: PeerInfoEntry {
                 showModal(with: ShareModalController(ShareLinkObject(arguments.context, link: link)), for: arguments.context.window)
             }, selectFullWord: true, _copyToClipboard: {
                 arguments.copy(link)
-            }, linkInteractions: interactions)
+            }, linkInteractions: interactions, qrCode: { control in
+                arguments.openQrStudio(from: control)
+            })
         case let .peerId(_, value, viewType):
             return  TextAndLabelItem(initialSize, stableId: stableId.hashValue, label: "PEER ID", copyMenuText: strings().textCopyText, text: value, context: arguments.context, viewType: viewType, canCopy: true, _copyToClipboard: {
                 arguments.copy(value)

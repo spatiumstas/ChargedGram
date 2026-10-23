@@ -109,6 +109,8 @@ final class StoryLiveStreamInputView : Control, StoryInput {
         }
         self.toggle.isHidden = state.inputInFocus || state.mediaCall?.messages?.messages.isEmpty == true
         self.toggle.set(image: image, for: .Normal)
+        self.toggle.setAccessibilityLabel(state.lastHideMessageId != nil ? strings().voiceOverCommonShow : strings().voiceOverCommonHide)
+        self.toggle.setAccessibilityValue(image == toggle_image_up_unread ? strings().voiceOverCommonUnread : nil)
         self.likeAction.isHidden = state.input.inputText.isEmpty
         
         if var sendAs = state.mediaCall?.state?.sendAs, !sendAs.isEmpty {

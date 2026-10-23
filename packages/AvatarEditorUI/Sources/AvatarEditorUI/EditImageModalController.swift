@@ -64,8 +64,20 @@ private final class EditImageView : View {
             self.update = update
             super.init(frame: image.rect.insetBy(dx: -13, dy: -13))
             imageView.frame = image.rect.size.bounds
+            imageView.isAccessibilityDecorative = true
             addSubview(imageView)
             addSubview(controls)
+            
+            let resizeLabel = strings().voiceOverCommonResize
+            topLeft.setAccessibilityLabel(resizeLabel)
+            topRight.setAccessibilityLabel(resizeLabel)
+            bottomRight.setAccessibilityLabel(resizeLabel)
+            bottomLeft.setAccessibilityLabel(resizeLabel)
+            bottomMiddle.setAccessibilityLabel(resizeLabel)
+            topMiddle.setAccessibilityLabel(resizeLabel)
+            leftMiddle.setAccessibilityLabel(resizeLabel)
+            rightMiddle.setAccessibilityLabel(resizeLabel)
+            mover.setAccessibilityLabel(strings().voiceOverCommonPhoto)
             
             controls.addSubview(topLeft)
             controls.addSubview(topRight)
@@ -429,6 +441,7 @@ private final class EditImageView : View {
     private var currentData: EditedImageData?
     private let fakeCorners: (topLeft: ImageView, topRight: ImageView, bottomLeft: ImageView, bottomRight: ImageView)
     private var canReset: Bool = false
+    private var elementsHidden = false
     
     var updateImage:((AnyHashable, NSRect, Bool)->Void)? = nil
     var bringImageToFront:((AnyHashable)->Void)? = nil
@@ -461,6 +474,7 @@ private final class EditImageView : View {
         
         imageView.wantsLayer = true
         imageView.image = image
+        imageView.setAccessibilityLabel(strings().voiceOverCommonPhoto)
         addSubview(imageContainer)
         imageContainer.addSubview(imageView)
         imageView.addSubview(selectionRectView)
@@ -484,6 +498,7 @@ private final class EditImageView : View {
         didSet {
             oldValue?.removeFromSuperview()
             if let controls = controls {
+                controls.isHidden = elementsHidden
                 addSubview(controls)
             }
         }
@@ -515,7 +530,7 @@ private final class EditImageView : View {
             selectionRectView.applyRect(imageView.bounds, dimensions: value.dimensions)
         }
         self.canReset = canReset
-        self.reset.isHidden = !canReset
+        self.reset.isHidden = elementsHidden || !canReset
         self.reset.removeAllHandlers()
         self.reset.set(handler: { _ in
             reset()
@@ -619,8 +634,10 @@ private final class EditImageView : View {
     }
     
     func hideElements(_ hide: Bool) {
+        elementsHidden = hide
         imageContainer.isHidden = hide
         reset.isHidden = hide || !canReset
+        controls?.isHidden = hide
     }
     
     func contentSize(maxSize: NSSize) -> NSSize {
@@ -683,35 +700,46 @@ private func rotatedCanvasSize(canvasSize: NSSize, angle: CGFloat) -> NSSize {
 }
 
 
+private func paintingTransformAngle(_ data: EditedImageData, restore: Bool) -> CGFloat {
+    var angle: CGFloat = 0
+    if let orientation = data.orientation {
+        switch orientation {
+        case .up:
+            angle = 0
+        case .down:
+            angle = restore ? -180 : 180
+        case .left:
+            if restore {
+                angle = data.isHorizontalFlipped ? 270 : 90
+            } else {
+                angle = -90
+            }
+        case .right:
+            if restore {
+                angle = data.isHorizontalFlipped ? -270 : -90
+            } else {
+                angle = 90
+            }
+        default:
+            break
+        }
+    }
+    return angle
+}
+
+extension EditImageCanvasEntity {
+    func transform(_ data: EditedImageData, restore: Bool = false) -> EditImageCanvasEntity {
+        return self.transformed(angle: paintingTransformAngle(data, restore: restore), flipped: data.isHorizontalFlipped)
+    }
+}
+
 extension EditImageDrawTouch {
     func transform(_ data: EditedImageData, restore: Bool = false) -> EditImageDrawTouch {
         var lines = self.lines
         var canvasSize = self.canvasSize
         
         let originalCanvasSize = canvasSize
-        var angle: CGFloat = 0
-        if let orientation = data.orientation {
-            switch orientation {
-            case .up:
-                angle = 0
-            case .down:
-                angle = restore ? -180 : 180
-            case .left:
-                if restore {
-                    angle = data.isHorizontalFlipped ? 270 : 90
-                } else {
-                    angle = -90
-                }
-            case .right:
-                if restore {
-                    angle = data.isHorizontalFlipped ? -270 : -90
-                } else {
-                    angle = 90
-                }
-            default:
-                break
-            }
-        }
+        let angle = paintingTransformAngle(data, restore: restore)
         
         let flip = restore ? data.isHorizontalFlipped : data.isHorizontalFlipped
         
@@ -738,14 +766,17 @@ public class EditImageModalController: ModalViewController {
     private let pasteDisposable = MetaDisposable()
     private let closedDisposable = DisposableSet()
     private let context: any AccountContextProtocol
+    private let canCutOut: Bool
     
     public var onClose: () -> Void = {}
+    public var onCancelled: (() -> Void)?
     private let confirm: ((Signal<URL, NoError>, @escaping()->Void)->Void)?
     
-    public init?(_ path: URL, context: any AccountContextProtocol, defaultData: EditedImageData? = nil, settings: EditControllerSettings = .plain, doneString: String? = nil, confirm: ((Signal<URL, NoError>, @escaping()->Void)->Void)? = nil) {
+    public init?(_ path: URL, context: any AccountContextProtocol, defaultData: EditedImageData? = nil, settings: EditControllerSettings = .plain, doneString: String? = nil, confirm: ((Signal<URL, NoError>, @escaping()->Void)->Void)? = nil, canCutOut: Bool = false) {
         self.canReset = defaultData != nil
         self.context = context
         self.confirm = confirm
+        self.canCutOut = canCutOut
         self.doneString = doneString
         let initial = EditedImageData(originalUrl: path, selectedRect: .zero, dimensions: .none, isHorizontalFlipped: false, paintings: [], images: [])
         editState = Atomic(value: defaultData ?? initial)
@@ -763,6 +794,10 @@ public class EditImageModalController: ModalViewController {
     
     
     public override func close(animationType: ModalAnimationCloseBehaviour = .common) {
+        guard !hasClosed else { return }
+        hasClosed = true
+        markAsClosed = true
+        onCancelled = nil
         super.close(animationType: animationType)
         
         onClose()
@@ -788,6 +823,21 @@ public class EditImageModalController: ModalViewController {
     }
     
     private var markAsClosed: Bool = false
+    private var hasClosed = false
+
+    private func cancelEditing() {
+        guard !hasClosed else { return }
+        let onCancelled = !markAsClosed ? self.onCancelled : nil
+        self.onCancelled = nil
+        markAsClosed = true
+        onCancelled?()
+        close()
+    }
+
+    public override func escapeKeyAction() -> KeyHandlerResult {
+        cancelEditing()
+        return .invoked
+    }
     
     public override func returnKeyAction() -> KeyHandlerResult {
         
@@ -800,13 +850,13 @@ public class EditImageModalController: ModalViewController {
         promise.set(dataSignal)
         
         let invoke = { [weak self] in
-            guard let `self` = self else {
+            guard let `self` = self, !self.markAsClosed else {
                 return
             }
+            self.markAsClosed = true
             self.resultValue.set(promise.get())
             
             let signal = self.resultValue.get() |> take(1) |> deliverOnMainQueue |> delay(0.1, queue: .mainQueue())
-            self.markAsClosed = true
             _ = signal.start(next: { [weak self] _ in
                 self?.close()
             })
@@ -899,7 +949,6 @@ public class EditImageModalController: ModalViewController {
             return
         }
         genericView.hideElements(true)
-        
         _ = (self.editValue.get() |> take(1)).startStandalone(next: { [weak self] data in
             guard let self else {
                 return
@@ -907,13 +956,14 @@ public class EditImageModalController: ModalViewController {
             let main = self.image
             let image = data.makeImage(main, interface: true, applyPainting: false)
             
-            var paintings = editState.with { $0.paintings }
-            
-            paintings = paintings.map {
+            let paintings = editState.with { $0.paintings }.map {
+                $0.transform(data, restore: true)
+            }
+            let entities = editState.with { $0.entities }.map {
                 $0.transform(data, restore: true)
             }
             
-            showModal(with: EditImageCanvasController(image: image, actions: paintings, updatedImage: { [weak self] paintings in
+            let editor = EditImageCanvasController(image: image, actions: paintings, entities: entities, context: self.context, updatedImage: { [weak self] paintings, entities in
                 
                 guard let self else {
                     return
@@ -922,18 +972,55 @@ public class EditImageModalController: ModalViewController {
                 let paintings = paintings.map {
                     $0.transform(data)
                 }
+                let entities = entities.map {
+                    $0.transform(data)
+                }
                 
                 self.updateValue { current in
                     var current = current
                     current.paintings = paintings
+                    current.entities = entities
                     return current
                 }
             }, closeHandler: { [weak self] in
                 self?.genericView.hideElements(false)
-            }), for: window, animated: false, animationType: .alpha)
+            })
+            showModal(with: editor, for: window, animated: false, animationType: .alpha)
         })
         
         
+    }
+    
+    @available(macOS 14.0, *)
+    private func loadCutout() {
+        guard let window = self.window, !markAsClosed else {
+            return
+        }
+        let data = editState.with { $0 }
+        guard let image = data.makeImage(self.image, interface: false).cropping(to: genericView.selectedRect) else {
+            return
+        }
+        genericView.hideElements(true)
+        let editor = EditImageCutoutController(image: image, completion: { [weak self] url in
+            self?.applyCutout(url)
+        }, closeHandler: { [weak self] in
+            guard let self, !self.markAsClosed else {
+                return
+            }
+            self.genericView.hideElements(false)
+        })
+        showModal(with: editor, for: window, animated: false, animationType: .alpha)
+    }
+    
+    private func applyCutout(_ url: URL) {
+        guard !markAsClosed else {
+            return
+        }
+        markAsClosed = true
+        resultValue.set(.single((url, nil)))
+        _ = (resultValue.get() |> take(1) |> deliverOnMainQueue |> delay(0.1, queue: .mainQueue())).start(next: { [weak self] _ in
+            self?.close()
+        })
     }
     
     public override func viewDidAppear(_ animated: Bool) {
@@ -1125,8 +1212,17 @@ public class EditImageModalController: ModalViewController {
     public override func viewDidLoad() {
         super.viewDidLoad()
         
+        let cutout: (() -> Void)?
+        if #available(macOS 14.0, *), canCutOut {
+            cutout = { [weak self] in
+                self?.loadCutout()
+            }
+        } else {
+            cutout = nil
+        }
+        
         self.controls = EditImageControls(settings: settings, arguments: EditImageControlsArguments(cancel: { [weak self] in
-            self?.close()
+            self?.cancelEditing()
         }, success: { [weak self] in
             _ = self?.returnKeyAction()
         }, flip: { [weak self] in
@@ -1143,7 +1239,7 @@ public class EditImageModalController: ModalViewController {
             self?.loadCanvas()
         }, getDoneString: { [weak self] in
             return self?.doneString
-        }), stateValue: editValue.get())
+        }, cutout: cutout), stateValue: editValue.get())
 
         
         genericView.updateImage = { [weak self] stableId, rect, start in
@@ -1194,6 +1290,7 @@ public class EditImageModalController: ModalViewController {
                     current.dimensions = .none
                     current.orientation = nil
                     current.paintings = []
+                    current.entities = []
                     current.images = []
                     current.selectedImage = nil
                     return current

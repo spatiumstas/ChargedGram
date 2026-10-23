@@ -306,7 +306,7 @@ private func entries(_ state: State, arguments: Arguments, detailedDisposable: D
             case let .Loaded(_, string):
                 ChartsDataManager.readChart(data: string.data(using: .utf8)!, sync: true, success: { collection in
                     entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: graph.identifier, equatable: InputDataEquatable(graph.graph), comparable: nil, item: { initialSize, stableId in
-                        return StatisticRowItem(initialSize, stableId: stableId, context: arguments.context, collection: collection, viewType: .singleItem, type: graph.type, rate: graph.rate, getDetailsData: { date, completion in
+                        return StatisticRowItem(initialSize, stableId: stableId, context: arguments.context, collection: collection, viewType: .singleItem, type: graph.type, rate: graph.rate, title: graph.title, getDetailsData: { date, completion in
                             detailedDisposable.set(arguments.loadDetailedGraph(graph.graph, Int64(date.timeIntervalSince1970) * 1000).start(next: { graph in
                                 if let graph = graph, case let .Loaded(_, data) = graph {
                                     completion(data)
@@ -370,7 +370,7 @@ private func entries(_ state: State, arguments: Arguments, detailedDisposable: D
                 case let .Loaded(_, string):
                     ChartsDataManager.readChart(data: string.data(using: .utf8)!, sync: true, success: { collection in
                         entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: graph.identifier, equatable: InputDataEquatable(graph.graph), comparable: nil, item: { initialSize, stableId in
-                            return StatisticRowItem(initialSize, stableId: stableId, context: arguments.context, collection: collection, viewType: .singleItem, type: graph.type, rate: graph.rate, getDetailsData: { date, completion in
+                            return StatisticRowItem(initialSize, stableId: stableId, context: arguments.context, collection: collection, viewType: .singleItem, type: graph.type, rate: graph.rate, title: graph.title, getDetailsData: { date, completion in
                                 detailedDisposable.set(arguments.loadDetailedGraph(graph.graph, Int64(date.timeIntervalSince1970) * 1000).start(next: { graph in
                                     if let graph = graph, case let .Loaded(_, data) = graph {
                                         completion(data)
@@ -1012,6 +1012,14 @@ private final class WithdrawInputItem : GeneralRowItem {
     
     override func viewClass() -> AnyClass {
         return WithdrawInputView.self
+    }
+
+    override var accessibilityLabel: String? {
+        return strings().fragmentStarAmountPlaceholder
+    }
+
+    override var accessibilityValue: String? {
+        return inputState.inputText.string
     }
 }
 

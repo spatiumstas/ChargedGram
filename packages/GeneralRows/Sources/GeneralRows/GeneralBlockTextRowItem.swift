@@ -22,9 +22,11 @@ open class GeneralBlockTextRowItem: GeneralRowItem {
     public struct RightAction {
         public var image: CGImage
         public var action: (NSView)->Void
-        public init(image: CGImage, action: @escaping (NSView)->Void) {
+        public var accessibilityLabel: String?
+        public init(image: CGImage, action: @escaping (NSView)->Void, accessibilityLabel: String? = nil) {
             self.image = image
             self.action = action
+            self.accessibilityLabel = accessibilityLabel
         }
     }
     fileprivate let textLayout: TextViewLayout
@@ -87,6 +89,22 @@ open class GeneralBlockTextRowItem: GeneralRowItem {
     
     open override func viewClass() -> AnyClass {
         return GeneralBlockTextRowView.self
+    }
+
+    open override var accessibilityLabel: String? {
+        if let header = headerLayout?.attributedString.string, !header.isEmpty {
+            return header
+        }
+        let text = textLayout.attributedString.string
+        return text.isEmpty ? nil : text
+    }
+
+    open override var accessibilityValue: String? {
+        guard headerLayout != nil else {
+            return nil
+        }
+        let text = textLayout.attributedString.string
+        return text.isEmpty ? nil : text
     }
     
     open override var height: CGFloat {
@@ -174,6 +192,7 @@ private final class GeneralBlockTextRowView : GeneralContainableRowView {
                 self.headerView = TextView()
                 self.headerView?.userInteractionEnabled = false
                 self.headerView?.isSelectable = false
+                self.headerView?.isAccessibilityDecorative = true
                 containerView.addSubview(self.headerView!)
             }
             headerView?.update(headerLayout)
@@ -181,6 +200,7 @@ private final class GeneralBlockTextRowView : GeneralContainableRowView {
             if let image = item.header?.icon {
                 if headerImageView == nil {
                     self.headerImageView = ImageView()
+                    self.headerImageView?.isAccessibilityDecorative = true
                     containerView.addSubview(self.headerImageView!)
                 }
                 headerImageView?.image = image
@@ -203,6 +223,7 @@ private final class GeneralBlockTextRowView : GeneralContainableRowView {
                 self.rightAction = current
             }
             current.set(image: action.image, for: .Normal)
+            current.setAccessibilityLabel(action.accessibilityLabel)
             current.sizeToFit()
             current.removeAllHandlers()
             current.set(handler: { control in

@@ -6,6 +6,7 @@ import SwiftSignalKit
 import Postbox
 import ImageCanvasUI
 import TelegramTheme
+import Localization
 import TelegramContext
 import TelegramUtils
 import TelegramMediaUtils
@@ -106,6 +107,36 @@ class MediaPreviewRowItem: TableRowItem {
     override func viewClass() -> AnyClass {
         return MediaPreviewRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return previewSenderAccessibilityLabel(for: media)
+    }
+
+    override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        var actions: [NSAccessibilityCustomAction] = []
+        if media is TelegramMediaImage {
+            actions.append(NSAccessibilityCustomAction(name: strings().voiceOverCommonEdit, handler: { [weak self] in
+                self?.edit()
+                return true
+            }))
+            actions.append(NSAccessibilityCustomAction(name: strings().voiceOverCommonDraw, handler: { [weak self] in
+                self?.paint()
+                return true
+            }))
+        } else if canEditPreviewVideo(media) {
+            actions.append(NSAccessibilityCustomAction(name: strings().voiceOverCommonEdit, handler: { [weak self] in
+                self?.edit()
+                return true
+            }))
+        }
+        if delete != nil {
+            actions.append(NSAccessibilityCustomAction(name: strings().voiceOverCommonDelete, handler: { [weak self] in
+                self?.delete?()
+                return true
+            }))
+        }
+        return actions.isEmpty ? nil : actions
+    }
 }
 
 fileprivate class MediaPreviewRowView : TableRowView, ModalPreviewRowViewProtocol {
@@ -198,7 +229,8 @@ fileprivate class MediaPreviewRowView : TableRowView, ModalPreviewRowViewProtoco
         }
         
         
-        editControl.canEdit = (item.media is TelegramMediaImage)
+        editControl.isVideo = canEditPreviewVideo(item.media)
+        editControl.canEdit = item.media is TelegramMediaImage || editControl.isVideo
         editControl.isInteractiveMedia = item.media.isInteractiveMedia || item.media.probablySticker
         editControl.canDelete = item.delete != nil
         editControl.set(edit: { [weak item] in
@@ -250,4 +282,24 @@ fileprivate class MediaPreviewRowView : TableRowView, ModalPreviewRowViewProtoco
     
 }
 
-
+func previewSenderAccessibilityLabel(for media: Media) -> String {
+    if media is TelegramMediaImage {
+        return strings().voiceOverCommonPhoto
+    }
+    if let file = media as? TelegramMediaFile {
+        if file.isVideo {
+            return strings().voiceOverCommonVideo
+        }
+        if file.isVoice {
+            return strings().voiceOverCommonVoiceMessage
+        }
+        if file.isMusic {
+            return file.fileName ?? strings().voiceOverCommonMusic
+        }
+        if file.isSticker || file.isAnimatedSticker {
+            return strings().voiceOverCommonSticker
+        }
+        return file.fileName ?? strings().voiceOverCommonFile
+    }
+    return strings().voiceOverCommonFile
+}

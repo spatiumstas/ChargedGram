@@ -245,7 +245,12 @@ public final class InstantPageTextLine {
              point.x -= (boundingWidth - frame.width)
         }
         
-        let startIndex: CFIndex = CTLineGetStringIndexForPosition(line, point)
+        let lastIndex = self.range.location + self.range.length - 1
+        if lastIndex < self.range.location {
+            self.selectRect = NSZeroRect
+            return NSAttributedString()
+        }
+        let startIndex: CFIndex = max(self.range.location, min(CTLineGetStringIndexForPosition(line, point), lastIndex))
 
         if rangeIsOnlyButtons(NSMakeRange(startIndex, 1)) {
             self.selectRect = NSZeroRect
@@ -644,7 +649,121 @@ public final class InstantPageTextItem: InstantPageItem {
 
 
 
+private final class InstantPageSelectionText: NSObject {
+    let makeText: (String) -> RichText
+
+    init(_ makeText: @escaping (String) -> RichText) {
+        self.makeText = makeText
+    }
+}
+
+private let instantPageSelectionTextKey = NSAttributedString.Key("InstantPageSelectionText")
+
+public func instantPageRichTextForSelection(_ selection: NSAttributedString) -> RichText {
+    var parts: [RichText] = []
+    selection.enumerateAttribute(instantPageSelectionTextKey, in: NSRange(location: 0, length: selection.length)) { value, range, _ in
+        let text = (selection.string as NSString).substring(with: range)
+        parts.append((value as? InstantPageSelectionText)?.makeText(text) ?? .plain(text))
+    }
+    if parts.count == 1 {
+        return parts[0]
+    }
+    return .concat(parts)
+}
+
+public func instantPageQuoteRanges(in blocks: [NSAttributedString], text: String, range: NSRange? = nil) -> [NSRange?] {
+    struct Run {
+        let block: Int
+        let sourceRange: NSRange
+        let renderedRange: NSRange
+        let isLiteral: Bool
+    }
+    let source = NSMutableString()
+    var runs: [Run] = []
+    for (index, block) in blocks.enumerated() {
+        if index != 0 {
+            source.append("\n")
+        }
+        block.enumerateAttribute(instantPageSelectionTextKey, in: NSRange(location: 0, length: block.length)) { value, renderedRange, _ in
+            let rendered = (block.string as NSString).substring(with: renderedRange)
+            let original = (value as? InstantPageSelectionText)?.makeText(rendered).plainText ?? rendered
+            runs.append(Run(block: index, sourceRange: NSRange(location: source.length, length: (original as NSString).length), renderedRange: renderedRange, isLiteral: original == rendered))
+            source.append(original)
+        }
+    }
+    var result: [NSRange?] = Array(repeating: nil, count: blocks.count)
+    guard !text.isEmpty else { return result }
+    let match: NSRange
+    if let range, range.location != NSNotFound, range.location >= 0, range.length >= 0,
+       range.location <= source.length, range.length <= source.length - range.location,
+       source.substring(with: range) == text {
+        match = range
+    } else {
+        match = source.range(of: text)
+    }
+    guard match.location != NSNotFound else { return result }
+    for run in runs {
+        let intersection = NSIntersectionRange(run.sourceRange, match)
+        guard intersection.length > 0 else { continue }
+        let renderedRange = run.isLiteral
+            ? NSRange(location: run.renderedRange.location + intersection.location - run.sourceRange.location, length: intersection.length)
+            : run.renderedRange
+        result[run.block] = result[run.block].map { NSUnionRange($0, renderedRange) } ?? renderedRange
+    }
+    return result
+}
+
 public func attributedStringForRichText(_ text: RichText, styleStack: InstantPageTextStyleStack, url: InstantPageUrlItem? = nil, boundingWidth: CGFloat? = nil, inlineButtonMaxWidth: CGFloat? = nil, isInsideTableCell: Bool = false) -> NSAttributedString {
+    let result = renderedAttributedStringForRichText(text, styleStack: styleStack, url: url, boundingWidth: boundingWidth, inlineButtonMaxWidth: inlineButtonMaxWidth, isInsideTableCell: isInsideTableCell)
+    guard result.length > 0 else {
+        return result
+    }
+    let wrap: (RichText) -> RichText
+    switch text {
+    case .empty, .concat:
+        return result
+    case .plain:
+        let mutable = NSMutableAttributedString(attributedString: result)
+        mutable.addAttribute(instantPageSelectionTextKey, value: InstantPageSelectionText { .plain($0) }, range: NSRange(location: 0, length: mutable.length))
+        return mutable
+    case .image, .formula, .textCustomEmoji, .textButton:
+        let mutable = NSMutableAttributedString(attributedString: result)
+        mutable.addAttribute(instantPageSelectionTextKey, value: InstantPageSelectionText { _ in text }, range: NSRange(location: 0, length: mutable.length))
+        return mutable
+    case .bold: wrap = { .bold($0) }
+    case .italic: wrap = { .italic($0) }
+    case .underline: wrap = { .underline($0) }
+    case .strikethrough: wrap = { .strikethrough($0) }
+    case .fixed: wrap = { .fixed($0) }
+    case let .url(_, url, webpageId): wrap = { .url(text: $0, url: url, webpageId: webpageId) }
+    case let .email(_, email): wrap = { .email(text: $0, email: email) }
+    case .subscript: wrap = { .subscript($0) }
+    case .superscript: wrap = { .superscript($0) }
+    case .marked: wrap = { .marked($0) }
+    case let .phone(_, phone): wrap = { .phone(text: $0, phone: phone) }
+    case let .anchor(_, name): wrap = { .anchor(text: $0, name: name) }
+    case .textAutoEmail: wrap = { .textAutoEmail(text: $0) }
+    case .textAutoPhone: wrap = { .textAutoPhone(text: $0) }
+    case .textAutoUrl: wrap = { .textAutoUrl(text: $0) }
+    case .textBankCard: wrap = { .textBankCard(text: $0) }
+    case .textTonAddress: wrap = { .textTonAddress(text: $0) }
+    case .textBotCommand: wrap = { .textBotCommand(text: $0) }
+    case .textCashtag: wrap = { .textCashtag(text: $0) }
+    case .textHashtag: wrap = { .textHashtag(text: $0) }
+    case .textMention: wrap = { .textMention(text: $0) }
+    case let .textMentionName(_, peerId): wrap = { .textMentionName(text: $0, peerId: peerId) }
+    case .textSpoiler: wrap = { .textSpoiler(text: $0) }
+    case let .textDate(_, date, format): wrap = { .textDate(text: $0, date: date, format: format) }
+    }
+    let mutable = NSMutableAttributedString(attributedString: result)
+    result.enumerateAttribute(instantPageSelectionTextKey, in: NSRange(location: 0, length: result.length)) { value, range, _ in
+        let inner = value as? InstantPageSelectionText
+        mutable.addAttribute(instantPageSelectionTextKey, value: InstantPageSelectionText { wrap(inner?.makeText($0) ?? .plain($0)) }, range: range)
+    }
+    return mutable
+}
+
+private func renderedAttributedStringForRichText(_ text: RichText, styleStack: InstantPageTextStyleStack, url: InstantPageUrlItem? = nil, boundingWidth: CGFloat? = nil, inlineButtonMaxWidth: CGFloat? = nil, isInsideTableCell: Bool = false) -> NSAttributedString {
     switch text {
     case .empty:
         return NSAttributedString(string: "", attributes: styleStack.textAttributes())

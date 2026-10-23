@@ -344,6 +344,18 @@ final class MenuView: Control, TableViewDelegate {
         
     }
     
+    func announceForAccessibility() {
+        guard TGUIKitAccessibility.isEnabled, NSWorkspace.shared.isVoiceOverEnabled else {
+            return
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let first = self.tableView.tableView.accessibilityChildren()?.first else {
+                return
+            }
+            NSAccessibility.post(element: self.tableView.tableView, notification: .layoutChanged, userInfo: [.uiElements: [first]])
+        }
+    }
+
     func updateScroll() {
         if let item = tableView.selectedItem() {
             self.tableView.scroll(to: .top(id: item.stableId, innerId: nil, animated: true, focus: .init(focus: false), inset: -2))
@@ -858,6 +870,7 @@ final class AppMenuController : NSObject  {
         
         view.setFrame(rect, display: true)
         view.makeKeyAndOrderFront(nil)
+        view.view.announceForAccessibility()
 
         view.view.animateBubbleAppearance(anchor: NSMakePoint(20, max(0, view.frame.height - 20)), fromScale: 0.55)
     }
@@ -893,6 +906,7 @@ final class AppMenuController : NSObject  {
         
         view.setFrame(rect, display: true)
         view.makeKeyAndOrderFront(nil)
+        view.view.announceForAccessibility()
                 
         var anchor = view.view.convert(view.mouseLocationOutsideOfEventStream, to: nil)
         anchor.y = rect.height - anchor.y

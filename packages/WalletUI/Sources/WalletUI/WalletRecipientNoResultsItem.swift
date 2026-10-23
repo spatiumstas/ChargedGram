@@ -48,6 +48,23 @@ final class WalletRecipientNoResultsItem: TableRowItem {
     override func viewClass() -> AnyClass {
         return WalletRecipientNoResultsView.self
     }
+
+    override var accessibilityLabel: String? {
+        return title.attributedString.string
+    }
+
+    override var accessibilityValue: String? {
+        let text = message.attributedString.string
+        return text.isEmpty ? nil : text
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .staticText
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 private final class WalletRecipientNoResultsView: TableRowView {

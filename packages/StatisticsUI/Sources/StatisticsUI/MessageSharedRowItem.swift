@@ -86,6 +86,28 @@ public class MessageSharedRowItem: GeneralRowItem {
         return true
     }
     
+    public override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        let parts: [String?] = [dateLayout.attributedString.string, viewsCountLayout.attributedString.string, sharesCountLayout?.attributedString.string, likesCountLayout?.attributedString.string]
+        return parts.compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ")
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
+    }
+
     public override func viewClass() -> AnyClass {
         return MessageSharedRowView.self
     }

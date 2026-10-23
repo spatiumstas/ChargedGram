@@ -158,15 +158,8 @@ public class ReplyModel: ChatAccessoryModel {
                 let boundingSize = CGSize(width: 30.0, height: 30.0)
                 let arguments = TransformImageArguments(corners: ImageCorners(radius: 2.0), imageSize: imageDimensions.aspectFilled(boundingSize), boundingSize: boundingSize, intrinsicInsets: NSEdgeInsets())
                 
-                if view.imageView == nil {
-                    view.imageView = TransformImageView()
-                }
-                view.imageView?.setFrameSize(boundingSize)
-                if view.imageView?.superview == nil {
-                    view.addSubview(view.imageView!)
-                }
-                
-                view.imageView?.setFrameOrigin(super.leftInset, self.mediaTopInset)
+                let imageHost = view.makeAccessoryImage()
+                imageHost.accessoryImageFrame = NSRect(origin: NSMakePoint(super.leftInset, self.mediaTopInset), size: boundingSize)
                 
                 
                 let mediaUpdated = true
@@ -176,27 +169,27 @@ public class ReplyModel: ChatAccessoryModel {
                 if mediaUpdated {
                     if let image = updatedMedia as? TelegramMediaImage {
                         if message.isMediaSpoilered {
-                            updateImageSignal = chatSecretPhoto(account: self.context.account, imageReference: ImageMediaReference.message(message: MessageReference(message), media: image), scale: view.backingScaleFactor)
+                            updateImageSignal = chatSecretPhoto(account: self.context.account, imageReference: ImageMediaReference.message(message: MessageReference(message), media: image), scale: view.accessoryScale)
                         } else {
-                            updateImageSignal = chatMessagePhotoThumbnail(account: self.context.account, imageReference: ImageMediaReference.message(message: MessageReference(message), media: image), scale: view.backingScaleFactor, synchronousLoad: false)
+                            updateImageSignal = chatMessagePhotoThumbnail(account: self.context.account, imageReference: ImageMediaReference.message(message: MessageReference(message), media: image), scale: view.accessoryScale, synchronousLoad: false)
                         }
                     } else if let file = updatedMedia as? TelegramMediaFile {
                         if file.isVideo {
                             if message.isMediaSpoilered {
-                                updateImageSignal = chatSecretMessageVideo(account: self.context.account, fileReference: FileMediaReference.message(message: MessageReference(message), media: file), scale: view.backingScaleFactor)
+                                updateImageSignal = chatSecretMessageVideo(account: self.context.account, fileReference: FileMediaReference.message(message: MessageReference(message), media: file), scale: view.accessoryScale)
                             } else {
-                                updateImageSignal = chatMessageVideoThumbnail(account: self.context.account, fileReference: FileMediaReference.message(message: MessageReference(message), media: file), scale: view.backingScaleFactor, synchronousLoad: false)
+                                updateImageSignal = chatMessageVideoThumbnail(account: self.context.account, fileReference: FileMediaReference.message(message: MessageReference(message), media: file), scale: view.accessoryScale, synchronousLoad: false)
                             }
                         } else if file.isAnimatedSticker {
-                            updateImageSignal = chatMessageAnimatedSticker(postbox: self.context.account.postbox, file: FileMediaReference.message(message: MessageReference(message), media: file), small: true, scale: view.backingScaleFactor, size: imageDimensions.aspectFitted(boundingSize), fetched: true, isVideo: file.isVideoSticker)
+                            updateImageSignal = chatMessageAnimatedSticker(postbox: self.context.account.postbox, file: FileMediaReference.message(message: MessageReference(message), media: file), small: true, scale: view.accessoryScale, size: imageDimensions.aspectFitted(boundingSize), fetched: true, isVideo: file.isVideoSticker)
                         } else if file.isSticker {
-                            updateImageSignal = chatMessageSticker(postbox: self.context.account.postbox, file: FileMediaReference.message(message: MessageReference(message), media: file), small: true, scale: view.backingScaleFactor, fetched: true)
+                            updateImageSignal = chatMessageSticker(postbox: self.context.account.postbox, file: FileMediaReference.message(message: MessageReference(message), media: file), small: true, scale: view.accessoryScale, fetched: true)
                         } else if let iconImageRepresentation = firstImageRepresentation(file.previewRepresentations) {
                             let tmpImage = TelegramMediaImage(imageId: MediaId(namespace: 0, id: 0), representations: [iconImageRepresentation], immediateThumbnailData: nil, reference: nil, partialReference: nil, flags: [])
                             if message.isMediaSpoilered {
-                                updateImageSignal = chatSecretPhoto(account: self.context.account, imageReference: ImageMediaReference.message(message: MessageReference(message), media: tmpImage), scale: view.backingScaleFactor)
+                                updateImageSignal = chatSecretPhoto(account: self.context.account, imageReference: ImageMediaReference.message(message: MessageReference(message), media: tmpImage), scale: view.accessoryScale)
                             } else {
-                                updateImageSignal = chatWebpageSnippetPhoto(account: self.context.account, imageReference: ImageMediaReference.message(message: MessageReference(message), media: tmpImage), scale: view.backingScaleFactor, small: true, synchronousLoad: true)
+                                updateImageSignal = chatWebpageSnippetPhoto(account: self.context.account, imageReference: ImageMediaReference.message(message: MessageReference(message), media: tmpImage), scale: view.accessoryScale, small: true, synchronousLoad: true)
                             }
                         }
                     }
@@ -205,10 +198,10 @@ public class ReplyModel: ChatAccessoryModel {
                 
                 if let updateImageSignal = updateImageSignal {
                     
-                    view.imageView?.setSignal(signal: cachedMedia(media: updatedMedia, arguments: arguments, scale: System.backingScale), clearInstantly: false)
+                    imageHost.setAccessoryCachedSignal(cachedMedia(media: updatedMedia, arguments: arguments, scale: System.backingScale))
 
                     
-                    view.imageView?.setSignal(updateImageSignal, animate: true, synchronousLoad: true, cacheImage: { [weak updatedMedia] result in
+                    imageHost.setAccessorySignal(updateImageSignal, cacheImage: { [weak updatedMedia] result in
                         if let updatedMedia = updatedMedia {
                             cacheMedia(result, media: updatedMedia, arguments: arguments, scale: System.backingScale)
                         }
@@ -218,22 +211,20 @@ public class ReplyModel: ChatAccessoryModel {
                         self.fetchDisposable.set(chatMessagePhotoInteractiveFetched(account: self.context.account, imageReference: ImageMediaReference.message(message: MessageReference(message), media: media)).start())
                     }
                     
-                    view.imageView?.set(arguments: arguments)
+                    imageHost.setAccessoryArguments(arguments)
                     if hasRoundImage {
-                        view.imageView!.layer?.cornerRadius = 15
+                        imageHost.accessoryImageCornerRadius = 15
                     } else {
-                        view.imageView?.layer?.cornerRadius = 0
+                        imageHost.accessoryImageCornerRadius = 0
                     }
                 }
             } else {
-                view.imageView?.removeFromSuperview()
-                view.imageView = nil
+                view.removeAccessoryImage()
             }
             
             self.previousMedia = updatedMedia
         } else {
-            self.view?.imageView?.removeFromSuperview()
-            self.view?.imageView = nil
+            self.view?.removeAccessoryImage()
         }
         self.view?.updateModel(self, animated: false)
     }
@@ -297,16 +288,17 @@ public class ReplyModel: ChatAccessoryModel {
                 text = .initialize(string: translateText, color: theme.colors.text, font: .normal(.text))
             } else {
                 if let quote = quote {
-                    if quote.text.isEmpty, let media = quote.media {
+                    let quoteText = messageReplyQuoteText(quote)
+                    if quoteText.text.isEmpty, let media = quote.media {
                         let message = Message(media, stableId: 0, messageId: replyMessageId)
                         text = chatListText(account: context.account, for: message, isPremium: context.isPremium, isReplied: true)
                     } else {
                         let textAttr: NSMutableAttributedString
                     
                         
-                        textAttr = ChatHistoryModelHooks.shared.applyMessageEntities([TextEntitiesMessageAttribute(entities: quote.entities)], quote.text, nil, context, 13, { _,_, _, _ in }, presentation.enabledText, presentation.enabledText, presentation.enabledText, presentation.enabledText, presentation.app.dark, presentation.app.bubbled).mutableCopy() as! NSMutableAttributedString
+                        textAttr = ChatHistoryModelHooks.shared.applyMessageEntities([TextEntitiesMessageAttribute(entities: quoteText.entities)], quoteText.text, nil, context, 13, { _,_, _, _ in }, presentation.enabledText, presentation.enabledText, presentation.enabledText, presentation.enabledText, presentation.app.dark, presentation.app.bubbled).mutableCopy() as! NSMutableAttributedString
                         
-                        InlineStickerItem.apply(to: textAttr, associatedMedia: [:], entities:  quote.entities, isPremium: context.isPremium, ignoreSpoiler: true)
+                        InlineStickerItem.apply(to: textAttr, associatedMedia: [:], entities: quoteText.entities, isPremium: context.isPremium, ignoreSpoiler: true)
                         text = textAttr
                         resetEntities = false
                     }

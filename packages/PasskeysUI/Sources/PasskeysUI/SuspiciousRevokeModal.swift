@@ -92,6 +92,14 @@ private final class RevokeRowItem : TableRowItem {
     public override func viewClass() -> AnyClass {
         return RevokeRowItemView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return title.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return "\(header.attributedString.string). \(text.attributedString.string)"
+    }
 }
 
 private final class RevokeRowItemView : TableRowView {

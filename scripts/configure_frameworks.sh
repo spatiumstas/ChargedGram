@@ -1,6 +1,5 @@
 #!/bin/sh
 set -e
-set -x
 
 
 declare -a libs=("OpenH264" "OpenSSL" "libopus" "libvpx" "mozjpeg" "libwebp" "dav1d" "ffmpeg" "webrtc" "tde2e" "wallet-engine" "mtproto-engine")
@@ -10,12 +9,12 @@ arraylength=${#libs[@]}
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null && pwd )"
 ROOT_DIR="$( cd "$SCRIPT_DIR/.." >/dev/null && pwd )"
 
+python3 "$SCRIPT_DIR/prepare-telegram-api.py"
+
 . "$SCRIPT_DIR/framework-inputs.sh"
 
 
-mkdir -p "$SCRIPT_DIR/../submodules/telegram-ios/submodules/TelegramCore/FlatSerialization/Sources"
-
-sh $SCRIPT_DIR/../submodules/telegram-ios/submodules/TelegramCore/FlatSerialization/macOS/generate.sh --input $SCRIPT_DIR/../submodules/telegram-ios/submodules/TelegramCore/FlatSerialization/Models --output $SCRIPT_DIR/../submodules/telegram-ios/submodules/TelegramCore/FlatSerialization/Sources --binary $SCRIPT_DIR/../scripts/flatc
+python3 "$SCRIPT_DIR/prepare-flat-serialization.py"
 
 
 RebuildFile="${SCRIPT_DIR}/rebuild"
@@ -26,75 +25,54 @@ if grep -q yes "$RebuildFile"; then
 fi
 
 STAMP_CACHE="$( mktemp -d )"
+trap 'rm -rf "$STAMP_CACHE"' EXIT
+FRAMEWORK_XCODE_VERSION="$(xcodebuild -version | tr '\n' ' ')"
 
 for (( i=0; i<${arraylength}; i++ ));
 do
     LIB=${libs[$i]}
+    FWNAME=${libname[$i]}
     BUILD_DIR="$(framework_build_dir "$ROOT_DIR" "$LIB")"
     STAMP_FILE="$BUILD_DIR/.framework-stamp"
     framework_stamp "$ROOT_DIR" "$LIB" "$STAMP_CACHE" > "$STAMP_CACHE/$LIB"
 
-    if [ "$FORCE_REBUILD" = "yes" ]; then
-        echo "framework-stamp: $LIB forced by scripts/rebuild"
-        rm -rf "$BUILD_DIR"
-        framework_reset_outputs "$ROOT_DIR" "$LIB"
-    elif [ ! -d "$BUILD_DIR" ]; then
-        echo "framework-stamp: $LIB has no build output yet"
-    elif [ ! -f "$STAMP_FILE" ]; then
-        echo "framework-stamp: $LIB adopted without rebuilding, stamp recorded from the current output"
-        cp "$STAMP_CACHE/$LIB" "$STAMP_FILE"
-    elif ! cmp -s "$STAMP_CACHE/$LIB" "$STAMP_FILE"; then
-        echo "framework-stamp: $LIB inputs changed, rebuilding"
-        diff "$STAMP_FILE" "$STAMP_CACHE/$LIB" | sed 's/^/framework-stamp:   /' || true
+    if [ "$FORCE_REBUILD" != "yes" ] && cmp -s "$STAMP_CACHE/$LIB" "$STAMP_FILE" && \
+        framework_outputs_present "$ROOT_DIR" "$LIB" && framework_outputs_consistent "$ROOT_DIR" "$LIB"; then
+        echo "framework-stamp: $LIB is up to date, skipping xcodebuild"
+        continue
+    fi
+
+    if [ "$FORCE_REBUILD" = "yes" ] || ! cmp -s "$STAMP_CACHE/$LIB" "$STAMP_FILE"; then
+        echo "framework-stamp: $LIB requires a rebuild"
+        if [ -f "$STAMP_FILE" ]; then
+            diff "$STAMP_FILE" "$STAMP_CACHE/$LIB" | sed 's/^/framework-stamp:   /' || true
+        fi
         rm -rf "$BUILD_DIR"
         framework_reset_outputs "$ROOT_DIR" "$LIB"
     else
-        echo "framework-stamp: $LIB is up to date"
+        echo "framework-stamp: $LIB outputs are missing or inconsistent, repairing"
+        case "$LIB" in
+            wallet-engine|mtproto-engine) framework_reset_outputs "$ROOT_DIR" "$LIB" ;;
+            *) rm -rf "$BUILD_DIR" ;;
+        esac
     fi
+    rm -f "$STAMP_FILE"
 
-    if [ -d "$BUILD_DIR" ] && ! framework_outputs_consistent "$ROOT_DIR" "$LIB"; then
-        echo "framework-stamp: $LIB outputs do not match the library in its build directory, regenerating them"
-        framework_reset_outputs "$ROOT_DIR" "$LIB"
-    fi
-done
-
-
-
-for (( i=0; i<${arraylength}; i++ ));
-do
-    FWNAME=${libname[$i]}
-    LIB=${libs[$i]}
-    SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null && pwd )"
-    BASE_PWD="${SCRIPT_DIR}/../submodules/${LIB}"
-    OUTPUT_DIR=$( mktemp -d )
-
-    COMMON_SETUP=" -project ${SCRIPT_DIR}/../core-xprojects/${LIB}/${FWNAME}.xcodeproj -configuration Release BUILD_LIBRARY_FOR_DISTRIBUTION=YES "
-
-
-    DERIVED_DATA_PATH=$( mktemp -d )
-    xcrun xcodebuild build \
-        $COMMON_SETUP \
-        -scheme "${FWNAME}" \
-        -derivedDataPath "${DERIVED_DATA_PATH}" \
+    PROJECT_DIR="$(framework_project_dir "$ROOT_DIR" "$LIB")"
+    sh "$ROOT_DIR/scripts/time-step.sh" "framework-$LIB" \
+        xcrun xcodebuild build \
+        -project "$PROJECT_DIR/$FWNAME.xcodeproj" \
+        -configuration Release BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
+        -scheme "$FWNAME" \
+        -derivedDataPath "$STAMP_CACHE/DerivedData-$LIB" \
         -destination 'generic/platform=macOS'
 
-    BUILD_DIR="$(framework_build_dir "$ROOT_DIR" "$LIB")"
-    mkdir -p "$BUILD_DIR"
-    cp "$STAMP_CACHE/$LIB" "$BUILD_DIR/.framework-stamp"
-
-done
-
-for (( i=0; i<${arraylength}; i++ ));
-do
-    LIB=${libs[$i]}
-    if ! framework_outputs_consistent "$ROOT_DIR" "$LIB"; then
-        echo "error: $LIB outputs still do not match its library after the build"
+    if ! framework_outputs_present "$ROOT_DIR" "$LIB" || ! framework_outputs_consistent "$ROOT_DIR" "$LIB"; then
+        echo "error: $LIB did not produce complete, consistent outputs" >&2
         exit 1
     fi
+    cp "$STAMP_CACHE/$LIB" "$STAMP_FILE"
 done
-
-
-
 
 DIRECTORY_PAIRS=(
     "${SCRIPT_DIR}/../core-xprojects/libopus/build/libopus/include,${SCRIPT_DIR}/../submodules/telegram-ios/submodules/OpusBinding/SharedHeaders/libopus/include"
@@ -112,33 +90,13 @@ DIRECTORY_PAIRS=(
 )
 
 
-# Loop through each pair and process them
 for pair in "${DIRECTORY_PAIRS[@]}"; do
-    # Split the pair into source and destination variables
     IFS=',' read -r SOURCE_DIR DEST_DIR <<< "$pair"
-
-    # Ensure the source directory exists
-    if [ ! -d "$SOURCE_DIR" ]; then
-        echo "Source directory $SOURCE_DIR does not exist. Skipping."
-        continue
-    fi
-
-    # Clean the destination directory if it exists
-    if [ -d "$DEST_DIR" ]; then
-        echo "Cleaning the destination directory: $DEST_DIR"
-        rm -rf "$DEST_DIR"
-    fi
-
-    # Recreate the destination directory
-    mkdir -p "$DEST_DIR"
-
-    # Use rsync to copy only .h files while preserving the directory structure
-    echo "Copying .h header files from $SOURCE_DIR to $DEST_DIR while preserving folder structure..."
-    rsync -av --include='*/' --include='*.h' --exclude='*' "$SOURCE_DIR/" "$DEST_DIR/"
-
-    echo "Headers copied successfully from $SOURCE_DIR to $DEST_DIR!"
+    sh "$SCRIPT_DIR/sync-headers.sh" "$SOURCE_DIR" "$DEST_DIR"
 done
 
+sh "$SCRIPT_DIR/sync-headers.sh" \
+    "$ROOT_DIR/submodules/telegram-ios/third-party/td/td" \
+    "$ROOT_DIR/submodules/telegram-ios/third-party/td/TdBinding/SharedHeaders/td"
 
-
-sh $SCRIPT_DIR/../submodules/telegram-ios/third-party/td/macos-cleanup.sh $SCRIPT_DIR/../submodules/telegram-ios/third-party/td/td $SCRIPT_DIR/../submodules/telegram-ios/third-party/td/TdBinding/SharedHeaders
+sh "$ROOT_DIR/scripts/time-step.sh" tlottie sh "$ROOT_DIR/core-xprojects/tlottie/build.sh"

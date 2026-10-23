@@ -164,6 +164,18 @@ public class StickerPackRowItem: TableRowItem {
     public override func viewClass() -> AnyClass {
         return StickerPackRowView.self
     }
+    
+    public override var accessibilityLabel: String? {
+        return info.title.isEmpty ? strings().voiceOverStickers : info.title
+    }
+    
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+    
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 public class RecentPackRowItem: TableRowItem {
@@ -188,6 +200,29 @@ public class RecentPackRowItem: TableRowItem {
     public override func viewClass() -> AnyClass {
         return RecentPackRowView.self
     }
+    
+    public override var accessibilityLabel: String? {
+        switch _stableId {
+        case .saved:
+            return strings().stickersFavorite
+        case .recent:
+            return strings().stickersRecent
+        case .premium:
+            return strings().stickersPremium
+        case .featured, .inlineFeatured:
+            return strings().stickersTrending
+        default:
+            return strings().voiceOverStickers
+        }
+    }
+    
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+    
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 public class RecentPackRowView: HorizontalRowView {
@@ -199,6 +234,7 @@ public class RecentPackRowView: HorizontalRowView {
         super.init(frame:frameRect)
         
         imageView.setFrameSize(30, 30)
+        imageView.isAccessibilityDecorative = true
         addSubview(imageView)
         
     }
@@ -274,6 +310,18 @@ public class StickerSpecificPackItem: TableRowItem {
     
     public override func viewClass() -> AnyClass {
         return StickerSpecificPackView.self
+    }
+    
+    public override var accessibilityLabel: String? {
+        return specificPack.0.title.isEmpty ? strings().stickersGroupStickers : specificPack.0.title
+    }
+    
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+    
+    public override var accessibilityIncludesChildren: Bool {
+        return false
     }
 }
 
@@ -526,6 +574,18 @@ public class ETabRowItem: TableRowItem {
         return 36
     }
     
+    public override var accessibilityLabel: String? {
+        return strings().emojiRecent
+    }
+    
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+    
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+    
     public init(_ initialSize:NSSize, stableId: AnyHashable, icon: CGImage, iconSelected: CGImage) {
         self.icon = icon
         self._stableId = stableId
@@ -551,6 +611,7 @@ public class ETabRowView: HorizontalRowView {
         addSubview(image)
 
         image.isEventLess = true
+        image.isAccessibilityDecorative = true
 
     }
     

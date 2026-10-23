@@ -1,3 +1,4 @@
+#if DEBUG
 import AppKit
 
 public final class PerfLabViewCensusLab {
@@ -94,3 +95,4 @@ public final class PerfLabViewCensusLab {
         return url.path
     }
 }
+#endif

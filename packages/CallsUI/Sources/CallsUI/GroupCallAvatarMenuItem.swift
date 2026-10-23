@@ -9,6 +9,7 @@ import TelegramContext
 import TelegramMediaUtils
 import TelegramTheme
 import TelegramUtils
+import Localization
 
 private final class PhotoOrVideoView: View, SlideViewProtocol {
     private let imageView: TransformImageView
@@ -160,6 +161,14 @@ private final class GroupCallAvatarMenuRowItem : AppMenuBasicItem {
     
     public override var height: CGFloat {
         return 200
+    }
+
+    public override var accessibilityLabel: String? {
+        return strings().voiceOverCommonPhotoOf(peer.displayTitle)
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .image
     }
 }
 

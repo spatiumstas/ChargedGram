@@ -69,6 +69,35 @@ public class StickerSetTableRowItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return StickerSetTableRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return nameLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        var parts: [String] = [countLayout.attributedString.string]
+        if control == .selected {
+            parts.append(strings().voiceOverCommonSelected)
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    public override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        switch control {
+        case .installation(installed: false):
+            return [NSAccessibilityCustomAction(name: strings().voiceOverCommonAdd, handler: { [weak self] in
+                self?.addPack()
+                return true
+            })]
+        case .remove:
+            return [NSAccessibilityCustomAction(name: strings().voiceOverCommonRemove, handler: { [weak self] in
+                self?.removePack()
+                return true
+            })]
+        default:
+            return nil
+        }
+    }
 }
 
 public class StickerSetTableRowView : TableRowView, ViewDisplayDelegate {
@@ -92,6 +121,8 @@ public class StickerSetTableRowView : TableRowView, ViewDisplayDelegate {
         countView.userInteractionEnabled = false
         nameView.userInteractionEnabled = false
         containerView.addSubview(installationControl)
+        installationControl.isAccessibilityDecorative = true
+        removeControl.setAccessibilityLabel(strings().voiceOverCommonRemove)
 
         containerView.displayDelegate = self
         

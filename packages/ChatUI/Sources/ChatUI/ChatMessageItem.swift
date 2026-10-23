@@ -55,7 +55,7 @@ private func openCalendarWithEvent(date: Date, title: String) {
     }
 }
 
-private var _streamingStates: [MessageId: WeakReference<FoldingTextLayout.StreamingState>] = [:]
+private let _streamingStates = Atomic<[MessageId: WeakReference<FoldingTextLayout.StreamingState>]>(value: [:])
 
 public class ChatMessageItem: ChatRowItem {
     public private(set) var messageText:NSAttributedString
@@ -198,7 +198,10 @@ public class ChatMessageItem: ChatRowItem {
         return super.isEditMarkVisible
     }
     
-    public func invokeAction() {
+    public func invokeAction(morphSource: (() -> NSView?)? = nil) {
+        if let webpage = webpageLayout, webpage.openUniqueGift(morphSource: morphSource) {
+            return
+        }
         if let webpage = webpageLayout {
             let link = ChatHistoryLink.inApp(for: webpage.content.url.nsstring, context: context, messageId: message?.id, openInfo: chatInteraction.openInfo)
             ChatHistoryLink.execute(inapp: link)
@@ -299,7 +302,7 @@ public class ChatMessageItem: ChatRowItem {
                 }
                 
                 let openInfo:(PeerId, Bool, MessageId?, ChatInitialAction?)->Void = { [weak chatInteraction] peerId, toChat, postId, initialAction in
-                    chatInteraction?.openInfo(peerId, toChat, postId, toChat ? (initialAction ?? .source(message.id, nil)) : initialAction)
+                    chatInteraction?.openInfoFromMessage(peerId, toChat, postId, toChat ? (initialAction ?? .source(message.id, nil)) : initialAction, message: message)
                 }
                 
                 messageAttr = ChatMessageItem.applyMessageEntities(with: attributes, for: text, message: message, context: context, fontSize: theme.fontSize, openInfo:openInfo, botCommand:chatInteraction.sendPlainText, hashtag: chatInteraction.hashtag, applyProxy: chatInteraction.applyProxy, textColor: theme.chat.textColor(isIncoming, entry.renderType == .bubble), linkColor: theme.chat.linkColor(isIncoming, entry.renderType == .bubble), monospacedPre: theme.chat.monospacedPreColor(isIncoming, entry.renderType == .bubble), monospacedCode: theme.chat.monospacedCodeColor(isIncoming, entry.renderType == .bubble), mediaDuration: mediaDuration, timecode: { timecode in
@@ -380,7 +383,7 @@ public class ChatMessageItem: ChatRowItem {
              let isRichMessage = message.attributes.contains(where: { $0 is RichTextMessageAttribute })
              let isStreaming = !isRichMessage && message.attributes.contains(where: { $0 is TypingDraftMessageAttribute }) && message.adAttribute == nil
              let existingState: FoldingTextLayout.StreamingState?
-             if isStreaming, let state = _streamingStates[message.id]?.value, self.messageText.string.hasPrefix(state.previousString) {
+             if isStreaming, let state = _streamingStates.with({ $0[message.id]?.value }), self.messageText.string.hasPrefix(state.previousString) {
                  existingState = state
              } else {
                  existingState = nil
@@ -406,10 +409,18 @@ public class ChatMessageItem: ChatRowItem {
              }, appendingAnimation: isStreaming, streamingState: existingState)
 
              if isStreaming {
-                 _streamingStates = _streamingStates.filter { $0.value.value != nil }
-                 _streamingStates[message.id] = WeakReference(value: textLayout.streamingState)
+                 let streamingState = textLayout.streamingState
+                 _ = _streamingStates.modify { states in
+                     var states = states.filter { $0.value.value != nil }
+                     states[message.id] = WeakReference(value: streamingState)
+                     return states
+                 }
              } else {
-                 _streamingStates.removeValue(forKey: message.id)
+                 _ = _streamingStates.modify { states in
+                     var states = states
+                     states.removeValue(forKey: message.id)
+                     return states
+                 }
              }
 
              textLayout.applyRanges(selectManager.findAll(entry.stableId))
@@ -759,6 +770,9 @@ public class ChatMessageItem: ChatRowItem {
             }
             if !replacements.isEmpty {
                 layout.setAttributedString(mutable)
+                if layout.selectedRange.hasSelectText {
+                    layout.selectedRange.range = mutable.range.intersection(layout.selectedRange.range) ?? NSMakeRange(NSNotFound, 0)
+                }
             }
         }
         if hasChanges {
@@ -1081,12 +1095,8 @@ public class ChatMessageItem: ChatRowItem {
         let italicRanges = fontAttributes.compactMap { range, attr -> NSRange? in
             return attr == .italic ? range : nil
         }
-        for boldRange in boldRanges {
-            for italicRange in italicRanges {
-                if let intersection = boldRange.intersection(italicRange) {
-                    string.addAttribute(.font, value: NSFont.boldItalic(fontSize), range: intersection)
-                }
-            }
+        chatForEachBoldItalicRange(bold: boldRanges, italic: italicRanges) { intersection in
+            string.addAttribute(.font, value: NSFont.boldItalic(fontSize), range: intersection)
         }
 
         return string.copy() as! NSAttributedString

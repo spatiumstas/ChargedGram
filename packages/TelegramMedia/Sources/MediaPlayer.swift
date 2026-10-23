@@ -204,10 +204,6 @@ private final class MediaPlayerContext {
         assert(self.queue.isCurrent())
         
         self.tickTimer?.invalidate()
-        
-        if case let .seeking(_, _, _, disposable, _, _) = self.state {
-            disposable.dispose()
-        }
     }
 
     fileprivate func seek(timestamp: Double) {
@@ -245,7 +241,6 @@ private final class MediaPlayerContext {
                 return
             } else {
                 seekState = seekStateValue
-                previousDisposable.dispose()
             }
         }
 
@@ -515,9 +510,8 @@ private final class MediaPlayerContext {
             loadedState = currentLoadedState
         case let .paused(currentLoadedState):
             loadedState = currentLoadedState
-        case let .seeking(_, timestamp, _, disposable, action, _):
+        case let .seeking(_, timestamp, _, _, action, _):
             self.state = .empty
-            disposable.dispose()
             self.enableSound = !self.enableSound
             self.seek(timestamp: timestamp, action: action)
         }
@@ -551,10 +545,9 @@ private final class MediaPlayerContext {
                 loadedState = currentLoadedState
             case let .paused(currentLoadedState):
                 loadedState = currentLoadedState
-            case let .seeking(_, timestamp, _, disposable, action, _):
+            case let .seeking(_, timestamp, _, _, action, _):
                 if self.enableSound {
                     self.state = .empty
-                    disposable.dispose()
                     self.enableSound = false
                     self.seek(timestamp: timestamp, action: action)
                 }

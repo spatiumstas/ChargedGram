@@ -129,6 +129,30 @@ final class StorageUsageMediaItem : GeneralRowItem {
         return .single(_menuItems())
     }
     
+    override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    override var accessibilityValue: String? {
+        return [sizeLayout.attributedString.string, dateLayout.attributedString.string].joined(separator: ", ")
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return getSelected(message.id) != nil ? .checkBox : nil
+    }
+
+    override var accessibilityToggleState: Bool? {
+        return getSelected(message.id)
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        if getSelected(message.id) != nil {
+            toggle(message.id, nil)
+            return true
+        }
+        return (view as? TableRowView)?.accessibilityPerformShowMenu() ?? false
+    }
+
     override func viewClass() -> AnyClass {
         return StorageUsageMediaItemView.self
     }

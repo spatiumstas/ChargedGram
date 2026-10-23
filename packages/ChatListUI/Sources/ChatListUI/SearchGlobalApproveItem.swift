@@ -177,6 +177,14 @@ public final class SearchGlobalApproveItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return SearchGlobalApproveView.self
     }
+    
+    public override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+    
+    public override var accessibilityValue: String? {
+        return [infoLayout.attributedString.string, descLayout?.attributedString.string].compactMap { $0 }.joined(separator: "\n")
+    }
 }
 
 
@@ -201,6 +209,10 @@ private final class SearchGlobalApproveView : GeneralRowView {
             addSubview(titleView)
             titleView.userInteractionEnabled = false
             self.layer?.cornerRadius = 10
+        }
+        
+        override var accessibilityDefaultLabel: String? {
+            return titleView.textView.textLayout?.attributedString.string
         }
         
         required init?(coder: NSCoder) {
@@ -313,6 +325,7 @@ private final class SearchGlobalApproveView : GeneralRowView {
                             } else {
                                 current = ImageView()
                                 current.isEventLess = true
+                                current.isAccessibilityDecorative = true
                                 self.searchView = current
                                 self.addSubview(current)
                             }
@@ -327,6 +340,7 @@ private final class SearchGlobalApproveView : GeneralRowView {
                             } else {
                                 current = ImageView()
                                 current.isEventLess = true
+                                current.isAccessibilityDecorative = true
                                 self.chevronView = current
                                 self.addSubview(current)
                             }
@@ -410,6 +424,10 @@ private final class SearchGlobalApproveView : GeneralRowView {
         
         descView.userInteractionEnabled = false
         descView.isSelectable = false
+        
+        titleView.isAccessibilityDecorative = true
+        infoView.isAccessibilityDecorative = true
+        descView.isAccessibilityDecorative = true
     }
     
     required init?(coder: NSCoder) {

@@ -153,6 +153,12 @@ private var removeShownAnimation:Bool = false
 
 private let delayDisposable = MetaDisposable()
 private var shouldRemoveTooltip: Bool = true
+public func dismissTooltip(for view: NSView) {
+    guard let tooltip = view.window?.contentView?.subviews.first(where: { $0 is TooltipView }) as? TooltipView,
+          tooltip.view === view else { return }
+    tooltip.didRemoveFromWindow?()
+}
+
 public func tooltip(for view: NSView, text: String, attributedText: NSAttributedString? = nil, interactions: TextViewInteractions = TextViewInteractions(), button: (String, ()->Void)? = nil, maxWidth: CGFloat = 350, autoCorner: Bool = true, offset: NSPoint = .zero, timeout: Double = 3.0, updateText: @escaping(@escaping(String)->Bool)->Void = { _ in }, alignment: NSTextAlignment = .center, buttonSpacing: CGFloat = 5, rect: NSRect? = nil) -> Void {
     guard let window = view.window as? Window else { return }
 

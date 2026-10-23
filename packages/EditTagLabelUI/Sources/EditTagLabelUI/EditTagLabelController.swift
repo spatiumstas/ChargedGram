@@ -61,7 +61,7 @@ public func EditTagLabelController(context: any AccountContextProtocol, reaction
     
     let arguments = Arguments(context: context)
     
-    let signal = statePromise.get() |> deliverOnPrepareQueue |> map { state in
+    let signal = (statePromise.get() |> deliverOnPrepareQueue) |> map { state in
         return InputDataSignalValue(entries: entries(state, arguments: arguments))
     }
     
@@ -77,9 +77,10 @@ public func EditTagLabelController(context: any AccountContextProtocol, reaction
     }
     
     controller.validateData = { _ in
-        _ = context.engine.stickers.setSavedMessageTagTitle(reaction: reaction, title: stateValue.with { $0.value }).start()
+        let signal = context.engine.stickers.setSavedMessageTagTitle(reaction: reaction, title: stateValue.with { $0.value })
+        _ = (signal).start()
         close?()
-        _ = showModalSuccess(for: context.window, icon: theme.icons.successModalProgress, delay: 0.5).start()
+        _ = (showModalSuccess(for: context.window, icon: theme.icons.successModalProgress, delay: 0.5)).start()
         return .none
     }
     
@@ -93,6 +94,7 @@ public func EditTagLabelController(context: any AccountContextProtocol, reaction
     
     let modalController = InputDataModalController(controller, modalInteractions: modalInteractions)
     
+
     controller.leftModalHeader = ModalHeaderData(image: theme.icons.modalClose, handler: { [weak modalController] in
         modalController?.close()
     })

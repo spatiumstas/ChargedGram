@@ -63,7 +63,7 @@ private func mediaEntires(state: PeerMediaGifsState, initialSize: NSSize) -> [In
 
 
 private struct PeerMediaGifsState : Equatable {
-    let isLoading: Bool
+    var isLoading: Bool
     let messages:[Message]
     init(isLoading: Bool, messages: [Message]) {
         self.isLoading = isLoading
@@ -73,7 +73,9 @@ private struct PeerMediaGifsState : Equatable {
         return PeerMediaGifsState(isLoading: self.isLoading, messages: collection)
     }
     func withUpdatedLoading(_ isLoading: Bool) -> PeerMediaGifsState {
-        return PeerMediaGifsState(isLoading: isLoading, messages: self.messages)
+        var updated = self
+        updated.isLoading = isLoading
+        return updated
     }
 }
 
@@ -165,19 +167,8 @@ open class PeerMediaGifsController<Context: AccountContextProtocol>: TelegramGen
         self.genericView.tableView.emptyItem = PeerMediaEmptyRowItem(NSZeroSize, tags: .gif)
         
         let perPageCount:()->Int = {
-            var rowCount:Int = 4
-            var perWidth: CGFloat = 0
-            let blockWidth = min(600, initialSize.with { $0.width } - 60)
-            while true {
-                let maximum = blockWidth - 7 - 7 - CGFloat(rowCount * 2)
-                perWidth = maximum / CGFloat(rowCount)
-                if perWidth >= 90 {
-                    break
-                } else {
-                    rowCount -= 1
-                }
-            }
-            return Int((initialSize.with { $0.height } / perWidth) * CGFloat(rowCount) + CGFloat(rowCount))
+            let size = initialSize.with { $0 }
+            return PeerMediaGridSizing(width: min(600, size.width - 60) - 14, maximumColumns: 4).itemCount(height: size.height)
         }
         
         var requestCount = perPageCount() + 20
@@ -242,8 +233,8 @@ open class PeerMediaGifsController<Context: AccountContextProtocol>: TelegramGen
             // per gif so every animation gets its own cell.
             let messages = expandSharedMediaMessages(view?.entries.map { $0.message } ?? [], where: sharedMediaPredicate(for: .gif))
 
-            updateState {
-                $0.withUpdatedMessages(messages).withUpdatedLoading(false).withUpdatedLoading(isLoading)
+            updateState { _ in
+                return PeerMediaGifsState(isLoading: isLoading, messages: messages)
             }
         }))
         

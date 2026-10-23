@@ -33,7 +33,7 @@ public enum InputContextEntry : Comparable, Identifiable {
     case peer(Peer, Int, Int64)
     case contextResult(ChatContextResultCollection,ChatContextResult,Int64)
     case contextMediaResult(Int64, ChatContextResultCollection?, InputMediaContextRow, Int64)
-    case command(PeerCommand, Int64, Int64)
+    case command(ChatInputCommand, Int64, Int64)
     case sticker(InputMediaStickersRow, Int64)
     case showPeers(Int, Int64)
     case emoji([String], [TelegramMediaFile], ContextClueRowItem.Source?, Bool, Int32)

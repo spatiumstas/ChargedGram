@@ -375,6 +375,51 @@ public class RadialProgressView: Control {
         }
     }
     
+    public override var accessibilityDefaultLabel: String? {
+        switch state {
+        case .Fetching, .ImpossibleFetching:
+            return localizedString(hasHandlers ? "VoiceOver.Common.CancelDownload" : "VoiceOver.Common.Loading")
+        case .Remote:
+            return localizedString("VoiceOver.Common.Download")
+        case .Play:
+            return localizedString("VoiceOver.Common.Play")
+        default:
+            return nil
+        }
+    }
+
+    public override func isAccessibilityElement() -> Bool {
+        guard TGUIKitAccessibility.isEnabled, !isAccessibilityDecorative, !isHidden else {
+            return false
+        }
+        if case .ImpossibleFetching = state {
+            return true
+        }
+        return super.isAccessibilityElement()
+    }
+
+    public override func accessibilityRole() -> NSAccessibility.Role? {
+        if TGUIKitAccessibility.isEnabled, !hasHandlers, isAccessibilityElement() {
+            return .progressIndicator
+        }
+        return super.accessibilityRole()
+    }
+
+    public override func accessibilityValue() -> Any? {
+        if let value = super.accessibilityValue() {
+            return value
+        }
+        guard TGUIKitAccessibility.isEnabled else {
+            return nil
+        }
+        switch state {
+        case let .Fetching(progress, _), let .ImpossibleFetching(progress, _):
+            return "\(Int((progress * 100).rounded()))%"
+        default:
+            return nil
+        }
+    }
+
     public var state: RadialProgressState {
         get {
             return self.currentState

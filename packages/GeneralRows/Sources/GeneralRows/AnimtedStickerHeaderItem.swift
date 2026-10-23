@@ -6,6 +6,7 @@ import TelegramCore
 import TelegramContext
 import TelegramTheme
 import LocalAnimations
+import Localization
 
 public class AnimatedStickerHeaderItem: GeneralRowItem {
     fileprivate let context: any AccountContextProtocol
@@ -59,6 +60,18 @@ public class AnimatedStickerHeaderItem: GeneralRowItem {
     
     public override func viewClass() -> AnyClass {
         return AnimtedStickerHeaderView.self
+    }
+
+    public override var accessibilityLabel: String? {
+        let text = textLayout.attributedString.string
+        return text.isEmpty ? nil : text
+    }
+
+    public override var accessibilityValue: String? {
+        guard let text = infoLayout?.attributedString.string, !text.isEmpty else {
+            return nil
+        }
+        return text
     }
     
     public override var height: CGFloat {
@@ -177,6 +190,7 @@ private final class AnimtedStickerHeaderView : GeneralContainableRowView {
                 current = view
             } else {
                 current = ImageView(frame: item.stickerSize.bounds)
+                current.isAccessibilityDecorative = true
                 self.imageView = current
                 addSubview(current)
             }
@@ -220,6 +234,7 @@ private final class AnimtedStickerHeaderView : GeneralContainableRowView {
                 current = view
             } else {
                 current = ImageView()
+                current.isAccessibilityDecorative = true
                 self.badgeView = current
                 addSubview(current)
             }
@@ -250,6 +265,7 @@ private final class AnimtedStickerHeaderView : GeneralContainableRowView {
                 current = ImageButton()
                 current.scaleOnClick = true
                 current.autohighlight = false
+                current.setAccessibilityLabel(strings().voiceOverCommonClose)
                 self.dismissButton = current
                 addSubview(current)
             }

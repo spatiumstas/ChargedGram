@@ -157,16 +157,8 @@ public final class HashtagSearchGlobalChatContents: ChatCustomContentsProtocol {
         func messagesAtIds(_ ids: [MessageId], album: Bool) -> Signal<[Message], NoError> {
             let messages = self.mergedHistoryView?.entries.map { $0.message } ?? []
             
-            var filtered = messages.filter({ ids.contains($0.id) })
-            
-            if album {
-                let grouping = filtered.filter{ $0.groupingKey != nil }
-                for groupMessage in grouping {
-                    let additional = messages.filter { $0.groupingKey == groupMessage.groupingKey && $0.id != groupMessage.id }
-                    filtered.append(contentsOf: additional)
-                }
-            }
-            
+            let filtered = selectedMessagesWithAlbums(from: messages, ids: ids, includeAlbums: album, id: { $0.id }, groupId: { $0.groupingKey })
+
             return .single(filtered)
         }
         

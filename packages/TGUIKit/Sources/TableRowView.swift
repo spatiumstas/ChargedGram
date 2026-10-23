@@ -7,7 +7,8 @@ open class TableRowView: NSTableRowView, CALayerDelegate {
     
     private var animatedView: RowAnimateView?
 
-    private let longDisposable = MetaDisposable()
+    private var longDisposable: MetaDisposable?
+    private let animatableContentObserver = AnimatableContentObserver()
     
     public internal(set) var isResorting: Bool = false {
         didSet {
@@ -42,7 +43,9 @@ open class TableRowView: NSTableRowView, CALayerDelegate {
     
     
     open private(set) var item:TableRowItem?
-    private let menuDisposable = MetaDisposable()
+    private var menuDisposable: MetaDisposable?
+    private var menuVersion: UInt64 = 0
+    private var menuRequestActive = false
     // var selected:Bool?
     
     open var border:BorderType?
@@ -116,7 +119,135 @@ open class TableRowView: NSTableRowView, CALayerDelegate {
     }
 
     open override func isAccessibilityElement() -> Bool {
+        return TGUIKitAccessibility.isEnabled && item?.accessibilityHasContent == true && item?.accessibilityIsSpacer != true
+    }
+
+    open override func accessibilityRole() -> NSAccessibility.Role? {
+        guard TGUIKitAccessibility.isEnabled else {
+            return super.accessibilityRole()
+        }
+        return item?.accessibilityRole ?? .group
+    }
+
+    open override func accessibilityChildren() -> [Any]? {
+        guard TGUIKitAccessibility.isEnabled else {
+            return nil
+        }
+        if item?.accessibilityIsSpacer == true {
+            return []
+        }
+        if let item = item, !item.accessibilityIncludesChildren, isAccessibilityElement() {
+            return []
+        }
+        return NSAccessibility.unignoredChildren(from: subviews)
+    }
+
+    open override func accessibilityLabel() -> String? {
+        return item?.accessibilityLabel
+    }
+
+    open override func accessibilityValue() -> Any? {
+        guard let item = item else {
+            return nil
+        }
+        if let value = item.accessibilityValue {
+            return value
+        }
+        if item.accessibilityRole == .staticText {
+            return item.accessibilityLabel
+        }
+        if let toggle = item.accessibilityToggleState {
+            return NSNumber(value: toggle ? 1 : 0)
+        }
+        return nil
+    }
+
+    open override func accessibilityHelp() -> String? {
+        return item?.accessibilityHelp
+    }
+
+    open override func isAccessibilityEnabled() -> Bool {
+        return item?.accessibilityIsEnabled ?? true
+    }
+
+    open override func accessibilityPerformPress() -> Bool {
+        return item?.accessibilityPerformPress() ?? false
+    }
+
+    open override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        guard let item = item else {
+            return nil
+        }
+        let own = item.accessibilityCustomActions ?? []
+        guard TGUIKitAccessibility.isEnabled, !item.accessibilityIncludesChildren, isAccessibilityElement() else {
+            return item.accessibilityCustomActions
+        }
+        let names = Set(own.map { $0.name })
+        let hidden = hiddenControlActions().filter { !names.contains($0.name) }
+        let result = own + hidden
+        return result.isEmpty ? nil : result
+    }
+
+    public func accessibilityPressPrimaryControl() -> Bool {
+        let rowArea = bounds.width * bounds.height
+        guard rowArea > 0 else {
+            return false
+        }
+        var stack: [NSView] = subviews.reversed()
+        while let view = stack.popLast() {
+            if view.isHidden {
+                continue
+            }
+            if let control = view as? Control, !(control is TextView), control.hasHandlers, control.userInteractionEnabled, control.isEnabled, control.frame.width * control.frame.height >= rowArea * 0.5 {
+                return control.accessibilityPerformPress()
+            }
+            stack.append(contentsOf: view.subviews.reversed())
+        }
         return false
+    }
+
+    private func hiddenControlActions() -> [NSAccessibilityCustomAction] {
+        var result: [NSAccessibilityCustomAction] = []
+        var seen: Set<String> = []
+        let rowArea = bounds.width * bounds.height
+        var stack: [NSView] = subviews.reversed()
+        while let view = stack.popLast() {
+            if view.isHidden {
+                continue
+            }
+            if let control = view as? Control, !(control is TextView), control.isAccessibilityElement(), control.userInteractionEnabled, control.isEnabled {
+                let area = control.frame.width * control.frame.height
+                if rowArea > 0, area >= rowArea * 0.8 {
+                    stack.append(contentsOf: view.subviews.reversed())
+                    continue
+                }
+                var name = control.accessibilityLabel() ?? ""
+                if name.isEmpty, control.accessibilityRole() == .checkBox {
+                    name = localizedString("VoiceOver.Common.Toggle")
+                }
+                if !name.isEmpty, !seen.contains(name) {
+                    seen.insert(name)
+                    result.append(NSAccessibilityCustomAction(name: name, handler: { [weak control] in
+                        return control?.accessibilityPerformPress() ?? false
+                    }))
+                }
+                continue
+            }
+            stack.append(contentsOf: view.subviews.reversed())
+        }
+        return result
+    }
+
+    open override func accessibilityPerformShowMenu() -> Bool {
+        guard let window = window, item != nil else {
+            return false
+        }
+        let point = convert(NSMakePoint(bounds.midX, bounds.midY), to: nil)
+        guard let event = NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else {
+            return false
+        }
+        showContextMenu(event)
+        return true
     }
     
     open func draw(_ layer: CALayer, in ctx: CGContext) {
@@ -204,7 +335,10 @@ open class TableRowView: NSTableRowView, CALayerDelegate {
         super.pressureChange(with: event)
         
         if event.stage >= 1 && event.stage != lastPressureEventStage {
-            longDisposable.set(delaySignal(0.5).start(completed: { [weak self] in
+            if longDisposable == nil {
+                longDisposable = MetaDisposable()
+            }
+            longDisposable?.set(delaySignal(0.5).start(completed: { [weak self] in
                 if let strongSelf = self {
                     if NSEvent.pressedMouseButtons & (1 << 0) != 0 {
                         if strongSelf.window?.mouseLocationOutsideOfEventStream == event.locationInWindow {
@@ -216,11 +350,11 @@ open class TableRowView: NSTableRowView, CALayerDelegate {
         }
         
         if event.stage < 1 {
-            longDisposable.set(nil)
+            longDisposable?.set(nil)
         }
         
         if event.stage == 2 && lastPressureEventStage < 2 {
-            longDisposable.set(nil)
+            longDisposable?.set(nil)
             forceClick(in: convert(event.locationInWindow, from: nil))
         }
         lastPressureEventStage = event.stage
@@ -253,46 +387,71 @@ open class TableRowView: NSTableRowView, CALayerDelegate {
     open func canAnimateUpdate(_ item: TableRowItem) -> Bool {
         return true
     }
-    
-    open func showContextMenu(_ event:NSEvent) -> Void {
-        
-        menuDisposable.set(nil)
-        contextMenu = nil
-        
-        if let item = item {
-            let items = item.menuItems(in: convertWindowPointToContent(event.locationInWindow))
-                         |> deliverOnMainQueue
-                         |> take(1)
-            menuDisposable.set(combineLatest(queue: .mainQueue(), items, item.menuAdditionView).start(next: { [weak self, weak item] items, topWindow in
-                if let strongSelf = self, let item = item {
-                    let menu = ContextMenu(presentation: item.menuPresentation, isLegacy: item.isLegacyMenu)
 
-                    
-                    menu.topWindow = topWindow
-                    
-                    menu.onShow = { [weak strongSelf] menu in
-                        strongSelf?.onShowContextMenu()
-                    }
-                    menu.onClose = { [weak strongSelf] in
-                        strongSelf?.contextMenu = nil
-                        strongSelf?.onCloseContextMenu()
-                    }
-                    for item in items {
-                        menu.addItem(item)
-                    }
-                    strongSelf.contextMenu = AppMenu(menu: menu)
-                    
-                    strongSelf.contextMenu?.show(event: event, view: strongSelf)
-                    
-                }
-                
-            }))
-        }
-        
-        
+    open func applyResizeAnchor(_ anchor: TableRowResizeAnchor, transition: ContainedViewLayoutTransition) {
     }
     
-    
+    private func cancelMenuRequest() {
+        guard menuRequestActive else { return }
+        menuVersion &+= 1
+        menuRequestActive = false
+        menuDisposable?.set(nil)
+    }
+
+    open func showContextMenu(_ event: NSEvent) {
+        menuVersion &+= 1
+        let version = menuVersion
+        menuRequestActive = true
+        contextMenu = nil
+        menuDisposable?.set(nil)
+        guard menuVersion == version else { return }
+        guard let item = item else {
+            menuRequestActive = false
+            return
+        }
+        if menuDisposable == nil {
+            menuDisposable = MetaDisposable()
+        }
+        let location = convertWindowPointToContent(event.locationInWindow)
+        guard menuVersion == version else { return }
+        let items = item.menuItems(in: location) |> deliverOnMainQueue |> take(1)
+        guard menuVersion == version else { return }
+        let addition = item.menuAdditionView
+        guard menuVersion == version else { return }
+        let disposable = combineLatest(queue: .mainQueue(), items, addition).start(next: { [weak self, weak item] items, topWindow in
+            guard let self = self, let item = item, self.menuVersion == version else { return }
+            let menu = ContextMenu(presentation: item.menuPresentation, isLegacy: item.isLegacyMenu)
+            guard self.menuVersion == version else { return }
+            menu.topWindow = topWindow
+            for item in items {
+                menu.addItem(item)
+            }
+            let appMenu = AppMenu(menu: menu)
+            menu.onShow = { [weak self, weak appMenu] _ in
+                guard let self = self, let appMenu = appMenu, self.contextMenu === appMenu else { return }
+                self.onShowContextMenu()
+            }
+            menu.onClose = { [weak self, weak appMenu] in
+                guard let self = self, let appMenu = appMenu, self.contextMenu === appMenu else { return }
+                self.contextMenu = nil
+                self.cancelMenuRequest()
+                if self.contextMenu == nil {
+                    self.onCloseContextMenu()
+                }
+            }
+            self.contextMenu = appMenu
+            appMenu.show(event: event, view: self)
+        }, completed: { [weak self] in
+            guard let self = self, self.menuVersion == version else { return }
+            self.menuRequestActive = false
+        })
+        if menuVersion == version {
+            menuDisposable?.set(disposable)
+        } else {
+            disposable.dispose()
+        }
+    }
+
     open override func menu(for event: NSEvent) -> NSMenu? {
         return NSMenu()
     }
@@ -344,6 +503,7 @@ open class TableRowView: NSTableRowView, CALayerDelegate {
     
     open override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
+        _updateListeners()
         _updateAnimatableContent()
     }
     
@@ -376,8 +536,8 @@ open class TableRowView: NSTableRowView, CALayerDelegate {
     }
     
     deinit {
-        longDisposable.dispose()
-        menuDisposable.dispose()
+        longDisposable?.dispose()
+        menuDisposable?.dispose()
         removeNotificationListeners()
     }
     
@@ -400,7 +560,12 @@ open class TableRowView: NSTableRowView, CALayerDelegate {
     }
     
     open func set(item:TableRowItem, animated:Bool = false) -> Void {
-        self.item = item;
+        let cancelRequest = menuRequestActive && self.item?.stableId != item.stableId
+        self.item = item
+        if cancelRequest {
+            cancelMenuRequest()
+        }
+        guard self.item === item else { return }
         updateColors()
         self._updateAnimatableContent()
     }
@@ -480,25 +645,18 @@ open class TableRowView: NSTableRowView, CALayerDelegate {
     
     open override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if window == nil {
+            cancelMenuRequest()
+        }
         _updateListeners()
         _updateAnimatableContent()
     }
     
 
     private func _updateListeners() {
-        let center = NotificationCenter.default
-        if let window = window {
-            center.removeObserver(self)
-            center.addObserver(self, selector: #selector(_updateAnimatableContent), name: NSWindow.didBecomeKeyNotification, object: window)
-            center.addObserver(self, selector: #selector(_updateAnimatableContent), name: NSWindow.didResignKeyNotification, object: window)
-            center.addObserver(self, selector: #selector(_updateAnimatableContent), name: NSView.boundsDidChangeNotification, object: self.enclosingScrollView?.contentView)
-            center.addObserver(self, selector: #selector(_updateAnimatableContent), name: NSView.frameDidChangeNotification, object: self.enclosingScrollView?.documentView)
-            center.addObserver(self, selector: #selector(_updateAnimatableContent), name: NSView.frameDidChangeNotification, object: self)
-        } else {
-            center.removeObserver(self)
-        }
+        animatableContentObserver.update(for: self, target: self, selector: #selector(_updateAnimatableContent), options: [.contentBounds, .documentFrame, .ownFrame])
     }
-    
+
     open override func cursorUpdate(with event: NSEvent) {
         super.cursorUpdate(with: event)
         NSCursor.arrow.set()

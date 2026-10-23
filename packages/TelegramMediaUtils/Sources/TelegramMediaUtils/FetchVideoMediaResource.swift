@@ -43,49 +43,31 @@ public func fetchGifMediaResource(resource: LocalFileGifMediaResource) -> Signal
 
 
 public func fetchMovMediaResource(resource: LocalFileVideoMediaResource) -> Signal<MediaResourceDataFetchResult, MediaResourceDataFetchError> {
+    if let rendered = PendingVideoRenders.shared.result(for: resource.path) {
+        return rendered
+            |> castError(MediaResourceDataFetchError.self)
+            |> mapToSignal { success -> Signal<MediaResourceDataFetchResult, MediaResourceDataFetchError> in
+                if success {
+                    return copyMovMediaResource(resource: resource)
+                } else {
+                    return .fail(.generic)
+                }
+            }
+    }
+    return copyMovMediaResource(resource: resource)
+}
+
+private func copyMovMediaResource(resource: LocalFileVideoMediaResource) -> Signal<MediaResourceDataFetchResult, MediaResourceDataFetchError> {
     return Signal { subscriber in
         subscriber.putNext(.reset)
-        
-        
-        
-//        var cancelled: Bool = false
-//        let queue: Queue = Queue()
-//
-//        let avAsset = AVURLAsset(url: URL(fileURLWithPath: resource.path))
-        
         let exportPath = NSTemporaryDirectory() + "\(resource.randomId).mp4"
-
-        
         if FileManager.default.fileExists(atPath: exportPath) {
             removeFile(at: exportPath)
         }
-        
         try? FileManager.default.copyItem(atPath: resource.path, toPath: exportPath)
-
         subscriber.putNext(.moveLocalFile(path: exportPath))
-
         subscriber.putCompletion()
-        
-//                    break
-//                default:
-//                    break
-//                }
-//            }
-//
-//            timer = SwiftSignalKit.Timer(timeout: 0.05, repeat: true, completion: {
-//                subscriber.putNext(.progressUpdated(exportSession.progress))
-//            }, queue: queue)
-//
-//            timer?.start()
-//        }
-        
-        
-        
-        return ActionDisposable {
-//            cancelled = true
-//            exportSession?.cancelExport()
-//            timer?.invalidate()
-        }
+        return EmptyDisposable
     }
 }
 

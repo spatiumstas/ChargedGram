@@ -72,6 +72,18 @@ public class ContextSearchQuickHashtagItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return ContextSearchQuickHashtagView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return textLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return infoLayout.attributedString.string
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
     
 }
 
@@ -167,6 +179,7 @@ private class ContextSearchQuickHashtagView : TableRowView {
                         current = view
                     } else {
                         current = ImageView()
+                        current.isAccessibilityDecorative = true
                         self.isNewView = current
                         addSubview(current)
                     }
@@ -195,6 +208,7 @@ private class ContextSearchQuickHashtagView : TableRowView {
                 current = view
             } else {
                 current = ImageView()
+                current.isAccessibilityDecorative = true
                 current.setFrameSize(28, 28)
                 self.imageView = current
                 addSubview(current)

@@ -77,6 +77,15 @@ private final class TitleRowItem : GeneralRowItem {
         return 50
     }
     
+    override var accessibilityLabel: String? {
+        return headerLayout.attributedString.string
+    }
+    
+    override var accessibilityValue: String? {
+        let balance = balanceLayout.attributedString.string.replacingOccurrences(of: clown, with: "")
+        return [infoLayout.attributedString.string, balance].joined(separator: ", ")
+    }
+    
     public override func viewClass() -> AnyClass {
         return TitleRowView.self
     }
@@ -103,6 +112,7 @@ private class TitleRowView: GeneralRowView {
         
         dismiss.scaleOnClick = true
         dismiss.autohighlight = false
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
         
         dismiss.set(image: theme.icons.glass_close, for: .Normal)
         dismiss.setGlassEffect(size: NSMakeSize(36, 36))
@@ -255,6 +265,16 @@ private final class HeaderItem : GeneralRowItem {
     
     public override func viewClass() -> AnyClass {
         return HeaderView.self
+    }
+    
+    override var accessibilityLabel: String? {
+        if actions.isEmpty {
+            return strings().starAuctionPlaceBid
+        }
+        return actions.map { action in
+            let title = action.title.attributedString.string.replacingOccurrences(of: clown, with: "").trimmingCharacters(in: .whitespaces)
+            return title + " " + action.info.attributedString.string
+        }.joined(separator: ", ")
     }
     
     public override var height: CGFloat {
@@ -483,6 +503,18 @@ private final class AuctionPeerRowItem : GeneralRowItem {
         return true
     }
     
+    override var accessibilityLabel: String? {
+        return nameLayout.attributedString.string
+    }
+    
+    override var accessibilityValue: String? {
+        return "#\(peer.place), \(peer.amount.formattedWithSeparator) \(strings().voiceOverCommonStars)"
+    }
+    
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+    
     public override func viewClass() -> AnyClass {
         return AuctionPeerRowView.self
     }
@@ -503,6 +535,7 @@ private final class AuctionPeerRowView: GeneralRowView {
         addSubview(amountView)
         addSubview(placeView)
         addSubview(borderView)
+        placeView.isAccessibilityDecorative = true
         
         nameView.userInteractionEnabled = false
         nameView.isSelectable = false

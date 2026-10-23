@@ -53,6 +53,10 @@ private final class JoinCloudFolderHeaderItem : GeneralRowItem {
     override func viewClass() -> AnyClass {
         return JoinCloudFolderHeaderView.self
     }
+
+    override var accessibilityLabel: String? {
+        return nameLayout.attributedString.string
+    }
 }
 
 private final class JoinCloudFolderHeaderView : TableRowView {
@@ -769,7 +773,6 @@ public func SharedFolderClosureController(context: any AccountContextProtocol, e
 
 
     let controller = InputDataController(dataSignal: signal, title: "title")
-
     controller.onDeinit = {
         actionsDisposable.dispose()
     }

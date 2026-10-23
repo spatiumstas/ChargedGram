@@ -1,6 +1,4 @@
 import Foundation
-import AppKit
-import Strings
 
 public extension Date {
     var startOfDay: Date {
@@ -18,30 +16,23 @@ public extension Date {
     
 }
 
+private let spoilerCharacters = Array("⠁⠂⠄⠈⠐⠠⡀⢀⠃⠅⠆⠉⠊⠌⠑⠒⠔⠘⠡⠢⠤⠨⠰⡁⡂⡄⡈⡐⡠⢁⢂⢄⢈⢐⢠⣀⠇⠋⠍⠎⠓⠕⠖⠙⠚⠜⠣⠥⠦⠩⠪⠬⠱⠲⠴⠸⡃⡅⡆⡉⡊⡌⡑⡒⡔⡘⡡⡢⡤⡨⡰⢃⢅⢆⢉⢊⢌⢑⢒⢔⢘⢡⢢⢤⢨⢰⣁⣂⣄⣈⣐⣠⠏⠗⠛⠝⠞⠧⠫⠭⠮⠳⠵⠶⠹⠺⠼⡇⡋⡍⡎⡓⡕⡖⡙⡚⡜⡣⡥⡦⡩⡪⡬⡱⡲⡴⡸⢇⢋⢍⢎⢓⢕⢖⢙⢚⢜⢣⢥⢦⢩⢪⢬⢱⢲⢴⢸⣃⣅⣆⣉⣊⣌⣑⣒⣔⣘⣡⣢⣤⣨⣰⠟⠯⠷⠻⠽⠾⡏⡗⡛⡝⡞⡧⡫⡭⡮⡳⡵⡶⡹⡺⡼⢏⢗⢛⢝⢞⢧⢫⢭⢮⢳⢵⢶⢹⢺⢼⣇⣋⣍⣎⣓⣕⣖⣙⣚⣜⣣⣥⣦⣩⣪⣬⣱⣲⣴⣸⠿⡟⡯⡷⡻⡽⡾⢟⢯⢷⢻⢽⢾⣏⣗⣛⣝⣞⣧⣫⣭⣮⣳⣵⣶⣹⣺⣼⡿⢿⣟⣯⣷⣻⣽⣾⣿".utf16)
+
 public extension String {
     func spoiler(_ range: NSRange) -> String {
-        let string = self.nsstring
-        
-        var rep: String = ""
-        
-        let chars = Array("⠁⠂⠄⠈⠐⠠⡀⢀⠃⠅⠆⠉⠊⠌⠑⠒⠔⠘⠡⠢⠤⠨⠰⡁⡂⡄⡈⡐⡠⢁⢂⢄⢈⢐⢠⣀⠇⠋⠍⠎⠓⠕⠖⠙⠚⠜⠣⠥⠦⠩⠪⠬⠱⠲⠴⠸⡃⡅⡆⡉⡊⡌⡑⡒⡔⡘⡡⡢⡤⡨⡰⢃⢅⢆⢉⢊⢌⢑⢒⢔⢘⢡⢢⢤⢨⢰⣁⣂⣄⣈⣐⣠⠏⠗⠛⠝⠞⠧⠫⠭⠮⠳⠵⠶⠹⠺⠼⡇⡋⡍⡎⡓⡕⡖⡙⡚⡜⡣⡥⡦⡩⡪⡬⡱⡲⡴⡸⢇⢋⢍⢎⢓⢕⢖⢙⢚⢜⢣⢥⢦⢩⢪⢬⢱⢲⢴⢸⣃⣅⣆⣉⣊⣌⣑⣒⣔⣘⣡⣢⣤⣨⣰⠟⠯⠷⠻⠽⠾⡏⡗⡛⡝⡞⡧⡫⡭⡮⡳⡵⡶⡹⡺⡼⢏⢗⢛⢝⢞⢧⢫⢭⢮⢳⢵⢶⢹⢺⢼⣇⣋⣍⣎⣓⣕⣖⣙⣚⣜⣣⣥⣦⣩⣪⣬⣱⣲⣴⣸⠿⡟⡯⡷⡻⡽⡾⢟⢯⢷⢻⢽⢾⣏⣗⣛⣝⣞⣧⣫⣭⣮⣳⣵⣶⣹⣺⣼⡿⢿⣟⣯⣷⣻⣽⣾⣿")
-        
-        for i in 0 ..< range.length {
-            let char = string.character(at: range.location + i)
-            rep += "\(chars[Int(char) % chars.count])"
+        guard range.location >= 0, range.location != NSNotFound, range.length > 0 else {
+            return self
         }
-        if NSMakeRange(0, string.length).intersection(range) != nil {
-            return string.replacingCharacters(in: range, with: rep)
-        } else {
-            return string as String
+        var characters = Array(self.utf16)
+        guard range.location < characters.count else {
+            return self
         }
-
-//        if string.length <= range.upperBound {
-//            return string.replacingCharacters(in: range, with: rep)
-//        } else {
-//            NSLog("\(string.length), \(range.upperBound)")
-//            return string.replacingCharacters(in: NSMakeRange(range.location, string.length), with: rep)
-//        }
+        let length = min(range.length, characters.count - range.location)
+        let mapping = spoilerCharacters
+        for index in range.location ..< range.location + length {
+            characters[index] = mapping[Int(characters[index]) % mapping.count]
+        }
+        return NSString(characters: characters, length: characters.count) as String
     }
 }
 
@@ -52,7 +43,6 @@ public extension String {
     }
 }
 
-private let sharedDateFormatter = DateFormatter()
 public func makeNewDateFormatter() -> DateFormatter {
-    return sharedDateFormatter
+    return DateFormatter()
 }

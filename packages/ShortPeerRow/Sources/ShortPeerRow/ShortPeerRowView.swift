@@ -27,7 +27,10 @@ open class ShortPeerRowView: TableRowView, Notifable, ViewDisplayDelegate {
     let containerView: GeneralRowContainerView = GeneralRowContainerView(frame: NSZeroRect)
     let image:AvatarStoryControl = AvatarStoryControl(font: .avatar(.text), size: NSMakeSize(36, 36))
     
+    private weak var observedInteraction: SelectPeerInteraction?
+
     private var photoBadge: ImageView? = nil
+    private var paidMessageBadgeCache: SendPaidMessageBadgeCache?
 
     private var deleteControl:ImageButton?
     private var selectControl:SelectingControl?
@@ -36,6 +39,7 @@ open class ShortPeerRowView: TableRowView, Notifable, ViewDisplayDelegate {
     private var contextLabel:TextView?
     private var contextLabelBg:View?
     private var choiceControl:ImageView?
+    private var choiceImageStyle: (image: NSImage, color: NSColor, scale: CGFloat)?
     private var photoOuter: View?
     private var monoforumMessagesView: TextView?
      #if !SHARE
@@ -76,6 +80,7 @@ open class ShortPeerRowView: TableRowView, Notifable, ViewDisplayDelegate {
         }, for: .Normal)
         
         container.userInteractionEnabled = false
+        container.isAccessibilityDecorative = true
 
         addSubview(self.containerView)
         
@@ -673,6 +678,7 @@ open class ShortPeerRowView: TableRowView, Notifable, ViewDisplayDelegate {
             if deleteControl == nil {
                 deleteControl = ImageButton()
                 deleteControl?.autohighlight = false
+                deleteControl?.setAccessibilityLabel(strings().voiceOverCommonRemove)
                 deleteControl?.set(image: theme.icons.deleteItem, for: .Normal)
                 _ = deleteControl?.sizeToFit()
                 
@@ -703,9 +709,24 @@ open class ShortPeerRowView: TableRowView, Notifable, ViewDisplayDelegate {
         }
     }
     
+    private func updateContextLabel(_ text: String, color: NSColor, font: NSFont, alignment: NSTextAlignment = .left) -> TextViewLayout {
+        if let layout = contextLabel?.textLayout,
+           layout.attributedString.length > 0,
+           layout.string == text,
+           layout.penFlush == (alignment == .center ? 0.5 : 0),
+           layout.attributedString.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor == color,
+           layout.attributedString.attribute(.font, at: 0, effectiveRange: nil) as? NSFont == font {
+            return layout
+        }
+        let layout = TextViewLayout(.initialize(string: text, color: color, font: font), alignment: alignment)
+        layout.measure(width: .greatestFiniteMagnitude)
+        contextLabel?.update(layout)
+        return layout
+    }
+
     open override func set(item:TableRowItem, animated:Bool = false) {
         
-        let previousType:ShortPeerItemInteractionType = self.item == nil ? .plain : (self.item as? ShortPeerRowItem)!.interactionType
+        let previousType = (self.item as? ShortPeerRowItem)?.interactionType ?? .plain
 
         
         guard let item = item as? ShortPeerRowItem else {return}
@@ -715,7 +736,9 @@ open class ShortPeerRowView: TableRowView, Notifable, ViewDisplayDelegate {
             let control = PremiumStatusControl.control(item.monoforumPeer ?? item.peer, account: item.account, inlinePacksContext: item.context?.inlinePacksContext, left: false, isSelected: isRowSelected, cached: self.statusControl, animated: animated)
             if let control = control {
                 self.statusControl = control
-                self.container.addSubview(control)
+                if control.superview !== self.container {
+                    self.container.addSubview(control)
+                }
             } else if let view = self.statusControl {
                 performSubviewRemoval(view, animated: animated)
                 self.statusControl = nil
@@ -729,7 +752,9 @@ open class ShortPeerRowView: TableRowView, Notifable, ViewDisplayDelegate {
             let control = PremiumStatusControl.control(item.monoforumPeer ?? item.peer, account: item.account, inlinePacksContext: item.context?.inlinePacksContext, left: true, isSelected: isRowSelected, cached: self.leftStatusControl, animated: animated)
             if let control = control {
                 self.leftStatusControl = control
-                self.container.addSubview(control)
+                if control.superview !== self.container {
+                    self.container.addSubview(control)
+                }
             } else if let view = self.leftStatusControl {
                 performSubviewRemoval(view, animated: animated)
                 self.leftStatusControl = nil
@@ -739,15 +764,6 @@ open class ShortPeerRowView: TableRowView, Notifable, ViewDisplayDelegate {
             self.leftStatusControl = nil
         }
         #endif
-        
-        switch previousType {
-        case let .selectable(interaction, _):
-            interaction.remove(observer: self)
-        case .deletable:
-            break
-        default:
-            break
-        }
         
         super.set(item: item, animated: animated)
         
@@ -807,22 +823,16 @@ open class ShortPeerRowView: TableRowView, Notifable, ViewDisplayDelegate {
                 self?.needsDisplay = true
                 self?.activities?.view?.isHidden = !show
             })
-            container.addSubview(activities.view!)
+            if let view = activities.view, view.superview !== container {
+                container.addSubview(view)
+            }
             
         } else {
             hiddenStatus = true
             activities?.view?.removeFromSuperview()
         }
+        updateStatusSubviewOrder()
         #endif
-        
-        switch previousType {
-        case let .selectable(interaction, _), let .interactable(interaction):
-            interaction.add(observer: self)
-        case .deletable:
-            break
-        default:
-            break
-        }
         
         switch item.viewType {
         case .legacy:
@@ -860,9 +870,13 @@ open class ShortPeerRowView: TableRowView, Notifable, ViewDisplayDelegate {
         
         self.updateInteractionType(previousType, item.interactionType, item:item, animated:animated)
         
-        choiceControl?.removeFromSuperview()
-        choiceControl = nil
-        
+        if case .selectable(true) = item.type {
+        } else {
+            choiceControl?.removeFromSuperview()
+            choiceControl = nil
+            choiceImageStyle = nil
+        }
+
         switch item.type {
         case let .switchable(stateback):
             contextLabel?.removeFromSuperview()
@@ -891,9 +905,7 @@ open class ShortPeerRowView: TableRowView, Notifable, ViewDisplayDelegate {
                     containerView.addSubview(tv)
                     contextLabel = tv
                 }
-                let layout = TextViewLayout(.initialize(string: label, color: item.customTheme?.grayTextColor ?? theme.colors.grayText, font: item.statusStyle.font))
-                layout.measure(width: .greatestFiniteMagnitude)
-                contextLabel?.update(layout)
+                let layout = updateContextLabel(label, color: item.customTheme?.grayTextColor ?? theme.colors.grayText, font: item.statusStyle.font)
                 contextLabel?.setFrameSize(layout.layoutSize)
                 contextLabel?.backgroundColor = .clear
                 contextLabel?.layer?.cornerRadius = 0
@@ -926,9 +938,7 @@ open class ShortPeerRowView: TableRowView, Notifable, ViewDisplayDelegate {
                     containerView.addSubview(tv)
                     contextLabel = tv
                 }
-                let layout = TextViewLayout(.initialize(string: label, color: color, font: item.statusStyle.font), alignment: .center)
-                layout.measure(width: .greatestFiniteMagnitude)
-                contextLabel?.update(layout)
+                let layout = updateContextLabel(label, color: color, font: item.statusStyle.font, alignment: .center)
                 let padding: CGFloat = 5
                 contextLabel?.setFrameSize(NSMakeSize(layout.layoutSize.width + padding * 2, layout.layoutSize.height + 2))
                 contextLabel?.backgroundColor = color.withAlphaComponent(0.2)
@@ -956,10 +966,19 @@ open class ShortPeerRowView: TableRowView, Notifable, ViewDisplayDelegate {
             contextLabelBg?.removeFromSuperview()
             contextLabelBg = nil
             if stateback {
-                choiceControl = ImageView()
-                choiceControl?.image = TelegramThemeHooks.shared.image(.iconUsernameAvailability).precomposed(item.customTheme?.accentColor ?? theme.colors.accent)
-                choiceControl?.sizeToFit()
-                containerView.addSubview(choiceControl!)
+                if choiceControl == nil {
+                    choiceControl = ImageView()
+                    choiceControl?.isAccessibilityDecorative = true
+                    containerView.addSubview(choiceControl!)
+                }
+                let image = TelegramThemeHooks.shared.image(.iconUsernameAvailability)
+                let color = item.customTheme?.accentColor ?? theme.colors.accent
+                let scale = System.backingScale
+                if choiceImageStyle?.image !== image || choiceImageStyle?.color != color || choiceImageStyle?.scale != scale {
+                    choiceControl?.image = image.precomposed(color, scale: scale)
+                    choiceControl?.sizeToFit()
+                    choiceImageStyle = (image, color, scale)
+                }
             }
         default:
             switchView?.removeFromSuperview()
@@ -1018,12 +1037,14 @@ open class ShortPeerRowView: TableRowView, Notifable, ViewDisplayDelegate {
             for (i, action) in item.rightActions.actions.enumerated() {
                 let view = self.rightsActions[i]
                 view.set(image: action.icon, for: .Normal)
+                view.setAccessibilityLabel(action.accessibilityLabel)
                 view.scaleOnClick = true
                 view.autohighlight = false
                 view.sizeToFit()
+                let actionIndex = action.index
                 view.setSingle(handler: { [weak item] _ in
                     if let item {
-                        item.rightActions.callback(item.peerId, i)
+                        item.rightActions.callback(item.peerId, actionIndex)
                     }
                 }, for: .Click)
             }
@@ -1068,7 +1089,38 @@ open class ShortPeerRowView: TableRowView, Notifable, ViewDisplayDelegate {
         self.container.setNeedsDisplayLayer()
         
         
-        viewDidMoveToSuperview()
+        updateInteractionObserver()
+    }
+    
+    #if !SHARE
+    private func updateStatusSubviewOrder() {
+        let activityView = activities?.view
+        let statusViews: (NSView?, NSView?, NSView?) = (statusControl, leftStatusControl, activityView?.superview === container ? activityView : nil)
+        switch statusViews {
+        case (nil, nil, nil):
+            return
+        case let (view?, nil, nil), let (nil, view?, nil), let (nil, nil, view?):
+            container.addSubview(view)
+            return
+        default:
+            break
+        }
+        let views = [statusViews.0, statusViews.1, statusViews.2].compactMap { $0 }
+        let subviews = container.subviews
+        if subviews.count < views.count || !zip(subviews.suffix(views.count), views).allSatisfy({ $0 === $1 }) {
+            for view in views {
+                container.addSubview(view)
+            }
+        }
+    }
+    #endif
+
+    public func accessibilityPressContextLabel() -> Bool {
+        guard let item = item as? ShortPeerRowItem, let badgeAction = item.badgeAction, let contextLabel = contextLabel, contextLabel.userInteractionEnabled else {
+            return false
+        }
+        badgeAction(contextLabel)
+        return true
     }
     
     open func invokeAction(_ item: ShortPeerRowItem, clickCount: Int) {
@@ -1119,6 +1171,7 @@ open class ShortPeerRowView: TableRowView, Notifable, ViewDisplayDelegate {
             } else if let view = self.photoBadge {
                 performSubviewRemoval(view, animated: animated, scale: true)
                 self.photoBadge = nil
+                self.paidMessageBadgeCache = nil
             }
         }
         needsLayout = true
@@ -1134,15 +1187,27 @@ open class ShortPeerRowView: TableRowView, Notifable, ViewDisplayDelegate {
                 current = view
             } else {
                 current = ImageView()
+                current.isAccessibilityDecorative = true
                 addSubview(current)
                 self.photoBadge = current
                 isNew = true
             }
             if let drawStarsPaid = item.drawStarsPaid {
-                current.image = generalSendPaidMessage(bgColor: theme.colors.accent, outerColor: theme.colors.background, imageColor: theme.colors.underSelectedColor, count: .initialize(string: drawStarsPaid.value.prettyNumber, color: theme.colors.underSelectedColor, font: .avatar(.small)))
+                let cache: SendPaidMessageBadgeCache
+                if let current = paidMessageBadgeCache {
+                    cache = current
+                } else {
+                    cache = SendPaidMessageBadgeCache()
+                    paidMessageBadgeCache = cache
+                }
+                let badgeImage = cache.image(text: drawStarsPaid.value.prettyNumber, bgColor: theme.colors.accent, outerColor: theme.colors.background, imageColor: theme.colors.underSelectedColor, font: .avatar(.small))
+                if current.image !== badgeImage {
+                    current.image = badgeImage
+                }
                 current.sizeToFit()
                 current.setFrameOrigin(NSMakePoint(self.image.bounds.minX + (self.image.bounds.width - current.frame.width) / 2, self.image.bounds.midY + 5))
             } else {
+                paidMessageBadgeCache = nil
                 current.image = theme.icons.premium_required_forward
                 current.sizeToFit()
                 current.setFrameOrigin(NSMakePoint(self.image.bounds.maxX - current.frame.width / 2 + 5, self.image.bounds.midY + 5))
@@ -1155,6 +1220,7 @@ open class ShortPeerRowView: TableRowView, Notifable, ViewDisplayDelegate {
         } else if let view = self.photoBadge {
             performSubviewRemoval(view, animated: animated, scale: true)
             self.photoBadge = nil
+            self.paidMessageBadgeCache = nil
         }
     }
     
@@ -1167,24 +1233,31 @@ open class ShortPeerRowView: TableRowView, Notifable, ViewDisplayDelegate {
         return false
     }
     
-    open override func viewDidMoveToSuperview() {
-        
-        if let item = item as? ShortPeerRowItem {
+    private func updateInteractionObserver() {
+        let interaction: SelectPeerInteraction?
+        if superview != nil, let item = item as? ShortPeerRowItem {
             switch item.interactionType {
-            case let .selectable(interaction, _), let .interactable(interaction):
-                if superview == nil {
-                    interaction.remove(observer: self)
-                } else {
-                    interaction.add(observer: self)
-                }
-            case .deletable:
-                break
+            case let .selectable(value, _), let .interactable(value):
+                interaction = value
             default:
-                break
+                interaction = nil
             }
+        } else {
+            interaction = nil
         }
-        
-       
+        if observedInteraction !== interaction {
+            observedInteraction?.remove(observer: self)
+            observedInteraction = interaction
+            interaction?.add(observer: self)
+        }
     }
-    
+
+    open override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        updateInteractionObserver()
+    }
+
+    deinit {
+        observedInteraction?.remove(observer: self)
+    }
 }

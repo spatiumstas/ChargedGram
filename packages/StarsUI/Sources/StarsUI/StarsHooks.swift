@@ -19,6 +19,7 @@ public enum StarsStickerPlayback {
 
 public protocol StarsStickerView: AnyObject {
     var overridePlayValue: Bool? { get set }
+    var starsStickerReady: Signal<Bool, NoError> { get }
     func updateStarsSticker(file: TelegramMediaFile, size: NSSize, context: any AccountContextProtocol, colors: [LottieColor], playback: StarsStickerPlayback, animated: Bool)
 }
 public protocol StarsLiveMessagePreviewRow: TableRowItem {
@@ -53,7 +54,20 @@ public struct StarsHooks {
     public let makeCraftingAreaItem: (NSSize, AnyHashable, GiftCraftingAreaData) -> TableRowItem
     public let makeAvatarMenuItem: (any AccountContextProtocol, Peer) -> ContextMenuItem?
     public let openTonBalance: (any AccountContextProtocol, Int64?) -> Void
-    public let selectPeerToTransfer: (any AccountContextProtocol, Window, String, StarGift.UniqueGift?, StarGiftReference?, Int32?) -> Signal<[PeerId], NoError>
+    public let giftTransferBlockchainOption: (any AccountContextProtocol, Window, StarGift.UniqueGift, StarGiftReference, ProfileGiftsContext) -> (title: String, icon: NSImage, action: () -> Void)?
+    public let giftMoveToGiftsAction: (any AccountContextProtocol, Window, StarGift.UniqueGift) -> (() -> Void)?
+    public var giftTransferBlockchainOptionWithContext: ((any AccountContextProtocol, Window, StarGift.UniqueGift, StarGiftReference, ProfileGiftsContext) -> (title: String, icon: NSImage, action: () -> Void)?)?
+
+    public func giftTransferBlockchainOptionObserved(_ context: any AccountContextProtocol, _ window: Window, _ gift: StarGift.UniqueGift, _ reference: StarGiftReference, _ giftsContext: ProfileGiftsContext) -> (title: String, icon: NSImage, action: () -> Void)? {
+        if let giftTransferBlockchainOptionWithContext {
+            return giftTransferBlockchainOptionWithContext(context, window, gift, reference, giftsContext)
+        }
+        guard let option = giftTransferBlockchainOption(context, window, gift, reference, giftsContext) else { return nil }
+        return (title: option.title, icon: option.icon, action: {
+            option.action()
+        })
+    }
+
     public let selectContact: (any AccountContextProtocol, Window, String, @escaping ([PeerId]) -> Signal<Bool, NoError>) -> Signal<[PeerId], NoError>
     public let openMultigift: (any AccountContextProtocol, Bool) -> Void
     public let openStarMonetization: (any AccountContextProtocol, PeerId, StarsRevenueStatsContext?) -> Void
@@ -88,7 +102,8 @@ public struct StarsHooks {
                 openMiniApp: @escaping (any AccountContextProtocol, EnginePeer) -> Void,
                 makeAvatarMenuItem: @escaping (any AccountContextProtocol, Peer) -> ContextMenuItem?,
                 openTonBalance: @escaping (any AccountContextProtocol, Int64?) -> Void,
-                selectPeerToTransfer: @escaping (any AccountContextProtocol, Window, String, StarGift.UniqueGift?, StarGiftReference?, Int32?) -> Signal<[PeerId], NoError>,
+                giftTransferBlockchainOption: @escaping (any AccountContextProtocol, Window, StarGift.UniqueGift, StarGiftReference, ProfileGiftsContext) -> (title: String, icon: NSImage, action: () -> Void)?,
+                giftMoveToGiftsAction: @escaping (any AccountContextProtocol, Window, StarGift.UniqueGift) -> (() -> Void)?,
                 selectContact: @escaping (any AccountContextProtocol, Window, String, @escaping ([PeerId]) -> Signal<Bool, NoError>) -> Signal<[PeerId], NoError>,
                 openMultigift: @escaping (any AccountContextProtocol, Bool) -> Void,
                 openStarMonetization: @escaping (any AccountContextProtocol, PeerId, StarsRevenueStatsContext?) -> Void,
@@ -126,7 +141,8 @@ public struct StarsHooks {
         self.makeCraftingAreaItem = makeCraftingAreaItem
         self.makeAvatarMenuItem = makeAvatarMenuItem
         self.openTonBalance = openTonBalance
-        self.selectPeerToTransfer = selectPeerToTransfer
+        self.giftTransferBlockchainOption = giftTransferBlockchainOption
+        self.giftMoveToGiftsAction = giftMoveToGiftsAction
         self.selectContact = selectContact
         self.openMultigift = openMultigift
         self.openStarMonetization = openStarMonetization

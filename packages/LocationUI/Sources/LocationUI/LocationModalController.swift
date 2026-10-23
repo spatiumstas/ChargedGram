@@ -40,6 +40,7 @@ private final class LocationPinView : View {
         super.init(frame: frameRect)
         addSubview(locationPin)
         addSubview(dotView)
+        locationPin.isAccessibilityDecorative = true
         dotView.layer?.cornerRadius = 2
         updateLocalizationAndTheme(theme: theme)
     }
@@ -119,6 +120,9 @@ private final class LocationMapView : View {
         addSubview(locationPinView)
 
         locateButton.scaleOnClick = true
+
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
+        locateButton.setAccessibilityLabel(strings().voiceOverCommonLocation)
     }
     
     fileprivate func getSelectedLocation() -> CLLocation? {
@@ -179,6 +183,7 @@ private final class LocationMapView : View {
             locationPinView.change(opacity: 1, animated: animated)
             locationPinView.updateState(pickState, animated: animated)
             expandButton.set(text: strings().locationSendShowNearby, for: .Normal)
+            expandContainer.setAccessibilityLabel(strings().locationSendShowNearby)
             tableView.change(size: NSMakeSize(frame.width, 60), animated: animated, timingFunction: CAMediaTimingFunctionName.spring)
             tableView.change(pos: NSMakePoint(0, frame.height - 60 - (hasExpand ? expandContainer.frame.height : 0)), animated: animated, duration: duration, timingFunction: timingFunction)
             mapY = 0
@@ -195,6 +200,7 @@ private final class LocationMapView : View {
             locateButton.set(image: theme.icons.locationMapLocate, for: .Normal)
             locationPinView.change(opacity: 0, animated: animated)
             expandButton.set(text: strings().locationSendHideNearby, for: .Normal)
+            expandContainer.setAccessibilityLabel(strings().locationSendHideNearby)
             let tableHeight = min(tableView.listHeight, frame.height - (hasExpand ? expandContainer.frame.height : 0) - 50)
             tableView.change(size: NSMakeSize(frame.width, tableHeight), animated: animated, duration: duration, timingFunction: timingFunction)
             tableView.change(pos: NSMakePoint(0, frame.height - (hasExpand ? expandContainer.frame.height : 0) - tableHeight), animated: animated, duration: duration, timingFunction: timingFunction)
@@ -516,9 +522,14 @@ public class LocationModalController: ModalViewController {
     private let requestDisposable = MetaDisposable()
     private let statePromise:Promise<LocationViewState> = Promise()
     private let destination: SelectLocationDestination
+    private var isClosed = false
+    private var hasSelected = false
     public var selectCallback: ((TelegramMediaMap) -> Void)?
     private var collapseNearby: (() -> Void)?
     public init(_ chatInteraction: any LocationChatInteraction, destination: SelectLocationDestination = .chat) {
+        let context = chatInteraction.locationContext
+        let peerId = destination == .chat ? chatInteraction.locationPeerId : context.peerId
+
         self.chatInteraction = chatInteraction
         self.destination = destination
         super.init(frame: NSMakeRect(0, 0, 360, 380))
@@ -551,12 +562,14 @@ public class LocationModalController: ModalViewController {
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         window?.set(mouseHandler: { [weak self] _ -> KeyHandlerResult in
-            self?.delegate.isPinRaised = true
+            guard let self else { return .rejected }
+            self.delegate.isPinRaised = true
             return .rejected
         }, with: self, for: .leftMouseDragged, priority: .modal)
         
         let collapseOnMapEvent: (NSEvent) -> KeyHandlerResult = { [weak self] event in
-            if let self, self.genericView.hitsMapWhileExpanded(event) {
+            guard let self else { return .rejected }
+            if self.genericView.hitsMapWhileExpanded(event) {
                 self.collapseNearby?()
             }
             return .rejected
@@ -566,60 +579,42 @@ public class LocationModalController: ModalViewController {
     }
     
     public override func close(animationType: ModalAnimationCloseBehaviour = .common) {
+        isClosed = true
+        disposable.set(nil)
+        sendDisposable.set(nil)
+        requestDisposable.set(nil)
         super.close(animationType: animationType)
     }
 
     private func sendLocation(_ media: TelegramMediaMap? = nil) {
-
-        let invoke:()->Void = { [weak self] in
-            guard let self else {
-                return
-            }
-            if let selectCallback = self.selectCallback {
-                self.sendDisposable.set((statePromise.get() |> deliverOnMainQueue).start(next: { [weak self] state in
-                    switch state {
-                    case let .normal(picked):
-                        if let location = picked.location {
-                            let map = TelegramMediaMap(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude, heading: nil, accuracyRadius: nil, venue: nil, liveBroadcastingTimeout: nil, liveProximityNotificationRadius: nil)
-                            selectCallback(map)
-                            self?.close()
-                        }
-                    case let .expanded(location):
-                        if let media = media {
-                            selectCallback(media)
-                            self?.close()
-                        } else if let location = location {
-                            let map = TelegramMediaMap(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude, heading: nil, accuracyRadius: nil, venue: nil, liveBroadcastingTimeout: nil, liveProximityNotificationRadius: nil)
-                            selectCallback(map)
-                            self?.close()
-                        }
-                    }
-                }))
-                return
-            }
-            self.sendDisposable.set((statePromise.get() |> deliverOnMainQueue).start(next: { [weak self] state in
+        guard !isClosed, !hasSelected else { return }
+        let invoke: () -> Void = { [weak self] in
+            guard let self, !self.isClosed, !self.hasSelected else { return }
+            let selection = self.statePromise.get() |> map { state -> TelegramMediaMap? in
                 switch state {
                 case let .normal(picked):
-                    if let location = picked.location {
-                        self?.chatInteraction.sendPickedLocation(location.coordinate, nil)
-                        self?.close()
-                    }
+                    guard let location = picked.location else { return nil }
+                    return TelegramMediaMap(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude, heading: nil, accuracyRadius: nil, venue: nil, liveBroadcastingTimeout: nil, liveProximityNotificationRadius: nil)
                 case let .expanded(location):
-                    if let media = media {
-                        let coordinate = CLLocationCoordinate2D(latitude: media.latitude, longitude: media.longitude)
-                        self?.chatInteraction.sendPickedLocation(coordinate, media.venue)
-                        self?.close()
-                    } else if let location = location {
-                        self?.chatInteraction.sendPickedLocation(location.coordinate, nil)
-                        self?.close()
-                    }
+                    if let media { return media }
+                    guard let location else { return nil }
+                    return TelegramMediaMap(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude, heading: nil, accuracyRadius: nil, venue: nil, liveBroadcastingTimeout: nil, liveProximityNotificationRadius: nil)
                 }
+            } |> filter { $0 != nil } |> take(1) |> deliverOnMainQueue
+            self.sendDisposable.set((selection).start(next: { [weak self] media in
+                guard let self, let media, !self.isClosed, !self.hasSelected else { return }
+                self.hasSelected = true
+                if let selectCallback = self.selectCallback {
+                    selectCallback(media)
+                } else {
+                    self.chatInteraction.sendPickedLocation(CLLocationCoordinate2D(latitude: media.latitude, longitude: media.longitude), media.venue)
+                }
+                self.close()
             }))
         }
-        
-        LocationHooks.shared.confirmSend(self.chatInteraction, invoke)
+        LocationHooks.shared.confirmSendObserved(self.chatInteraction, invoke: invoke)
     }
-    
+
     public override func returnKeyAction() -> KeyHandlerResult {
         sendLocation()
         return .invoked
@@ -778,7 +773,7 @@ public class LocationModalController: ModalViewController {
             toggleExpand(.normal(.user(self.genericView.mapView.userLocation.location)))
         }
         
-        disposable.set(transition.start(next: { [weak self] transition, loading, expanded, hasVenues in
+        disposable.set((transition).start(next: { [weak self] transition, loading, expanded, hasVenues in
             guard let `self` = self else {return}
             self.genericView.tableView.merge(with: transition)
             switch expanded {
@@ -792,7 +787,7 @@ public class LocationModalController: ModalViewController {
         }))
 
         let request = requestUserLocation() |> deliverOnMainQueue
-        requestDisposable.set(request.start(next: { [weak self] result in
+        requestDisposable.set((request).start(next: { [weak self] result in
             self?.genericView.mapView.showsUserLocation = true
         }, error: { [weak self] error in
             self?.delegate.cancelRequestLocation()

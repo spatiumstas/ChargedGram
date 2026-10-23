@@ -44,6 +44,37 @@ public final class ChatListGraceRowItem : GeneralRowItem {
         return ChatListGraceRowView.self
     }
 
+    public override var accessibilityLabel: String? {
+        return title.attributedString.string
+    }
+    
+    public override var accessibilityValue: String? {
+        return info.attributedString.string
+    }
+    
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+    
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+    
+    public override func accessibilityPerformPress() -> Bool {
+        invoke()
+        return true
+    }
+    
+    public override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        guard canClose else {
+            return nil
+        }
+        return [NSAccessibilityCustomAction(name: strings().voiceOverCommonClose, handler: { [weak self] in
+            self?.dismiss()
+            return true
+        })]
+    }
+
     public override var height: CGFloat {
         return 5 + 8 + title.layoutSize.height + 3 + info.layoutSize.height + 8
     }
@@ -70,6 +101,7 @@ private final class ChatListGraceRowView: TableRowView {
         container.addSubview(infoView)
         container.addSubview(overlay)
         container.addSubview(dismiss)
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
         titleView.userInteractionEnabled = false
         titleView.isSelectable = false
 
@@ -119,6 +151,7 @@ private final class ChatListGraceRowView: TableRowView {
 
         self.titleView.update(item.title)
         self.infoView.update(item.info)
+        overlay.setAccessibilityLabel(item.title.attributedString.string)
 
         dismiss.set(image: TelegramThemeHooks.shared.image(.iconVoiceChatTooltipClose).precomposed(theme.colors.grayIcon), for: .Normal)
         dismiss.autohighlight = false

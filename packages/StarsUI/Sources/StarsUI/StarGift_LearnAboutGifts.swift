@@ -40,6 +40,10 @@ private final class HeaderItem : GeneralRowItem {
         self.arguments = arguments
         super.init(initialSize, stableId: stableId)
     }
+
+    public override var accessibilityLabel: String? {
+        return strings().starGiftLearnAboutTitle
+    }
     
     public override func viewClass() -> AnyClass {
         return HeaderItemView.self
@@ -87,6 +91,7 @@ private final class HeaderItemView : GeneralRowView {
         dismiss.setGlassEffect(size: NSMakeSize(36, 36))
         dismiss.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
         dismiss.scaleOnClick = true
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
         
         dismiss.setSingle(handler: { [weak item] _ in
             item?.arguments.dismiss()

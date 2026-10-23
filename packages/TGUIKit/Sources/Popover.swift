@@ -235,7 +235,7 @@ open class Popover: NSObject {
                     strongSelf.background.backgroundColor = .clear
 
                     strongSelf.overlay = OverlayControl(frame: NSMakeRect(contentRect.minX, contentRect.minY, controller.frame.width , controller.frame.height ))
-                    strongSelf.overlay.backgroundColor = presentation.colors.background
+                    strongSelf.overlay.backgroundColor = controller.popoverBackgroundColor
                     strongSelf.updatePopoverFrame()
                     strongSelf.overlay.layer?.opacity = 0.99
                     

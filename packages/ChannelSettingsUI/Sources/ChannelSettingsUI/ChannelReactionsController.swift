@@ -45,6 +45,10 @@ private final class ReactionsRowItem : GeneralRowItem {
     override func viewClass() -> AnyClass {
         return ReactionsRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return strings().channelReactionsPlaceholder
+    }
     
     
     override var height: CGFloat {

@@ -1,6 +1,10 @@
 import Cocoa
 import TGUIKit
+import InlineStickerLayer
+import TelegramCore
+import Postbox
 import CoreText
+import CoreImage
 import SwiftSignalKit
 import TelegramMedia
 import TelegramTheme
@@ -10,6 +14,7 @@ import SceneEffects
 import Metal
 import MetalEngine
 import Localization
+import WalletContext
 
 private let walletCardBaseColor = NSColor(rgb: 0x0088ff)
 private let walletCardSecondaryColor = NSColor(rgb: 0x6ddcff)
@@ -173,22 +178,98 @@ private func walletCardEdgeColor(diffuse: CGFloat) -> CGColor {
 
 private let walletCardBevelSteps = 256
 
-private let walletCardBevelLevels: [UInt8] = {
+private let walletCardStockRing = WalletRGB(0.047, 0.451, 0.835)
+
+@available(macOS 10.15, *)
+private struct WalletCardStylePalette {
+    let surface: WalletCardSurfacePalette
+    let accent: NSColor
+    let address: NSColor
+    let edge: [WalletRGB]
+    let bevelLevels: [UInt8]
+    let ring: WalletRGB
+    let base: NSColor
+
+    private static var cache: [String: WalletCardStylePalette] = [:]
+
+    static func make(_ style: WalletContext.CardGiftStyle?) -> WalletCardStylePalette {
+        let key = walletCardStyleKey(style)
+        if let cached = cache[key] {
+            return cached
+        }
+        let edgeLight: CGFloat = 1.0 / hypot(0.35, 1.0)
+        let stockEdge = [walletCardEdgeColor(diffuse: 0.5 + 0.5 * edgeLight), walletCardEdgeColor(diffuse: 0.5 - 0.5 * edgeLight)].map { WalletRGB(NSColor(cgColor: $0) ?? walletCardBaseColor) }
+        let value: WalletCardStylePalette
+        if let style {
+            let tint = WalletCardTint(style)
+            let map: (WalletRGB) -> WalletRGB = { tint.surface($0, material: true) }
+            value = WalletCardStylePalette(surface: WalletCardSurfacePalette(key: key, map: map), accent: tint.accent, address: tint.address.withAlphaComponent(0.8), edge: stockEdge.map(map), bevelLevels: walletCardMakeBevelLevels(map: map), ring: tint.surface(walletCardStockRing, material: false), base: map(WalletRGB(walletCardBaseColor)).color)
+        } else {
+            value = WalletCardStylePalette(surface: .stock, accent: walletCardSecondaryColor, address: walletCardAddressColor, edge: stockEdge, bevelLevels: walletCardBevelLevels, ring: walletCardStockRing, base: walletCardBaseColor)
+        }
+        cache[key] = value
+        return value
+    }
+}
+
+@available(macOS 10.15, *)
+private func walletCardStyleTint(from: WalletContext.CardGiftStyle?, to: WalletContext.CardGiftStyle?, source: WalletCardStylePalette, target: WalletCardStylePalette, mix: CGFloat) -> (color: NSColor, amount: CGFloat)? {
+    guard from != nil || to != nil else {
+        return nil
+    }
+    let tintFrom = from != nil ? source.accent : target.accent
+    let tintTo = to != nil ? target.accent : source.accent
+    let amount = (from == nil ? 0 : 1) * (1 - mix) + (to == nil ? 0 : 1) * mix
+    return (walletCardMixColor(tintFrom, tintTo, mix), amount * 0.7)
+}
+
+private func walletCardMixColor(_ a: NSColor, _ b: NSColor, _ t: CGFloat) -> NSColor {
+    if t <= 0.0005 {
+        return a
+    }
+    if t >= 0.9995 {
+        return b
+    }
+    let ca = a.usingColorSpace(.sRGB) ?? a, cb = b.usingColorSpace(.sRGB) ?? b
+    return NSColor(srgbRed: ca.redComponent + (cb.redComponent - ca.redComponent) * t, green: ca.greenComponent + (cb.greenComponent - ca.greenComponent) * t, blue: ca.blueComponent + (cb.blueComponent - ca.blueComponent) * t, alpha: ca.alphaComponent + (cb.alphaComponent - ca.alphaComponent) * t)
+}
+
+private func walletCardMixLevels(_ a: [UInt8], _ b: [UInt8], _ t: CGFloat) -> [UInt8] {
+    if t <= 0.0005 {
+        return a
+    }
+    if t >= 0.9995 {
+        return b
+    }
+    return zip(a, b).map { UInt8(max(0, min(255, (CGFloat($0) + (CGFloat($1) - CGFloat($0)) * t).rounded()))) }
+}
+
+private func walletCardMakeBevelLevels(map: ((WalletRGB) -> WalletRGB)?) -> [UInt8] {
     let baseColor = walletCardBaseColor.usingColorSpace(.sRGB) ?? walletCardBaseColor
     let base = [baseColor.redComponent, baseColor.greenComponent, baseColor.blueComponent].map { value -> CGFloat in
         return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
     }
-    let baseMaterial = walletCardMaterialColor(base)
+    var baseMaterial = walletCardMaterialColor(base)
+    if let map {
+        let mapped = map(WalletRGB(baseMaterial[0], baseMaterial[1], baseMaterial[2]))
+        baseMaterial = [mapped.r, mapped.g, mapped.b]
+    }
     var levels = [UInt8](repeating: 0, count: (walletCardBevelSteps + 1) * 3)
     for step in 0 ... walletCardBevelSteps {
         let weight = walletCardBevelWeight(lightDot: CGFloat(step) / CGFloat(walletCardBevelSteps))
-        let lit = walletCardMaterialColor([base[0] + 0.10 * weight, base[1] + 0.36 * weight, base[2] + 0.85 * weight])
+        var lit = walletCardMaterialColor([base[0] + 0.10 * weight, base[1] + 0.36 * weight, base[2] + 0.85 * weight])
+        if let map {
+            let mapped = map(WalletRGB(lit[0], lit[1], lit[2]))
+            lit = [mapped.r, mapped.g, mapped.b]
+        }
         for channel in 0 ..< 3 {
             levels[step * 3 + channel] = UInt8(max(0.0, min(255.0, ((lit[channel] - baseMaterial[channel]) * 0.725 * 255.0).rounded())))
         }
     }
     return levels
-}()
+}
+
+private let walletCardBevelLevels: [UInt8] = walletCardMakeBevelLevels(map: nil)
 
 func walletCardBevelLight(surface: CGPoint) -> CGPoint {
     let x = -0.45 - 0.9 * surface.x
@@ -201,7 +282,7 @@ func walletCardBevelWeight(lightDot: CGFloat) -> CGFloat {
     return 0.03 + 0.26 * max(lightDot, 0.0)
 }
 
-private func walletCardBevelImage(size: NSSize, cornerRadius: CGFloat, surface: CGPoint) -> CGImage? {
+private func walletCardBevelImage(size: NSSize, cornerRadius: CGFloat, surface: CGPoint, levels: [UInt8]) -> CGImage? {
     let width = max(2, Int(ceil(size.width / 4.0)))
     let height = max(2, Int(ceil(size.height / 4.0)))
     let light = walletCardBevelLight(surface: surface)
@@ -216,9 +297,9 @@ private func walletCardBevelImage(size: NSSize, cornerRadius: CGFloat, surface: 
             let lightDot = max(0.0, min(1.0, normal.x * light.x + normal.y * light.y))
             let level = Int((lightDot * CGFloat(walletCardBevelSteps)).rounded()) * 3
             let offset = py * bytesPerRow + px * 4
-            pixels[offset] = walletCardBevelLevels[level]
-            pixels[offset + 1] = walletCardBevelLevels[level + 1]
-            pixels[offset + 2] = walletCardBevelLevels[level + 2]
+            pixels[offset] = levels[level]
+            pixels[offset + 1] = levels[level + 1]
+            pixels[offset + 2] = levels[level + 2]
             pixels[offset + 3] = 255
         }
     }
@@ -296,11 +377,11 @@ private func walletCardAddressLines(_ address: String) -> [String] {
     return lines
 }
 
-private func walletCardAddressImage(_ address: String, scale: CGFloat) -> (CGImage, NSSize)? {
-    return walletCardAddressImage(lines: walletCardAddressLines(address).map { line in line.map { (character: $0, isSettled: true) } }, scale: scale)
+private func walletCardAddressImage(_ address: String, scale: CGFloat, color: NSColor = walletCardAddressColor) -> (CGImage, NSSize)? {
+    return walletCardAddressImage(lines: walletCardAddressLines(address).map { line in line.map { (character: $0, isSettled: true) } }, scale: scale, color: color)
 }
 
-private func walletCardAddressImage(lines: [[(character: Character, isSettled: Bool)]], scale: CGFloat) -> (CGImage, NSSize)? {
+private func walletCardAddressImage(lines: [[(character: Character, isSettled: Bool)]], scale: CGFloat, color: NSColor = walletCardAddressColor) -> (CGImage, NSSize)? {
     if lines.isEmpty {
         return nil
     }
@@ -315,7 +396,7 @@ private func walletCardAddressImage(lines: [[(character: Character, isSettled: B
         return TextNode.layoutText(text, nil, 1, .end, NSMakeSize(.greatestFiniteMagnitude, .greatestFiniteMagnitude), nil, false, .left)
     }
 
-    let mainNodes = lines.map { makeNode($0, walletCardAddressColor) }
+    let mainNodes = lines.map { makeNode($0, color) }
     let outlineNodes = lines.map { makeNode($0, NSColor.white.withAlphaComponent(0.1)) }
 
     let lineSpacing: CGFloat = -0.05 * scale
@@ -431,6 +512,40 @@ public final class WalletCardView: View {
     private var introAnimator: ConstantDisplayLinkAnimator?
     private var digitRolls: [WalletDigitRoll] = []
     private var addressReveal: WalletAddressReveal?
+    private let stickerView = View()
+    private let stickerHintLayer = CAShapeLayer()
+    private let stickerMaskLayer = SimpleLayer()
+    private var stickerMaskKey: String?
+    private var stickers: [WalletContext.CardSticker] = []
+    private var hiddenStickers: Set<String> = []
+    private var stickerLayers: [String: WalletCardStickerLayer] = [:]
+    private var stickerPlayers: [String: InlineStickerItemLayer] = [:]
+    private var stickerGrow: [String: CGFloat] = [:]
+    private var isStickerInteraction = false
+    var stickerTracking: ((String, NSEvent) -> Bool)?
+    var stickerMenu: ((String, NSEvent) -> Void)?
+    private var selectedStickerId: String?
+    private let stickerSelectionView = View()
+    private let stickerSelectionLayer = WalletCardStickerSelectionLayer()
+    private var stickerCursor: WalletCardStickerSelectionHit?
+    var stickerSelectionTracking: ((WalletCardStickerSelectionHit, NSEvent) -> Void)?
+    var stickerSelectionCleared: (() -> Void)?
+    var stickerGesture: ((NSEvent) -> Bool)?
+    var stickerAvailabilityChanged: (() -> Void)?
+    private var giftStyle: WalletContext.CardGiftStyle?
+    private var styleWaveHit = false
+    private var accentColor: NSColor = walletCardSecondaryColor
+    private var addressColor: NSColor = walletCardAddressColor
+    private var bevelLevels: [UInt8] = walletCardBevelLevels
+    private var ringColor: WalletRGB = walletCardStockRing
+    private var metalTint: (Float, Float, Float, Float) = (0, 0, 0, 0)
+    private let patternLayer = SimpleLayer()
+    private var patternSymbols: [SimpleLayer] = []
+    private var patternSource: CGImage?
+    private var patternColor: Int32?
+    private var oldPatternLayer: SimpleLayer?
+    private var patternSettled = true
+    private var patternReveal: (center: CGPoint, radius: CGFloat, inside: Bool)?
 
     public required init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -453,11 +568,46 @@ public final class WalletCardView: View {
         faceView.layer?.addSublayer(effectsLayer)
         addSubview(faceView)
 
+        stickerSelectionView.isEventLess = true
+        stickerSelectionView.layer?.masksToBounds = false
+        stickerSelectionView.layer?.addSublayer(stickerSelectionLayer)
+        addSubview(stickerSelectionView)
+
+
+
         for textView in [integralView, fractionalView, currencyView, fiatView, nameView, recipientView] {
             textView.userInteractionEnabled = false
             textView.isSelectable = false
             textView.disableBackgroundDrawing = true
             textView.isEventLess = true
+        }
+        for textView in [nameView, recipientView] {
+            faceView.addSubview(textView)
+        }
+
+        addressView.isEventLess = true
+        faceView.addSubview(addressView)
+
+        gramIconView.isAccessibilityDecorative = true
+        qrButton.isAccessibilityDecorative = true
+        qrIconView.isAccessibilityDecorative = true
+        infoIconView.isAccessibilityDecorative = true
+        infoButton.setAccessibilityLabel(strings().voiceOverCommonInfo)
+
+        qrButton.userInteractionEnabled = false
+        qrButton.isEventLess = true
+        qrButton.layer?.masksToBounds = false
+        qrIconView.isEventLess = true
+        qrIconView.contentGravity = .resizeAspect
+        qrButton.addSubview(qrIconView)
+        faceView.addSubview(qrButton)
+
+        stickerView.isEventLess = true
+        stickerMaskLayer.contentsGravity = .resize
+        faceView.addSubview(stickerView)
+        stickerView.layer?.addSublayer(stickerHintLayer)
+
+        for textView in [integralView, fractionalView, currencyView, fiatView] {
             faceView.addSubview(textView)
         }
 
@@ -472,17 +622,6 @@ public final class WalletCardView: View {
         }
         faceView.addSubview(gramDiamondView)
         #endif
-
-        addressView.isEventLess = true
-        faceView.addSubview(addressView)
-
-        qrButton.userInteractionEnabled = false
-        qrButton.isEventLess = true
-        qrButton.layer?.masksToBounds = false
-        qrIconView.isEventLess = true
-        qrIconView.contentGravity = .resizeAspect
-        qrButton.addSubview(qrIconView)
-        faceView.addSubview(qrButton)
 
         gramIconView.contentGravity = .resizeAspect
         gramIconView.image = NSImage(named: "Wallet_CardGram")?.precomposed()
@@ -511,6 +650,11 @@ public final class WalletCardView: View {
         bevelLayer.compositingFilter = "plusL"
         bevelLayer.mask = bevelMaskLayer
         effectsLayer.addSublayer(bevelLayer)
+
+        patternLayer.masksToBounds = true
+        patternLayer.isHidden = true
+        effectsLayer.addSublayer(patternLayer)
+
     }
 
     private func applyMode() {
@@ -645,6 +789,7 @@ public final class WalletCardView: View {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         faceLayer.transform = transform
+        stickerSelectionView.layer?.transform = transform
         edgeView.layer?.transform = edgeTransform
         edgeView.layer?.opacity = hypot(edgeShift.x, edgeShift.y) * backingScaleFactor > 0.35 ? 1.0 : 0.0
         infoButton.layer?.transform = CATransform3DMakeTranslation(parallaxX * 6, parallaxY * 6, 0)
@@ -662,6 +807,8 @@ public final class WalletCardView: View {
         fiatView.layer?.transform = CATransform3DScale(CATransform3DMakeTranslation(parallaxX * 3.5, parallaxY * 3.5, 0), fiatScale, fiatScale, 1.0)
         nameView.layer?.transform = CATransform3DMakeTranslation(parallaxX * 3, parallaxY * 3, 0)
         addressView.layer?.transform = CATransform3DMakeTranslation(parallaxX * 2, parallaxY * 2, 0)
+        stickerMaskLayer.transform = CATransform3DMakeTranslation(parallaxX * 4, parallaxY * 4, 0)
+        shineStickers()
         CATransaction.commit()
         #if arch(arm64)
         updateDiamondTilt()
@@ -722,6 +869,10 @@ public final class WalletCardView: View {
 
     public override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
+        updateStickerCursor(at: convert(event.locationInWindow, from: nil))
+        guard !isStickerInteraction, selectedStickerId == nil else {
+            return
+        }
         isHovering = true
         updateTiltTarget(with: event)
         startTiltEngine()
@@ -729,6 +880,10 @@ public final class WalletCardView: View {
 
     public override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
+        updateStickerCursor(at: convert(event.locationInWindow, from: nil))
+        guard !isStickerInteraction, selectedStickerId == nil else {
+            return
+        }
         isHovering = true
         updateTiltTarget(with: event)
         startTiltEngine()
@@ -736,18 +891,64 @@ public final class WalletCardView: View {
 
     public override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
+        updateStickerCursor(at: nil)
         isHovering = false
         tiltTarget = WalletCardTilt()
         startTiltEngine()
     }
 
+    public override func hitTest(_ point: NSPoint) -> NSView? {
+        if selectedStickerId != nil, let superview, stickerSelectionHit(at: convert(point, from: superview)) == .handle {
+            return self
+        }
+        return super.hitTest(point)
+    }
+
+    public override func magnify(with event: NSEvent) {
+        if stickerGesture?(event) == true {
+            return
+        }
+        super.magnify(with: event)
+    }
+
+    public override func rotate(with event: NSEvent) {
+        if stickerGesture?(event) == true {
+            return
+        }
+        super.rotate(with: event)
+    }
+
     private var isMouseDownInside = false
 
     public override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if let stickerSelectionTracking, let hit = stickerSelectionHit(at: point) {
+            stickerSelectionTracking(hit, event)
+            return
+        }
+
+        if let stickerTracking, let sticker = sticker(at: point) {
+            if !stickerTracking(sticker.gift.address, event) {
+                receiveAction?()
+            }
+            return
+        }
+        if selectedStickerId != nil, let stickerSelectionCleared {
+            stickerSelectionCleared()
+            return
+        }
         isMouseDownInside = receiveAction != nil
         if !isMouseDownInside {
             super.mouseDown(with: event)
         }
+    }
+
+    public override func rightMouseDown(with event: NSEvent) {
+        if let stickerMenu, let sticker = sticker(at: convert(event.locationInWindow, from: nil)) {
+            stickerMenu(sticker.gift.address, event)
+            return
+        }
+        super.rightMouseDown(with: event)
     }
 
     public override func mouseUp(with event: NSEvent) {
@@ -767,7 +968,11 @@ public final class WalletCardView: View {
             return
         }
         let wasCollapsed = scrollCollapseFraction >= 1.0
+        let acceptedStickers = acceptsStickers
         scrollCollapseFraction = fraction
+        if acceptedStickers != acceptsStickers {
+            stickerAvailabilityChanged?()
+        }
         #if arch(arm64)
         gramDiamondView.isRenderingEnabled = !isTransfer && fraction < 1.0
         updateDiamondInteraction()
@@ -817,6 +1022,7 @@ public final class WalletCardView: View {
         self.recipientText = ""
         applyMode()
         self.address = address
+        addressView.setAccessibilityLabel(address)
 
         let (integralText, fractionalText) = splitWalletBalanceText(balance)
         self.integralText = integralText
@@ -858,13 +1064,13 @@ public final class WalletCardView: View {
         fractionalLayout.measure(width: .greatestFiniteMagnitude)
         fractionalView.update(fractionalLayout)
 
-        let currencyLayout = TextViewLayout(.initialize(string: currencyText, color: walletCardSecondaryColor, font: currencyFont), maximumNumberOfLines: 1)
+        let currencyLayout = TextViewLayout(.initialize(string: currencyText, color: accentColor, font: currencyFont), maximumNumberOfLines: 1)
         currencyLayout.measure(width: .greatestFiniteMagnitude)
         currencyView.update(currencyLayout)
     }
 
     private func applyFiatTextLayout(scale: CGFloat) {
-        let fiatLayout = TextViewLayout(.initialize(string: fiatText ?? "—", color: walletCardSecondaryColor, font: walletCardRoundedFont(14.0 * scale)), maximumNumberOfLines: 1)
+        let fiatLayout = TextViewLayout(.initialize(string: fiatText ?? "—", color: accentColor, font: walletCardRoundedFont(14.0 * scale)), maximumNumberOfLines: 1)
         fiatLayout.measure(width: .greatestFiniteMagnitude)
         fiatView.update(fiatLayout)
     }
@@ -880,6 +1086,8 @@ public final class WalletCardView: View {
         }
         qrChipImageKey = key
         qrChipRenderer = WalletCardQRChipRenderer(chipSize: chipSize, backingScale: backingScaleFactor)
+        qrChipRenderer?.ringColor = (Float(ringColor.r), Float(ringColor.g), Float(ringColor.b))
+        qrChipRenderer?.metalTint = metalTint
         renderQRChip(force: true)
         updateSurfaceClock()
     }
@@ -926,7 +1134,7 @@ public final class WalletCardView: View {
             return
         }
         bevelRenderedSurface = surface
-        bevelLayer.contents = walletCardBevelImage(size: size, cornerRadius: 20.0 * size.width / 336.0, surface: surface)
+        bevelLayer.contents = walletCardBevelImage(size: size, cornerRadius: 20.0 * size.width / 336.0, surface: surface, levels: bevelLevels)
     }
 
     private func qrButtonSize(scale: CGFloat) -> NSSize {
@@ -963,12 +1171,12 @@ public final class WalletCardView: View {
     }
 
     private func updateAddressImageIfNeeded(scale: CGFloat) {
-        let key = "\(address)|\(scale)|\(System.backingScale)"
+        let key = "\(address)|\(scale)|\(System.backingScale)|\(addressColor)"
         guard key != addressImageKey else {
             return
         }
         addressImageKey = key
-        if let (image, size) = walletCardAddressImage(address, scale: scale) {
+        if let (image, size) = walletCardAddressImage(address, scale: scale, color: addressColor) {
             addressView.image = image
             addressImageSize = size
         } else {
@@ -1085,7 +1293,7 @@ public final class WalletCardView: View {
         let scale = frame.width / walletCardReferenceSize.width
         guard !reveal.isFinished else {
             addressReveal = nil
-            addressView.image = walletCardAddressImage(address, scale: scale)?.0
+            addressView.image = walletCardAddressImage(address, scale: scale, color: addressColor)?.0
             return
         }
         let text = walletCardAddressLines(address).joined(separator: "\n")
@@ -1100,7 +1308,7 @@ public final class WalletCardView: View {
                 lines[lines.count - 1].append((character: Character(String(character).uppercased()), isSettled: isSettled))
             }
         }
-        addressView.image = walletCardAddressImage(lines: lines, scale: scale)?.0
+        addressView.image = walletCardAddressImage(lines: lines, scale: scale, color: addressColor)?.0
     }
 
     public override func layout() {
@@ -1123,6 +1331,8 @@ public final class WalletCardView: View {
         CATransaction.commit()
         faceView.frame = bounds
         faceView.layer?.cornerRadius = 20.0 * unit
+        stickerView.frame = faceView.bounds
+        stickerSelectionView.frame = bounds
         effectsLayer.frame = bounds
         bevelLayer.frame = bounds
         bevelMaskLayer.frame = bounds
@@ -1222,6 +1432,759 @@ public final class WalletCardView: View {
         let safeZones = [moneyZone, fiatZone, nameView.frame, qrButton.frame, addressView.frame]
         effects.layout(bounds: bounds, unit: unit, safeZones: safeZones, backingScale: backingScaleFactor)
         effects.apply(tilt: tiltCurrent)
+        layoutPattern()
+        layoutStickers()
+    }
+}
+
+private let walletCardStickerMaskContext = CIContext(options: nil)
+private var walletCardStickerMaskPrepared = false
+
+private func walletCardEmphasize(_ view: NSView, on: Bool, color: NSColor, opacity: Float, radius: CGFloat, offset: CGFloat) {
+    guard let layer = view.layer else {
+        return
+    }
+    layer.shadowColor = color.cgColor
+    layer.shadowRadius = radius
+    layer.shadowOffset = CGSize(width: 0, height: offset)
+    let target: Float = on ? opacity : 0
+    if layer.shadowOpacity != target {
+        let current = layer.presentation()?.shadowOpacity ?? layer.shadowOpacity
+        layer.shadowOpacity = target
+        let animation = CABasicAnimation(keyPath: "shadowOpacity")
+        animation.fromValue = current
+        animation.toValue = target
+        animation.duration = 0.45
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        layer.add(animation, forKey: "stickerEmphasis")
+    }
+}
+
+private func walletCardStickerKnockout(_ source: CIImage, pixels: CGFloat) -> CIImage {
+    return source
+        .applyingFilter("CIMorphologyMaximum", parameters: [kCIInputRadiusKey: 2.6 * pixels])
+        .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 2.2 * pixels])
+        .cropped(to: source.extent)
+        .applyingFilter("CIColorMatrix", parameters: [
+            "inputRVector": CIVector(x: 0, y: 0, z: 0, w: 0),
+            "inputGVector": CIVector(x: 0, y: 0, z: 0, w: 0),
+            "inputBVector": CIVector(x: 0, y: 0, z: 0, w: 0),
+            "inputAVector": CIVector(x: 0, y: 0, z: 0, w: -1),
+            "inputBiasVector": CIVector(x: 0, y: 0, z: 0, w: 1)
+        ])
+}
+
+func walletCardPrepareStickerMask() {
+    guard !walletCardStickerMaskPrepared else {
+        return
+    }
+    walletCardStickerMaskPrepared = true
+    let source = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 1)).cropped(to: CGRect(x: 0, y: 0, width: 8, height: 8))
+    _ = walletCardStickerMaskContext.createCGImage(walletCardStickerKnockout(source, pixels: 1), from: source.extent)
+}
+
+@available(macOS 10.15, *)
+extension WalletCardView {
+    var acceptsStickers: Bool {
+        return window != nil && !isTransfer && scrollCollapseFraction < 0.02
+    }
+
+    func setStickerHint(_ sticker: WalletContext.CardSticker?, outline: CGPath?) {
+        let wasVisible = stickerHintLayer.opacity > 0 && stickerHintLayer.path != nil
+        let unit = frame.width / walletCardReferenceSize.width
+        if let sticker, let outline {
+            let center = stickerCenter(sticker)
+            let side = stickerSide(sticker)
+            var transform = CGAffineTransform(translationX: center.x, y: center.y)
+                .rotated(by: CGFloat(sticker.angle))
+                .scaledBy(x: side * CGFloat(sticker.aspectRatio ?? 1), y: side)
+                .translatedBy(x: -0.5, y: -0.5)
+            stickerHintLayer.path = outline.copy(using: &transform)
+            stickerHintLayer.fillColor = NSColor.white.withAlphaComponent(0.14).cgColor
+            stickerHintLayer.strokeColor = NSColor.white.withAlphaComponent(0.9).cgColor
+            stickerHintLayer.lineWidth = 1.6 * unit
+            stickerHintLayer.lineDashPattern = [NSNumber(value: Double(5.5 * unit)), NSNumber(value: Double(3.5 * unit))]
+            if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                let march = CABasicAnimation(keyPath: "lineDashPhase")
+                march.fromValue = 0
+                march.toValue = -9 * unit
+                march.duration = 0.9
+                march.repeatCount = .infinity
+                stickerHintLayer.add(march, forKey: "hintMarch")
+            }
+            stickerHintLayer.opacity = 1
+            if !wasVisible { stickerHintLayer.animateAlpha(from: 0, to: 1, duration: 0.35) }
+        } else {
+            stickerHintLayer.opacity = 0
+            stickerHintLayer.removeAnimation(forKey: "hintMarch")
+            if wasVisible { stickerHintLayer.animateAlpha(from: 1, to: 0, duration: 0.2) }
+        }
+    }
+
+    func setStickerInteraction(_ active: Bool) {
+        guard isStickerInteraction != active else {
+            return
+        }
+        isStickerInteraction = active
+        if active {
+            isHovering = false
+            tiltTarget = WalletCardTilt()
+            if window != nil {
+                startTiltEngine()
+            }
+        }
+    }
+
+    func updateStickers(_ stickers: [WalletContext.CardSticker], hidden: Set<String>) {
+        let ids = Set(stickers.map(\.gift.address))
+        var changed = self.stickers != stickers || self.hiddenStickers != hidden
+        for (id, layer) in stickerLayers where !ids.contains(id) {
+            stopSticker(id)
+            layer.removeFromSuperlayer()
+            stickerLayers[id] = nil
+            stickerGrow[id] = nil
+            changed = true
+        }
+        for id in hidden where stickerPlayers[id] != nil {
+            stopSticker(id)
+        }
+        for sticker in stickers {
+            let id = sticker.gift.address
+            let layer: WalletCardStickerLayer
+            if let current = stickerLayers[id] {
+                layer = current
+                if layer.contents == nil, layer.refreshImage() {
+                    changed = true
+                }
+            } else {
+                layer = WalletCardStickerLayer(id: id)
+                stickerLayers[id] = layer
+                changed = true
+            }
+            layer.isHidden = hidden.contains(id)
+            stickerView.layer?.addSublayer(layer)
+        }
+        guard changed else {
+            return
+        }
+        self.stickers = stickers
+        self.hiddenStickers = hidden
+        layoutStickers()
+    }
+
+    var stickerSurfaceSize: NSSize {
+        return frame.size
+    }
+
+    var stickerObstacles: [NSRect] {
+        var rects = [walletCardScaledFrame(integralView, balanceScale), walletCardScaledFrame(currencyView, balanceScale), walletCardScaledFrame(fiatView, fiatScale), nameView.frame, addressView.frame, qrButton.frame, gramIconView.frame]
+        if !fractionalView.isHidden {
+            rects.append(walletCardScaledFrame(fractionalView, balanceScale))
+        }
+        return rects.filter { !$0.isEmpty }.map { $0.insetBy(dx: -3, dy: -3) }
+    }
+
+    func stickerCenter(_ sticker: WalletContext.CardSticker) -> NSPoint {
+        return NSMakePoint(CGFloat(sticker.x) * frame.width, CGFloat(sticker.y) * frame.height)
+    }
+
+    func stickerSide(_ sticker: WalletContext.CardSticker) -> CGFloat {
+        return frame.width * CGFloat(sticker.renderedWidthFraction)
+    }
+
+    func stickerPose(_ sticker: WalletContext.CardSticker, in view: NSView) -> WalletStickerPose? {
+        guard frame.width > 0 else {
+            return nil
+        }
+        let local = stickerCenter(sticker)
+        let center = view.convert(local, from: self)
+        let probe = view.convert(NSMakePoint(local.x + 10, local.y), from: self)
+        let k = hypot(probe.x - center.x, probe.y - center.y) / 10
+        return WalletStickerPose(center: center, side: stickerSide(sticker) * k, angle: CGFloat(sticker.angle) + atan2(probe.y - center.y, probe.x - center.x))
+    }
+
+    fileprivate func sticker(at point: NSPoint) -> WalletContext.CardSticker? {
+        guard !isTransfer, frame.width > 0, !qrButton.frame.contains(point) else {
+            return nil
+        }
+        return stickers.reversed().first { sticker in
+            guard !hiddenStickers.contains(sticker.gift.address), stickerLayers[sticker.gift.address]?.contents != nil else {
+                return false
+            }
+            let center = stickerCenter(sticker)
+            return hypot(point.x - center.x, point.y - center.y) < stickerSide(sticker) * 0.42
+        }
+    }
+
+    func playSticker(_ id: String, account: Account, grow: CGFloat) {
+        guard stickerPlayers[id] == nil, !isTransfer, !hiddenStickers.contains(id), let layer = stickerLayers[id], layer.contents != nil, layer.bounds.width > 0, let sticker = stickers.first(where: { $0.gift.address == id }), let data = sticker.modelFile ?? WalletCollectibleArtworks.shared.current(id).modelFile, let file = walletDecodedMediaFile(data) else {
+            return
+        }
+        let box = layer.bounds.width * (1 - WalletCollectibleArtworks.artInset * 2)
+        let size = file.dimensions?.size.aspectFitted(NSMakeSize(box, box)) ?? NSMakeSize(box, box)
+        let player = InlineStickerItemLayer(account: account, file: file, size: size, playPolicy: .onceEnd, ignorePreview: true)
+        player.frame = CGRect(x: (layer.bounds.width - size.width) / 2, y: (layer.bounds.height - size.height) / 2, width: size.width, height: size.height)
+        player.opacity = player.isContentLoaded ? 1 : 0
+        if player.isContentLoaded {
+            layer.contents = WalletCollectableImages.base(id)
+        }
+        player.contentDidUpdate = { [weak self, weak layer, weak player] _ in
+            guard let self, let layer, let player, self.stickerPlayers[id] === player else {
+                return
+            }
+            player.contentDidUpdate = nil
+            player.opacity = 1
+            layer.contents = WalletCollectableImages.base(id)
+        }
+        player.triggerOnState = (.finished, { [weak self, weak player] _ in
+            guard let self, let player, self.stickerPlayers[id] === player else {
+                return
+            }
+            self.stopSticker(id)
+        })
+        stickerPlayers[id] = player
+        layer.addSublayer(player)
+        player.isPlayable = true
+        setStickerGrow(id, grow, duration: 0.22)
+    }
+
+    private func stopSticker(_ id: String) {
+        guard let player = stickerPlayers.removeValue(forKey: id) else {
+            return
+        }
+        player.contentDidUpdate = nil
+        player.removeFromSuperlayer()
+        stickerLayers[id]?.contents = WalletCollectableImages.sticker(id)
+        setStickerGrow(id, 1, duration: 0.34)
+    }
+
+    private func setStickerGrow(_ id: String, _ grow: CGFloat, duration: Double) {
+        stickerGrow[id] = grow == 1 ? nil : grow
+        guard let layer = stickerLayers[id], let sticker = stickers.first(where: { $0.gift.address == id }) else {
+            return
+        }
+        let from = layer.presentation()?.transform ?? layer.transform
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.transform = stickerTransform(sticker)
+        CATransaction.commit()
+        let animation = CABasicAnimation(keyPath: "transform")
+        animation.fromValue = NSValue(caTransform3D: from)
+        animation.toValue = NSValue(caTransform3D: layer.transform)
+        animation.duration = duration
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        layer.add(animation, forKey: "grow")
+    }
+
+    private func stickerTransform(_ sticker: WalletContext.CardSticker) -> CATransform3D {
+        let grow = stickerGrow[sticker.gift.address] ?? 1
+        return CATransform3DScale(CATransform3DMakeRotation(CGFloat(sticker.angle), 0, 0, 1), grow, grow, 1)
+    }
+
+    var stickerSelection: WalletCardStickerSelection? {
+        guard let id = selectedStickerId, acceptsStickers, frame.width > 0, !hiddenStickers.contains(id), stickerLayers[id]?.contents != nil, let sticker = stickers.first(where: { $0.gift.address == id }) else {
+            return nil
+        }
+        let center = stickerCenter(sticker)
+        let angle = CGFloat(sticker.angle)
+        let radius = stickerSide(sticker) * max(1, CGFloat(sticker.aspectRatio ?? 1)) * 0.62 + 6 * frame.width / 361
+        let axis = CGPoint(x: cos(angle) * radius, y: sin(angle) * radius)
+        return WalletCardStickerSelection(center: center, radius: radius, angle: angle, left: NSMakePoint(center.x - axis.x, center.y - axis.y), right: NSMakePoint(center.x + axis.x, center.y + axis.y))
+    }
+
+    func stickerSelectionHit(at point: NSPoint) -> WalletCardStickerSelectionHit? {
+        guard let selection = stickerSelection else {
+            return nil
+        }
+        if min(hypot(point.x - selection.left.x, point.y - selection.left.y), hypot(point.x - selection.right.x, point.y - selection.right.y)) < 12 {
+            return .handle
+        }
+        if hypot(point.x - selection.center.x, point.y - selection.center.y) < selection.radius {
+            return .body
+        }
+        return nil
+    }
+
+    var isPointerOverStickerSelection: Bool {
+        guard let window else {
+            return false
+        }
+        return stickerSelectionHit(at: convert(window.mouseLocationOutsideOfEventStream, from: nil)) != nil
+    }
+
+    func setStickerSelection(_ id: String?, animated: Bool) {
+        let wasSelected = selectedStickerId != nil
+        selectedStickerId = id
+        if id != nil, !wasSelected {
+            isHovering = false
+            tiltTarget = WalletCardTilt()
+            if window != nil {
+                startTiltEngine()
+            }
+        }
+        layoutStickerSelection(animated: animated)
+        refreshStickerCursor()
+    }
+
+    func refreshStickerCursor() {
+        guard let window else {
+            return
+        }
+        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        stickerCursor = nil
+        guard bounds.contains(point) || stickerSelectionHit(at: point) != nil else {
+            return
+        }
+        updateStickerCursor(at: point, force: true)
+    }
+
+    fileprivate func updateStickerCursor(at point: NSPoint?, force: Bool = false) {
+        let hit = acceptsStickers ? point.flatMap { stickerSelectionHit(at: $0) ?? (sticker(at: $0) != nil ? .body : nil) } : nil
+        guard hit != stickerCursor || force else {
+            return
+        }
+        let previous = stickerCursor
+        stickerCursor = hit
+        switch hit {
+        case .some(.handle):
+            NSCursor.crosshair.set()
+        case .some(.body):
+            NSCursor.openHand.set()
+        case .none:
+            if previous != nil || force {
+                NSCursor.arrow.set()
+            }
+        }
+    }
+
+    fileprivate func layoutStickerSelection(animated: Bool) {
+        if let selection = stickerSelection {
+            stickerSelectionLayer.update(center: selection.center, radius: selection.radius, angle: selection.angle, scale: backingScaleFactor)
+            stickerSelectionLayer.setShown(true, animated: animated)
+        } else {
+            stickerSelectionLayer.setShown(false, animated: animated && selectedStickerId == nil)
+        }
+    }
+
+    fileprivate func layoutStickers() {
+        let width = frame.width
+        guard width > 0, !isTransfer else {
+            return
+        }
+        let unit = width / walletCardReferenceSize.width
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for sticker in stickers {
+            guard let layer = stickerLayers[sticker.gift.address] else {
+                continue
+            }
+            let side = stickerSide(sticker)
+            let size = NSMakeSize(side, side * CGFloat(sticker.aspectRatio ?? 1))
+            if stickerPlayers[sticker.gift.address] != nil, layer.bounds.size != size {
+                stopSticker(sticker.gift.address)
+            }
+            layer.transform = CATransform3DIdentity
+            layer.bounds = CGRect(origin: .zero, size: size)
+            layer.position = stickerCenter(sticker)
+            layer.transform = stickerTransform(sticker)
+            layer.layoutGloss()
+        }
+        shineStickers()
+        updateStickerEmphasis()
+        updateStickerMask(unit: unit)
+        layoutStickerSelection(animated: false)
+        CATransaction.commit()
+    }
+
+    fileprivate func shineStickers() {
+        guard !stickerLayers.isEmpty else {
+            return
+        }
+        let tilt = max(-1, min(1, (tiltCurrent.tx * 0.75 + tiltCurrent.ty * 0.45) * hoverLevel))
+        for layer in stickerLayers.values {
+            layer.shine(at: 0.28 + 0.5 * tilt)
+        }
+    }
+
+    private func updateStickerEmphasis() {
+        let unit = frame.width / walletCardReferenceSize.width
+        let circles = stickers.filter { !hiddenStickers.contains($0.gift.address) }.map { (center: stickerCenter($0), radius: stickerSide($0) * 0.42) }
+        func covered(_ rect: NSRect) -> Bool {
+            return circles.contains { circle in
+                let dx = max(rect.minX - circle.center.x, 0, circle.center.x - rect.maxX)
+                let dy = max(rect.minY - circle.center.y, 0, circle.center.y - rect.maxY)
+                return hypot(dx, dy) < circle.radius
+            }
+        }
+        let labels: [(NSView, NSRect)] = [(integralView, walletCardScaledFrame(integralView, balanceScale)), (fractionalView, walletCardScaledFrame(fractionalView, balanceScale)), (currencyView, walletCardScaledFrame(currencyView, balanceScale)), (fiatView, walletCardScaledFrame(fiatView, fiatScale)), (nameView, nameView.frame)]
+        for (view, rect) in labels {
+            walletCardEmphasize(view, on: covered(rect), color: .black, opacity: 0.42, radius: 2.2 * unit, offset: 0.8 * unit)
+        }
+        walletCardEmphasize(addressView, on: covered(addressView.frame), color: .white, opacity: 0.7, radius: 1.4 * unit, offset: 0)
+    }
+
+    func setGiftStyle(from: WalletContext.CardGiftStyle?, to: WalletContext.CardGiftStyle?, origin: CGPoint, progress: Double, pattern: CGImage?) {
+        guard !isTransfer else {
+            return
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer {
+            CATransaction.commit()
+        }
+        let changed = walletCardStyleKey(giftStyle) != walletCardStyleKey(to)
+        giftStyle = to
+        let target = WalletCardStylePalette.make(to)
+        let source = WalletCardStylePalette.make(from)
+        if changed {
+            styleWaveHit = false
+            oldPatternLayer?.removeFromSuperlayer()
+            oldPatternLayer = nil
+            if from != nil, to != nil {
+                let holder = SimpleLayer()
+                holder.frame = patternLayer.frame
+                holder.masksToBounds = true
+                for symbol in patternSymbols {
+                    let copy = SimpleLayer()
+                    copy.contents = symbol.contents
+                    copy.contentsGravity = .resizeAspect
+                    copy.bounds = symbol.bounds
+                    copy.position = symbol.position
+                    copy.opacity = symbol.opacity
+                    holder.addSublayer(copy)
+                }
+                effectsLayer.insertSublayer(holder, below: patternLayer)
+                oldPatternLayer = holder
+            }
+            effects.setPalette(target.surface, animated: progress < 1)
+            faceView.backgroundColor = target.base
+            effectsLayer.backgroundColor = target.base.cgColor
+        }
+        let size = frame.size
+        let transition = WalletCardStyleTransition(fraction: progress, removing: to == nil)
+        let radius = transition.radius(origin: origin, size: size)
+        let receding = to == nil && from != nil && progress < 1
+        #if arch(arm64)
+        if progress < 1, (to != nil || receding), !styleWaveHit, !reduceMotion {
+            let gem = NSMakePoint(gramIconView.frame.midX, gramIconView.frame.midY)
+            let distance = max(1, hypot(gem.x - origin.x, gem.y - origin.y))
+            if receding ? radius <= distance : radius >= distance {
+                styleWaveHit = true
+                gramDiamondView.spin(((gem.x - origin.x) >= 0 ? 4.6 : -4.6) * (receding ? -1 : 1), decay: 0.7)
+            }
+        }
+        #endif
+        if progress >= 1 {
+            effects.finishPaletteTransition()
+        } else {
+            effects.updatePaletteTransition(origin: origin, radius: radius, progress: transition.progress, fade: false, receding: receding)
+        }
+
+        let accent = walletCardMixColor(source.accent, target.accent, transition.textMix)
+        let address = walletCardMixColor(source.address, target.address, transition.textMix)
+        if accent != accentColor || address != addressColor {
+            accentColor = accent
+            addressColor = address
+            appliedTextScale = nil
+            addressImageKey = nil
+            needsLayout = true
+        }
+        #if arch(arm64)
+        let diamondTint = walletCardStyleTint(from: from, to: to, source: source, target: target, mix: transition.textMix)
+        gramDiamondView.setTint(diamondTint?.color, amount: diamondTint?.amount ?? 0)
+        #endif
+        let mix = progress >= 1 ? 1 : transition.progress
+        let edge = zip(source.edge, target.edge).map { $0.mix($1, mix) }
+        edgeGradientLayer.colors = edge.map(\.cgColor)
+        let levels = walletCardMixLevels(source.bevelLevels, target.bevelLevels, mix)
+        if levels != bevelLevels {
+            bevelLevels = levels
+            renderBevel(force: true)
+        }
+        let qrCenter = NSMakePoint(qrButton.frame.midX, qrButton.frame.midY)
+        let qrDistance = hypot(qrCenter.x - origin.x, qrCenter.y - origin.y)
+        let qrMix: CGFloat = progress >= 1 ? 1 : (receding ? walletCardSmoothStep((qrDistance - (radius - 18)) / 18) : 1 - walletCardSmoothStep((qrDistance - (radius - 18)) / 18))
+        let ring = source.ring.mix(target.ring, qrMix)
+        let chipTint = walletCardStyleTint(from: from, to: to, source: source, target: target, mix: qrMix).map { tint -> (Float, Float, Float, Float) in
+            let rgb = WalletRGB(tint.color)
+            return (Float(rgb.r), Float(rgb.g), Float(rgb.b), Float(tint.amount))
+        } ?? (0, 0, 0, 0)
+        if ring != ringColor || chipTint != metalTint {
+            ringColor = ring
+            metalTint = chipTint
+            qrChipRenderer?.ringColor = (Float(ring.r), Float(ring.g), Float(ring.b))
+            qrChipRenderer?.metalTint = chipTint
+            renderQRChip(force: true)
+        }
+
+        let patternItems = updatePatternSymbols(size: size)
+        let style = to ?? from
+        if patternSource !== pattern || patternColor != style?.patternColor {
+            patternSource = pattern
+            patternColor = style?.patternColor
+            let image = pattern.flatMap { image in style.flatMap { WalletGiftPattern.tinted(image, color: $0.patternColor) } }
+            for symbol in patternSymbols {
+                symbol.contents = image
+            }
+        }
+        patternLayer.isHidden = style == nil || (to == nil && progress >= 1)
+        patternSettled = progress >= 1
+        patternReveal = progress < 1 && (to != nil || receding) ? (origin, radius, true) : nil
+        patternLayer.mask = makePatternMask(circle: patternReveal)
+        let t = transition.patternTime
+        let fly = progress >= 1 || to == nil ? 1 : 1 + 2.2 * pow(t - 1, 3) + 1.2 * pow(t - 1, 2)
+        let approach = 0.8 + 0.2 * (to == nil ? min(1, max(0, transition.contraction)) : fly)
+        for (index, item) in patternItems.enumerated() {
+            let symbol = patternSymbols[index]
+            let side = to == nil ? item.size * (0.35 + 0.65 * approach) : item.size
+            symbol.bounds = CGRect(x: 0, y: 0, width: side, height: side)
+            symbol.position = CGPoint(x: origin.x + (item.center.x - origin.x) * approach, y: origin.y + (item.center.y - origin.y) * approach)
+            symbol.opacity = Float(WalletGiftPattern.alpha)
+        }
+        if let old = oldPatternLayer {
+            old.mask = makePatternMask(circle: (origin, radius, false))
+            let symbols = old.sublayers ?? []
+            for (index, item) in patternItems.enumerated() where index < symbols.count {
+                let symbol = symbols[index]
+                symbol.position = item.center
+                symbol.bounds = CGRect(x: 0, y: 0, width: item.size, height: item.size)
+                symbol.opacity = Float(WalletGiftPattern.alpha)
+            }
+            if progress >= 1 {
+                old.removeFromSuperlayer()
+                oldPatternLayer = nil
+            }
+        }
+    }
+
+    private func updatePatternSymbols(size: CGSize) -> [WalletGiftPattern.Item] {
+        let maxX = addressView.isHidden || addressView.frame.isEmpty ? CGFloat.greatestFiniteMagnitude : addressView.frame.minX
+        let items = WalletGiftPattern.items(size: size, maxX: maxX)
+        while patternSymbols.count < items.count {
+            let symbol = SimpleLayer()
+            symbol.contentsGravity = .resizeAspect
+            symbol.contents = patternSource.flatMap { image in patternColor.flatMap { WalletGiftPattern.tinted(image, color: $0) } }
+            patternLayer.addSublayer(symbol)
+            patternSymbols.append(symbol)
+        }
+        while patternSymbols.count > items.count {
+            patternSymbols.removeLast().removeFromSuperlayer()
+        }
+        return items
+    }
+
+    private func makePatternMask(circle: (center: CGPoint, radius: CGFloat, inside: Bool)? = nil) -> CALayer {
+        let bounds = self.bounds
+        let mask = CAShapeLayer()
+        mask.fillRule = .evenOdd
+        mask.frame = bounds
+        let path = CGMutablePath()
+        let radius = 20 * bounds.width / walletCardReferenceSize.width
+        path.addRoundedRect(in: bounds, cornerWidth: radius, cornerHeight: radius)
+        let qr = qrButton.frame.insetBy(dx: -2, dy: -2)
+        if !qrButton.isHidden, !qr.isEmpty {
+            let qrRadius = min(10 * bounds.width / walletCardReferenceSize.width, qr.height / 2)
+            path.addRoundedRect(in: qr, cornerWidth: qrRadius, cornerHeight: qrRadius)
+        }
+        mask.path = path
+        guard let circle else { return mask }
+        let clip = CAShapeLayer()
+        clip.fillRule = .evenOdd
+        let revealRadius = max(0, circle.radius)
+        let clipPath = CGMutablePath()
+        clipPath.addEllipse(in: CGRect(x: circle.center.x - revealRadius, y: circle.center.y - revealRadius, width: revealRadius * 2, height: revealRadius * 2))
+        if !circle.inside { clipPath.addRect(bounds) }
+        clip.frame = bounds
+        clip.path = clipPath
+        clip.mask = mask
+        let container = CALayer()
+        container.frame = bounds
+        container.addSublayer(clip)
+        return container
+    }
+
+    fileprivate func layoutPattern() {
+        let bounds = self.bounds
+        guard bounds.width > 0 else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        patternLayer.frame = bounds
+        patternLayer.mask = makePatternMask(circle: patternReveal)
+        let items = updatePatternSymbols(size: bounds.size)
+        if patternSettled, !patternLayer.isHidden {
+            for (index, item) in items.enumerated() {
+                let symbol = patternSymbols[index]
+                symbol.bounds = CGRect(x: 0, y: 0, width: item.size, height: item.size)
+                symbol.position = item.center
+                symbol.opacity = Float(WalletGiftPattern.alpha)
+            }
+        }
+        oldPatternLayer?.frame = bounds
+        if let old = oldPatternLayer {
+            old.mask = makePatternMask(circle: patternReveal.map { ($0.center, $0.radius, false) })
+        }
+        CATransaction.commit()
+    }
+
+    private func updateStickerMask(unit: CGFloat) {
+        guard !stickers.isEmpty else {
+            stickerView.layer?.mask = nil
+            stickerMaskKey = nil
+            return
+        }
+        let textViews: [(TextView, CGFloat)] = [(integralView, balanceScale), (fractionalView, balanceScale), (currencyView, balanceScale), (fiatView, fiatScale)].filter { !$0.0.isHidden && !$0.0.frame.isEmpty }
+        let size = stickerView.bounds.size
+        let margin: CGFloat = 8
+        let canvas = NSMakeSize(size.width + margin * 2, size.height + margin * 2)
+        let key = "\(size.width)x\(size.height)@\(backingScaleFactor)|" + textViews.map { view, scale in
+            return "\(view.textLayout?.attributedString.string ?? "")@\(view.frame)x\(scale)"
+        }.joined(separator: "|")
+        guard key != stickerMaskKey else {
+            return
+        }
+        stickerMaskKey = key
+        let backingScale = backingScaleFactor
+        let nodes = textViews.compactMap { view, scale -> (TextNodeLayout, TextNode, NSRect, CGFloat)? in
+            guard let attributedString = view.textLayout?.attributedString else {
+                return nil
+            }
+            let node = TextNode.layoutText(attributedString, nil, 1, .end, NSMakeSize(.greatestFiniteMagnitude, .greatestFiniteMagnitude), nil, false, .left)
+            return (node.0, node.1, view.frame, scale)
+        }
+        guard size.width > 0, size.height > 0, let text = generateImage(canvas, scale: backingScale, rotatedContext: { size, ctx in
+            ctx.clear(size.bounds)
+            for (layout, node, frame, scale) in nodes {
+                ctx.saveGState()
+                ctx.translateBy(x: frame.minX + margin, y: frame.minY + margin)
+                ctx.scaleBy(x: scale, y: scale)
+                node.draw(NSRect(origin: .zero, size: layout.size), in: ctx, backingScaleFactor: backingScale, backgroundColor: .clear)
+                ctx.restoreGState()
+            }
+        }) else {
+            stickerView.layer?.mask = nil
+            return
+        }
+        let source = CIImage(cgImage: text)
+        let knockout = walletCardStickerKnockout(source, pixels: unit * backingScale)
+        guard let mask = walletCardStickerMaskContext.createCGImage(knockout, from: source.extent) else {
+            stickerView.layer?.mask = nil
+            return
+        }
+        stickerMaskLayer.bounds = CGRect(origin: .zero, size: canvas)
+        stickerMaskLayer.position = NSMakePoint(size.width / 2, size.height / 2)
+        stickerMaskLayer.contents = mask
+        stickerView.layer?.mask = stickerMaskLayer
+    }
+}
+
+enum WalletCardStickerSelectionHit {
+    case body
+    case handle
+}
+
+struct WalletCardStickerSelection {
+    let center: NSPoint
+    let radius: CGFloat
+    let angle: CGFloat
+    let left: NSPoint
+    let right: NSPoint
+}
+
+final class WalletCardStickerSelectionLayer: SimpleLayer {
+    private let content = SimpleLayer()
+    private let border = SimpleShapeLayer()
+    private let leftHandle = SimpleShapeLayer()
+    private let rightHandle = SimpleShapeLayer()
+    private var radius: CGFloat = 0
+    private var lineScale: CGFloat = 0
+    private(set) var isShown = false
+
+    override init() {
+        super.init()
+        addSublayer(content)
+        content.opacity = 0
+
+        border.lineCap = .round
+        border.fillColor = NSColor.clear.cgColor
+        border.strokeColor = NSColor.white.withAlphaComponent(0.75).cgColor
+        border.lineWidth = 2
+        border.shadowColor = NSColor.black.cgColor
+        border.shadowRadius = 1
+        border.shadowOpacity = 0.5
+        border.shadowOffset = .zero
+        content.addSublayer(border)
+
+        let handleSize: CGFloat = 9
+        for handle in [leftHandle, rightHandle] {
+            handle.bounds = CGRect(x: 0, y: 0, width: handleSize, height: handleSize)
+            handle.path = CGPath(ellipseIn: handle.bounds, transform: nil)
+            handle.strokeColor = NSColor.white.cgColor
+            content.addSublayer(handle)
+        }
+    }
+
+    override init(layer: Any) {
+        super.init(layer: layer)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func setShown(_ shown: Bool, animated: Bool) {
+        guard shown != isShown else {
+            return
+        }
+        isShown = shown
+        let from = content.presentation()?.opacity ?? content.opacity
+        content.opacity = shown ? 1 : 0
+        if animated {
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = from
+            fade.toValue = content.opacity
+            fade.duration = shown ? 0.18 : 0.25
+            fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            content.add(fade, forKey: "opacity")
+            if shown {
+                let grow = CABasicAnimation(keyPath: "transform.scale")
+                grow.fromValue = 0.88
+                grow.toValue = 1
+                grow.duration = 0.22
+                grow.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                content.add(grow, forKey: "scale")
+            }
+        } else {
+            content.removeAllAnimations()
+        }
+    }
+
+    func update(center: CGPoint, radius: CGFloat, angle: CGFloat, scale: CGFloat) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        transform = CATransform3DIdentity
+        bounds = CGRect(x: 0, y: 0, width: radius * 2, height: radius * 2)
+        position = center
+        transform = CATransform3DMakeRotation(angle, 0, 0, 1)
+        content.frame = bounds
+        if abs(radius - self.radius) > 0.01 {
+            self.radius = radius
+            border.frame = bounds
+            border.path = CGPath(ellipseIn: bounds, transform: nil)
+            let dash = 2 * .pi * radius / 10 * 0.25
+            border.lineDashPattern = [NSNumber(value: Double(dash)), NSNumber(value: Double(dash))]
+        }
+        if scale != lineScale {
+            lineScale = scale
+            for handle in [leftHandle, rightHandle] {
+                handle.lineWidth = 1 + 1 / max(1, scale)
+            }
+        }
+        for handle in [leftHandle, rightHandle] {
+            handle.fillColor = walletClassicAccent.cgColor
+        }
+        leftHandle.position = CGPoint(x: 0, y: radius)
+        rightHandle.position = CGPoint(x: radius * 2, y: radius)
+        CATransaction.commit()
     }
 }
 
@@ -1503,6 +2466,7 @@ public final class WalletChatCardView: View {
         }
 
         gramIconView.isEventLess = true
+        gramIconView.isAccessibilityDecorative = true
         gramIconView.contentGravity = .resizeAspect
         #if arch(arm64)
         gramIconView.isHidden = true

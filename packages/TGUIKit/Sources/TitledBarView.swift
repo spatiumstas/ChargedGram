@@ -6,6 +6,7 @@ private class TitledContainerView : View {
     private var titleNode:(TextNodeLayout, TextNode)?
     var titleImage:(CGImage, TitleBarImageSide)? {
         didSet {
+            self.updateLayouts()
             self.setNeedsDisplay()
         }
     }
@@ -14,48 +15,56 @@ private class TitledContainerView : View {
     
     var text:NSAttributedString? {
         didSet {
-            if text != oldValue {
-                self.updateLayouts()
-                self.setNeedsDisplay()
-            }
+            self.updateLayouts()
         }
     }
     
     var status:NSAttributedString? {
         didSet {
-            if status != oldValue {
-                self.updateLayouts()
-            }
+            self.updateLayouts()
         }
     }
     
     func updateLayouts() {
+        let previousTitle = titleNode?.0
+        let previousStatus = statusNode?.0
         var additionalInset: CGFloat = 0
         if let (image,_) = titleImage {
             additionalInset += image.backingSize.width + 5
         }
                 
-        self.titleNode = TextNode.layoutText(maybeNode: nil,  text, nil, 1, .end, NSMakeSize(frame.width - inset() - additionalInset, frame.height), nil,false, .left)
+        self.titleNode = TextNode.layoutText(maybeNode: titleNode?.1,  text, nil, 1, .end, NSMakeSize(frame.width - inset() - additionalInset, frame.height), nil,false, .left)
 
-        self.statusNode = TextNode.layoutText(maybeNode: nil,  status, nil, 1, .end, NSMakeSize(frame.width - inset() - additionalInset, frame.height), nil,false, .left)
-        self.setNeedsDisplay()
+        self.statusNode = TextNode.layoutText(maybeNode: statusNode?.1,  status, nil, 1, .end, NSMakeSize(frame.width - inset() - additionalInset, frame.height), nil,false, .left)
+        if previousTitle !== titleNode?.0 || previousStatus !== statusNode?.0 {
+            self.setNeedsDisplay()
+        }
     }
     
     var hiddenStatus:Bool = false {
         didSet {
             updateLayouts()
+            if hiddenStatus != oldValue {
+                self.setNeedsDisplay()
+            }
         }
     }
     
     var titleInset:CGFloat? = nil {
         didSet {
             updateLayouts()
+            if titleInset != oldValue {
+                self.setNeedsDisplay()
+            }
         }
     }
     
     var textInset:CGFloat? = nil {
         didSet {
             updateLayouts()
+            if textInset != oldValue {
+                self.setNeedsDisplay()
+            }
         }
     }
     
@@ -97,6 +106,7 @@ private class TitledContainerView : View {
     override func layout() {
         super.layout()
         self.updateLayouts()
+        self.setNeedsDisplay()
     }
     
     fileprivate override func draw(_ layer: CALayer, in ctx: CGContext) {
@@ -171,17 +181,13 @@ open class TitledBarView: BarView {
     
     public var text:NSAttributedString? {
         didSet {
-            if text != oldValue {
-                _containerView.text = text
-            }
+            _containerView.text = text
         }
     }
     
     public var status:NSAttributedString? {
         didSet {
-            if status != oldValue {
-                _containerView.status = status
-            }
+            _containerView.status = status
         }
     }
     

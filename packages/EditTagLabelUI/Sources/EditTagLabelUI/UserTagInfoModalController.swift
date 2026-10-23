@@ -51,6 +51,10 @@ private final class UserTagHeaderItem: GeneralRowItem {
     public override var height: CGFloat {
         return circleSize + 30
     }
+
+    public override var accessibilityLabel: String? {
+        return strings().voiceOverCommonTagInfo
+    }
 }
 
 private final class UserTagHeaderView: GeneralRowView {
@@ -64,6 +68,8 @@ private final class UserTagHeaderView: GeneralRowView {
         addSubview(imageView)
         addSubview(dismiss)
         dismiss.scaleOnClick = true
+        imageView.isAccessibilityDecorative = true
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
     }
 
     public required init?(coder: NSCoder) {
@@ -165,6 +171,16 @@ private final class UserTagPreviewItem: GeneralRowItem {
     public override var height: CGFloat {
         return bubbleImage.backingSize.height + 20
     }
+
+    public override var accessibilityLabel: String? {
+        let left = leftLabel.attributedString.string.trimmingCharacters(in: .whitespaces)
+        let right = rightLabel.attributedString.string.trimmingCharacters(in: .whitespaces)
+        return left + ", " + right
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 private final class UserTagPreviewView: GeneralRowView {
@@ -188,6 +204,10 @@ private final class UserTagPreviewView: GeneralRowView {
         addSubview(rightLabel)
         addSubview(leftTime)
         addSubview(rightTime)
+        leftBubble.isAccessibilityDecorative = true
+        leftContent.isAccessibilityDecorative = true
+        rightBubble.isAccessibilityDecorative = true
+        rightContent.isAccessibilityDecorative = true
         leftLabel.userInteractionEnabled = false
         leftLabel.isSelectable = false
         rightLabel.userInteractionEnabled = false
@@ -294,6 +314,14 @@ private final class UserTagDescriptionItem: GeneralRowItem {
 
     public override var height: CGFloat {
         return textLayout.layoutSize.height
+    }
+
+    public override var accessibilityLabel: String? {
+        return textLayout.attributedString.string
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
     }
 }
 
@@ -487,7 +515,7 @@ public func UserTagInfoModalController(context: any AccountContextProtocol, conf
         close?()
     })
 
-    let signal = statePromise.get() |> deliverOnPrepareQueue |> map { state in
+    let signal = (statePromise.get() |> deliverOnPrepareQueue) |> map { state in
         return InputDataSignalValue(entries: entries(state, arguments: arguments, config: configuration))
     }
 

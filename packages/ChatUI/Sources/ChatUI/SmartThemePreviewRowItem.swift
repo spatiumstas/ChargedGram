@@ -41,6 +41,42 @@ public final class SmartThemePreviewRowItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return ChatThemeRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        if loading {
+            return strings().voiceOverCommonLoading
+        }
+        guard let chatTheme = theme?.chatTheme else {
+            return strings().chatChatThemeNoTheme
+        }
+        switch chatTheme {
+        case let .emoticon(emoji):
+            return emoji.strippedEmoji
+        case .gift:
+            return strings().voiceOverCommonGift
+        }
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .radioButton
+    }
+
+    public override var accessibilityToggleState: Bool? {
+        return selected
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        if let theme = theme, let chatTheme = theme.chatTheme {
+            select((chatTheme, theme.theme))
+        } else {
+            select(nil)
+        }
+        return true
+    }
 }
 
 private final class ChatThemeRowView: HorizontalRowView {
@@ -71,6 +107,8 @@ private final class ChatThemeRowView: HorizontalRowView {
         addSubview(selectionView)
         addSubview(overlay)
         imageView.isEventLess = true
+        imageView.isAccessibilityDecorative = true
+        overlay.setAccessibilityLabel(strings().voiceOverCommonSelect)
         emojiView.userInteractionEnabled = false
         selectionView.isEventLess = true
         

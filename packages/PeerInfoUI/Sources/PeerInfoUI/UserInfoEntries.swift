@@ -161,11 +161,15 @@ class UserInfoArguments<Context: AccountContextProtocol> : PeerInfoArguments<Con
     
 
     private let shareDisposable = MetaDisposable()
+    private let ownContactShareAction = ProfileOwnContactShareAction()
     private let blockDisposable = MetaDisposable()
     private let startSecretChatDisposable = MetaDisposable()
     private let updatePeerNameDisposable = MetaDisposable()
     private let deletePeerContactDisposable = MetaDisposable()
     private let toggleCopyProtectionDisposable = MetaDisposable()
+    private let botEmojiStatusDisposable = MetaDisposable()
+    private var botEmojiStatusOperationId: UUID?
+    private var acceptsEmojiPermissionRequests = true
     private let callDisposable = MetaDisposable()
     private let updatePhotoDisposable = MetaDisposable()
 
@@ -319,8 +323,6 @@ class UserInfoArguments<Context: AccountContextProtocol> : PeerInfoArguments<Con
                                         showModalText(for: context.window, text: strings().botVerificationAdded(peer._asPeer().displayTitle))
                                     }
                                 })
-                            }, onDeinit: {
-                                
                             })
                         }
                     })
@@ -347,22 +349,61 @@ class UserInfoArguments<Context: AccountContextProtocol> : PeerInfoArguments<Con
     }
     
     func shareContact() {
+        ownContactShareAction.reset()
         let context = self.context
-        
         let peer = getPeerView(peerId: effectivePeerId, postbox: context.account.postbox) |> take(1) |> deliverOnMainQueue
-        shareDisposable.set(peer.start(next: { [weak self] peer in
-            if let context = self?.context, let peer = peer as? TelegramUser {
-                showModal(with: ShareModalController(ShareContactObject(context, user: peer)), for: context.window)
+        shareDisposable.set((peer).start(next: { [weak self] peer in
+            guard let context = self?.context else {
+                return
+            }
+            if let peer = peer as? TelegramUser {
+                let controller = ShareModalController(ShareContactObject(context, user: peer))
+                showModal(with: controller, for: context.window)
+            } else {
             }
         }))
     }
     
+    func setEmojiPermissionRequestsActive(_ active: Bool) {
+        acceptsEmojiPermissionRequests = active
+        if !active {
+            botEmojiStatusOperationId = nil
+            botEmojiStatusDisposable.set(nil)
+        }
+    }
+
     func togglePermissionsStatus() {
-        _ = self.context.engine.peers.toggleBotEmojiStatusAccess(peerId: self.peerId, enabled: false).start()
+        guard acceptsEmojiPermissionRequests, botEmojiStatusOperationId == nil else {
+            return
+        }
+        let operationId = UUID()
+        botEmojiStatusOperationId = operationId
+        let pending = MetaDisposable()
+        botEmojiStatusDisposable.set(pending)
+        let signal = context.engine.peers.toggleBotEmojiStatusAccess(peerId: peerId, enabled: false)
+        |> deliverOnMainQueue
+        |> afterDisposed { [weak self] in
+            Queue.mainQueue().async { [weak self] in
+                if self?.botEmojiStatusOperationId == operationId {
+                    self?.botEmojiStatusOperationId = nil
+                }
+            }
+        }
+        pending.set(showModalProgress(signal: signal, for: context.window).start(error: { [weak self] _ in
+            guard let self, self.botEmojiStatusOperationId == operationId else {
+                return
+            }
+            self.botEmojiStatusOperationId = nil
+            alert(for: self.context.window, info: strings().unknownError)
+        }, completed: { [weak self] in
+            if self?.botEmojiStatusOperationId == operationId {
+                self?.botEmojiStatusOperationId = nil
+            }
+        }))
     }
     func togglePermissionsGeo() {
         let _ = updateWebAppPermissionsStateInteractively(context: context, peerId: peerId) { current in
-            return WebAppPermissionsState(location: WebAppPermissionsState.Location(isRequested: true, isAllowed: !(current?.location?.isAllowed ?? false)), emojiStatus: nil)
+            return WebAppPermissionsState(location: WebAppPermissionsState.Location(isRequested: true, isAllowed: !(current?.location?.isAllowed ?? false)), emojiStatus: current?.emojiStatus)
         }.start()
     }
 
@@ -379,29 +420,8 @@ class UserInfoArguments<Context: AccountContextProtocol> : PeerInfoArguments<Con
     }
     
     func shareMyInfo() {
-        
-        
-        let context = self.context
-        let peerId = self.peerId
-        
-        
-        let peer = context.account.postbox.transaction { transaction -> Peer? in
-            return transaction.getPeer(peerId)
-        } |> deliverOnMainQueue
-        
-        _ = peer.start(next: { [weak self] peer in
-            if let peer = peer {
-                verifyAlert_button(for: context.window, information: strings().peerInfoConfirmShareInfo(peer.displayTitle), successHandler: { [weak self] _ in
-                    let signal: Signal<Void, NoError> = context.account.postbox.loadedPeerWithId(context.peerId) |> map { $0 as! TelegramUser } |> mapToSignal { peer in
-                        let signal = Sender.enqueue(message: EnqueueMessage.message(text: "", attributes: [], inlineStickers: [:], mediaReference: AnyMediaReference.standalone(media: TelegramMediaContact(firstName: peer.firstName ?? "", lastName: peer.lastName ?? "", phoneNumber: peer.phone ?? "", peerId: peer.id, vCardData: nil)), threadId: nil, replyToMessageId: nil, replyToStoryId: nil, localGroupingKey: nil, correlationId: nil, bubbleUpEmojiOrStickersets: []), context: context, peerId: peerId)
-                        return signal  |> map { _ in}
-                    }
-                    self?.shareDisposable.set(showModalProgress(signal: signal, for: context.window).start())
-                })
-            }
-        })
-        
-        
+        shareDisposable.set(nil)
+        ownContactShareAction.start(context: context, peerId: peerId)
     }
     
     func addContact() {
@@ -1179,6 +1199,7 @@ class UserInfoArguments<Context: AccountContextProtocol> : PeerInfoArguments<Con
         callDisposable.dispose()
         updatePhotoDisposable.dispose()
         toggleCopyProtectionDisposable.dispose()
+        botEmojiStatusDisposable.dispose()
     }
     
 }
@@ -1209,6 +1230,16 @@ private final class UnofficialWarningItem: GeneralRowItem {
     }
     override func viewClass() -> AnyClass {
         return UnofficialWarningView.self
+    }
+    override var accessibilityLabel: String? {
+        let text = textLayout.attributedString.string.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{FFFC}")))
+        return text.isEmpty ? nil : text
+    }
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .staticText
+    }
+    override var accessibilityIncludesChildren: Bool {
+        return false
     }
 }
 
@@ -2354,7 +2385,7 @@ enum UserInfoEntry<Context: AccountContextProtocol>: PeerInfoEntry {
         case let .botPermissionsStatus(_, value, viewType):
             return GeneralInteractedRowItem(initialSize, stableId: stableId.hashValue, name: strings().peerInfoBotPermissionsStatus, icon: TelegramThemeHooks.shared.image(.iconPeerInfoBotStatus).precomposed(flipVertical: true), type: .switchable(value), viewType: viewType, action: {
                 arguments.togglePermissionsStatus()
-            })
+            }, autoswitch: false)
         case let .botPermissionsGeo(_, value, viewType):
             return GeneralInteractedRowItem(initialSize, stableId: stableId.hashValue, name: strings().peerInfoBotPermissionsGeo, icon: TelegramThemeHooks.shared.image(.iconPeerInfoBotLocation).precomposed(flipVertical: true), type: .switchable(value), viewType: viewType, action: {
                 arguments.togglePermissionsGeo()
@@ -2504,7 +2535,9 @@ enum UserInfoEntry<Context: AccountContextProtocol>: PeerInfoEntry {
             
             return TextAndLabelItem(initialSize, stableId: stableId.hashValue, label: strings().peerInfoUsername, copyMenuText: strings().textCopyLabelUsername, labelColor: theme.colors.text, text: text, context: arguments.context, viewType: viewType, detectLinks: true, isTextSelectable: true, _copyToClipboard: {
                 arguments.copy(link)
-            }, linkInteractions: interactions)
+            }, linkInteractions: interactions, qrCode: { control in
+                arguments.openQrStudio(from: control)
+            })
         case let .peerId(_, value, viewType):
             return  TextAndLabelItem(initialSize, stableId: stableId.hashValue, label: "PEER ID", copyMenuText: strings().textCopyText, text: value, context: arguments.context, viewType: viewType, canCopy: true, _copyToClipboard: {
                 arguments.copy(value)

@@ -40,9 +40,7 @@ private func peerImage(account: Account, peer: Peer, displayDimensions: NSSize, 
         return cachedPeerPhoto(peer.id, representation: representation, peerNameColor: nil, size: displayDimensions, scale: scale, isForum: isForum, isMonoforum: isMonoforum) |> mapToSignal { cached -> Signal<(CGImage?, Bool), NoError> in
             return autoreleasepool {
                 if let cached = cached {
-                    return cachePeerPhoto(image: cached, peerId: peer.id, representation: representation, peerNameColor: nil, size: displayDimensions, scale: scale, isForum: isForum, isMonoforum: isMonoforum) |> map {
-                        return (cached, false)
-                    }
+                    return .single((cached, false))
                 } else {
                     let resourceData = account.postbox.mediaBox.resourceData(representation.resource, attemptSynchronously: synchronousLoad)
                     let imageData = resourceData

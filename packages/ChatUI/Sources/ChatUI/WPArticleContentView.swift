@@ -531,6 +531,7 @@ public class WPArticleContentView: WPContentView {
                             if layout.isFullImageSize, let icon = ExternalVideoLoader.playIcon(layout.content) {
                                 if self.playIcon == nil {
                                     self.playIcon = ImageView()
+                                    self.playIcon?.isAccessibilityDecorative = true
                                     self.imageView?.addSubview(self.playIcon!)
                                 }
                                 self.playIcon?.image = icon

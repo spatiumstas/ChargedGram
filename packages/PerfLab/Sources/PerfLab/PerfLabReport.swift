@@ -1,3 +1,4 @@
+#if DEBUG
 import Foundation
 
 public final class PerfLabReport {
@@ -46,3 +47,4 @@ public final class PerfLabReport {
         return url
     }
 }
+#endif

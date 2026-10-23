@@ -1,3 +1,4 @@
+import TelegramContext
 import Cocoa
 import CoreLocation
 import TGUIKit
@@ -7,6 +8,7 @@ import SwiftSignalKit
 import CodeSyntax
 import CallsUI
 import ChatUI
+import WebAppUI
 import ImageCanvasUI
 import AvatarEditorUI
 
@@ -34,12 +36,14 @@ private func mapChatUIEmojiSelectedItem(_ item: ChatUIEmojiSelectedItem) -> Emoj
 
 func installChatUIHooks() {
     ChatNavigationHooks.install(makeChatNavigationHooks())
-    ChatUIHooks.install(ChatUIHooks(clearNotifies: { peerId, maxId in
+    var hooks = ChatUIHooks(clearNotifies: { peerId, maxId in
         UNUserNotifications.current?.clearNotifies(peerId, maxId: maxId)
     }, closeEntertainmentPopover: { context in
         context.bindings.entertainmentViewController.closePopover()
     }, updateEntertainment: { context, chatInteraction in
-        context.bindings.entertainmentViewController.update(with: chatInteraction)
+        let controller = context.bindings.entertainmentViewController
+        controller.update(with: chatInteraction)
+        controller.prepareForPresentation()
     }, showMessageEffectsWindow: { context, peerId, selectedItems, react, view in
         let window = ReactionsWindowController(context.concrete, peerId: peerId, selectedItems: selectedItems.map(mapChatUIEmojiSelectedItem), react: react, moveTop: true, mode: .messageEffects)
         window.show(view)
@@ -144,7 +148,31 @@ func installChatUIHooks() {
         return appDelegate?.isLockedValue()
     }, makeChannelAdminModal: { context, peerId, adminId, initialParticipant in
         return ChannelAdminModalController(context.concrete, peerId: peerId, adminId: adminId, initialParticipant: initialParticipant, updated: { _ in }, upgradedToSupergroup: { _, _ in })
-    }))
+    })
+    hooks.makeForwardMessagesShareModalWithContext = { context, messages, getMessages in
+        let object = ForwardMessagesObject(context.concrete, messages: messages, getMessages: getMessages)
+        return ShareModalController(object)
+    }
+    hooks.navigateToChatWithContext = { navigation, context, location, focus, action, additional in
+        navigateToChat(navigation: navigation, context: context.concrete, chatLocation: location, focusTarget: focus, initialAction: action, additional: additional)
+    }
+    hooks.makePeerMediaControllerWithContext = { context, peerId, thread, isBot in
+        PeerMediaController(context: context.concrete, peerId: peerId, threadInfo: thread, isBot: isBot)
+    }
+    hooks.pushPeerInfoWithContext = { navigation, context, peerId, thread, stories, mode, album in
+        PeerInfoController.push(navigation: navigation, context: context.concrete, peerId: peerId, threadInfo: thread, stories: stories, mediaMode: mode, albumId: album)
+    }
+    hooks.showSingleStoryWithContext = { context, storyId, initialId, emptyCallback in
+        StoryModalController.ShowSingleStory(context: context.concrete, storyId: storyId, initialId: initialId, emptyCallback: emptyCallback)
+    }
+    hooks.showStoriesWithContext = { context, isHidden, initialId, singlePeer in
+        StoryModalController.ShowStories(context: context.concrete, isHidden: isHidden, initialId: initialId, singlePeer: singlePeer)
+    }
+    hooks.bindPreviewSendValidation = { controller, isCurrent in
+        guard let controller = controller as? PreviewSenderController else { return false }
+        return controller.bindSendSourceValidation(isCurrent)
+    }
+    ChatUIHooks.install(hooks)
 }
 
 
@@ -153,8 +181,11 @@ private func makeChatNavigationHooks() -> ChatNavigationHooks {
     hooks.showAddTonBalance = { context, amount, window in
         showModal(with: AddTonBalanceController(context: context, tonAmount: amount), for: window)
     }
-    hooks.makeCalendarPopover = { window, current, select in
-        return CalendarController(NSMakeRect(0, 0, 300, 300), window, current: current, selectHandler: select)
+    hooks.makeCalendarPopover = { context, peerId, threadId, current, select in
+        if threadId != nil || peerId.namespace == Namespaces.Peer.SecretChat {
+            return CalendarController(NSMakeRect(0, 0, 300, 300), context.window, current: current, selectHandler: select)
+        }
+        return ChatCalendarController(context: context, peerId: peerId, current: current, select: select)
     }
     hooks.makeBirthdayCalendar = { window, date in
         return CalendarController(NSMakeRect(0, 0, 300, 300), window, current: date, lowYear: 1900, canBeNoYear: true, selectHandler: { _ in }, autoclose: false)
@@ -181,13 +212,22 @@ private func makeChatNavigationHooks() -> ChatNavigationHooks {
     hooks.pushGroupsInCommon = { context, peerId in
         context.bindings.rootNavigation().push(GroupsInCommonViewController(context: context, peerId: peerId, standalone: true))
     }
+    hooks.pushGroupsInCommonWithContext = { context, peerId in
+        context.bindings.rootNavigation().push(GroupsInCommonViewController(context: context, peerId: peerId, standalone: true))
+    }
     hooks.showInactiveChannelsOnJoin = { context in
+        showInactiveChannels(context: context, source: .join)
+    }
+    hooks.showInactiveChannelsOnJoinWithContext = { context in
         showInactiveChannels(context: context, source: .join)
     }
     hooks.showFrozenAccount = { context, window in
         showModal(with: FrozenAccountController(context: context), for: window)
     }
     hooks.pushMessageStats = { context, messageId in
+        context.bindings.rootNavigation().push(MessageStatsController(context, subject: .messageId(messageId)))
+    }
+    hooks.pushMessageStatsWithContext = { context, messageId in
         context.bindings.rootNavigation().push(MessageStatsController(context, subject: .messageId(messageId)))
     }
     hooks.showVerifyAgeAlert = { context, window in
@@ -209,6 +249,12 @@ private func makeChatNavigationHooks() -> ChatNavigationHooks {
         showModal(with: PaymentsReceiptController(context: context, messageId: messageId, invoice: invoice), for: window)
     }
     hooks.showPaymentsCheckout = { context, messageId, invoice, window in
+        showModal(with: PaymentsCheckoutController(context: context, source: .message(messageId), invoice: invoice), for: window)
+    }
+    hooks.showPaymentsReceiptWithContext = { context, messageId, invoice, window in
+        showModal(with: PaymentsReceiptController(context: context, messageId: messageId, invoice: invoice), for: window)
+    }
+    hooks.showPaymentsCheckoutWithContext = { context, messageId, invoice, window in
         showModal(with: PaymentsCheckoutController(context: context, source: .message(messageId), invoice: invoice), for: window)
     }
     hooks.applyExternalProxy = { server, accountManager in
@@ -242,7 +288,14 @@ private func makeChatNavigationHooks() -> ChatNavigationHooks {
     hooks.showEditTagLabel = { context, reaction, label, window in
         showModal(with: EditTagLabelController(context: context, reaction: reaction, label: label), for: window)
     }
+    hooks.showEditTagLabelWithContext = { context, reaction, label, window in
+        showModal(with: EditTagLabelController(context: context, reaction: reaction, label: label), for: window)
+    }
     hooks.showUserTagInfo = { context, tag, authorName, groupName, badgeType, window in
+        let config = UserTagInfoConfiguration(tag: tag, authorName: authorName, groupName: groupName, badgeType: badgeType, canEditRank: false)
+        showModal(with: UserTagInfoModalController(context: context, configuration: config), for: window)
+    }
+    hooks.showUserTagInfoWithContext = { context, tag, authorName, groupName, badgeType, window in
         let config = UserTagInfoConfiguration(tag: tag, authorName: authorName, groupName: groupName, badgeType: badgeType, canEditRank: false)
         showModal(with: UserTagInfoModalController(context: context, configuration: config), for: window)
     }
@@ -319,6 +372,9 @@ private func makeChatNavigationHooks() -> ChatNavigationHooks {
     hooks.showChatGallery = { context, message, delegate, interactions, type, reversed, chatMode, chatLocation, contextHolder, cachedPeerData in
         showChatGallery(context: context, message: message, delegate, interactions, type: galleryAppearType(type), reversed: reversed, chatMode: chatMode, chatLocation: chatLocation, contextHolder: contextHolder, cachedPeerData: cachedPeerData)
     }
+    hooks.showChatGalleryWithContext = { context, message, delegate, interactions, type, reversed, chatMode, chatLocation, contextHolder, cachedPeerData in
+        showChatGallery(context: context, message: message, delegate, interactions, type: galleryAppearType(type), reversed: reversed, chatMode: chatMode, chatLocation: chatLocation, contextHolder: contextHolder, cachedPeerData: cachedPeerData)
+    }
     hooks.showPhotosGallery = { context, peerId, firstStableId, delegate, interactions in
         showPhotosGallery(context: context, peerId: peerId, firstStableId: firstStableId, delegate, interactions)
     }
@@ -384,7 +440,12 @@ private func makeChatNavigationHooks() -> ChatNavigationHooks {
         picker.selectCallback = select
         showModal(with: picker, for: window)
     }
-    hooks.openBrowserTab = { context, tab in
+    hooks.showLocationSelectorWithContext = { chatInteraction, select, window in
+        let picker = LocationModalController(chatInteraction, destination: .select)
+        picker.selectCallback = select
+        showModal(with: picker, for: window)
+    }
+    let browserTabData: (ChatBrowserTab) -> BrowserTabData.Data = { tab in
         let data: BrowserTabData.Data
         switch tab {
         case let .webapp(bot, peerId, buttonText, url, payload, threadId, replyTo, fromMenu):
@@ -398,12 +459,24 @@ private func makeChatNavigationHooks() -> ChatNavigationHooks {
         case let .game(url, peerId, messageId):
             data = .game(url: url, peerId: peerId, messageId: messageId)
         }
-        BrowserStateContext.get(context).open(tab: data)
+        return data
+    }
+    hooks.openBrowserTab = { context, tab in
+        BrowserStateContext.get(context).open(tab: browserTabData(tab))
+    }
+    hooks.openBrowserTabWithContext = { context, tab in
+        BrowserStateContext.get(context).open(tab: browserTabData(tab))
     }
     hooks.installAttachMenuBot = { context, peer, completion in
         installAttachMenuBot(context: context, peer: peer, completion: completion)
     }
+    hooks.installAttachMenuBotWithContext = { context, peer, completion in
+        installAttachMenuBot(context: context, peer: peer, completion: completion)
+    }
     hooks.openJoinChatBotWebView = { context, botId, url, queryId, joinedPeerId in
+        openJoinChatBotWebView(context: context, botId: botId, url: url, queryId: queryId, joinedPeerId: joinedPeerId)
+    }
+    hooks.openJoinChatBotWebViewWithContext = { context, botId, url, queryId, joinedPeerId in
         openJoinChatBotWebView(context: context, botId: botId, url: url, queryId: queryId, joinedPeerId: joinedPeerId)
     }
     hooks.makeInlineWebViewRowItem = { size, text, url, account, callback in
@@ -521,13 +594,102 @@ private func makeChatNavigationHooks() -> ChatNavigationHooks {
             }
         })
     }
-    hooks.editImage = { context, url, defaultData in
+    hooks.setPeerPhoto = { context, peerId in
+        let context = context as! AccountContext
+        let photoDisposable = MetaDisposable()
+
+        let applyUpdate: (Signal<UpdatePeerPhotoStatus, UploadPeerPhotoError>) -> Void = { signal in
+            photoDisposable.set((signal |> deliverOnMainQueue).start(error: { _ in
+                showModalText(for: context.window, text: strings().unknownError)
+            }, completed: {
+                resetPeerPhotos(peerId: peerId)
+            }))
+        }
+
+        let updatePhoto: (Signal<NSImage, NoError>) -> Void = { image in
+            let signal = image |> mapToSignal {
+                putToTemp(image: $0, compress: true)
+            } |> deliverOnMainQueue
+            _ = signal.start(next: { path in
+                guard let controller = EditImageModalController(URL(fileURLWithPath: path), context: context, settings: .disableSizes(dimensions: .square, circle: true), doneString: strings().modalSet) else { return }
+                showModal(with: controller, for: context.window, animationType: .scaleCenter)
+
+                let updateSignal: Signal<UpdatePeerPhotoStatus, UploadPeerPhotoError> = controller.result |> take(1) |> map { path, _ -> TelegramMediaResource in
+                    return LocalFileReferenceMediaResource(localFilePath: path.path, randomId: arc4random64())
+                } |> castError(UploadPeerPhotoError.self) |> mapToSignal { resource -> Signal<UpdatePeerPhotoStatus, UploadPeerPhotoError> in
+                    return context.engine.peers.updatePeerPhoto(peerId: peerId, photo: context.engine.peers.uploadedPeerPhoto(resource: EngineMediaResource(resource)), mapResourceToAvatarSizes: { resource, representations in
+                        return mapResourceToAvatarSizes(engine: context.engine, resource: resource, representations: representations)
+                    })
+                }
+                applyUpdate(updateSignal)
+            })
+        }
+
+        let updateVideo: (Signal<VideoAvatarGeneratorState, NoError>) -> Void = { signal in
+            let updateSignal: Signal<UpdatePeerPhotoStatus, UploadPeerPhotoError> = signal
+            |> castError(UploadPeerPhotoError.self)
+            |> mapToSignal { state in
+                switch state {
+                case .error:
+                    return .fail(.generic)
+                case .start:
+                    return .next(.progress(0))
+                case let .progress(value):
+                    return .next(.progress(value * 0.2))
+                case let .complete(thumb, video, keyFrame):
+                    let (thumbResource, videoResource) = (LocalFileReferenceMediaResource(localFilePath: thumb, randomId: arc4random64(), isUniquelyReferencedTemporaryFile: true),
+                                                          LocalFileReferenceMediaResource(localFilePath: video, randomId: arc4random64(), isUniquelyReferencedTemporaryFile: true))
+                    return context.engine.peers.updatePeerPhoto(peerId: peerId, photo: context.engine.peers.uploadedPeerPhoto(resource: EngineMediaResource(thumbResource)), video: context.engine.peers.uploadedPeerVideo(resource: EngineMediaResource(videoResource)) |> map(Optional.init), videoStartTimestamp: keyFrame, mapResourceToAvatarSizes: { resource, representations in
+                        return mapResourceToAvatarSizes(engine: context.engine, resource: resource, representations: representations)
+                    }) |> map { result in
+                        switch result {
+                        case let .progress(current):
+                            return .progress(0.2 + (current * 0.8))
+                        default:
+                            return result
+                        }
+                    }
+                }
+            }
+            applyUpdate(updateSignal)
+        }
+
+        filePanel(with: photoExts + videoExts, allowMultiple: false, canChooseDirectories: false, for: context.window, completion: { paths in
+            if let path = paths?.first, let image = NSImage(contentsOfFile: path) {
+                updatePhoto(.single(image))
+            } else if let path = paths?.first {
+                selectVideoAvatar(context: context, path: path, localize: "", signal: { signal in
+                    updateVideo(signal)
+                })
+            }
+        })
+    }
+    let editImageWithEvents: (any AccountContextProtocol, URL, EditedImageData?, @escaping () -> Void, @escaping () -> Void) -> Signal<(URL, EditedImageData?), NoError> = { context, url, defaultData, cancelled, dismissed in
         let context = context as! AccountContext
         guard let controller = EditImageModalController(url, context: context, defaultData: defaultData) else {
-            return .never()
+            dismissed()
+            return .complete()
+        }
+        controller.onCancelled = cancelled
+        let onClose = controller.onClose
+        controller.onClose = {
+            onClose()
+            dismissed()
+        }
+        let onDeinit = controller.onDeinit
+        controller.onDeinit = {
+            onDeinit?()
+            dismissed()
         }
         showModal(with: controller, for: context.window, animationType: .scaleCenter)
         return controller.result
+    }
+    hooks.editImageWithEvents = editImageWithEvents
+    hooks.editImageWithContext = { context, url, defaultData in
+        editImageWithEvents(context, url, defaultData, {}, {})
+    }
+    hooks.editImage = { context, url, defaultData in
+        editImageWithEvents(context, url, defaultData, {}, {})
     }
     #if DEBUG
     hooks.showFirstGramsModal = { context, window in

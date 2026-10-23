@@ -97,6 +97,14 @@ private final class CollectionRowItem : GeneralRowItem {
     override func viewClass() -> AnyClass {
         return CollectionFilterRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return strings().voiceOverCommonFilter
+    }
+
+    override var accessibilityValue: String? {
+        return items.first(where: { $0.selected })?.text.string.replacingOccurrences(of: clown, with: "").trimmingCharacters(in: .whitespaces)
+    }
 }
 
 private final class CollectionFilterRowView : GeneralContainableRowView, TableViewDelegate {
@@ -205,6 +213,23 @@ private class GroupInfoRowItem : GeneralRowItem {
     override func viewClass() -> AnyClass {
         return GroupInfoRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return text.attributedString.string
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
+    }
 }
 
 private final class GroupInfoRowView: GeneralContainableRowView {
@@ -218,6 +243,7 @@ private final class GroupInfoRowView: GeneralContainableRowView {
         textView.isSelectable = false
         
         containerView.scaleOnClick = true
+        imageView.isAccessibilityDecorative = true
         containerView.set(handler: { [weak self] _ in
             if let item = self?.item as? GeneralRowItem {
                 item.action()
@@ -314,6 +340,14 @@ private class ProfilePreviewRowItem : GeneralRowItem {
     
     override func viewClass() -> AnyClass {
         return ProfilePreviewRowView.self
+    }
+
+    override var accessibilityLabel: String? {
+        return nameLayout.attributedString.string
+    }
+
+    override var accessibilityValue: String? {
+        return statusLayout.attributedString.string
     }
     
     
@@ -535,6 +569,11 @@ private class PreviewRowItem: GeneralRowItem {
     override func viewClass() -> AnyClass {
         return PreviewRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        let labels = items.compactMap { $0.accessibilityLabel }
+        return labels.isEmpty ? strings().selectColorMessage2 : labels.joined(separator: "\n")
+    }
     
 }
 
@@ -740,6 +779,10 @@ private class PeerNameColorIconItem: TableRowItem {
     override func viewClass() -> AnyClass {
         return PeerNameColorIconView.self
     }
+
+    override var accessibilityLabel: String? {
+        return strings().voiceOverCommonColor
+    }
 }
 
 private final class PeerNameColorIconView : ColorSwatchView {
@@ -771,6 +814,8 @@ private final class PeerNameColorIconView : ColorSwatchView {
         let colors = item.getColor(item.color)
 
         update(fill: generateFillImage(nameColor: colors), ring: generateRingImage(nameColor: colors), selected: item.selected, animated: animated)
+        control.setAccessibilityLabel(strings().voiceOverCommonColor)
+        control.setAccessibilityValue(item.selected ? strings().voiceOverCommonSelected : nil)
     }
 }
 
@@ -826,6 +871,10 @@ private final class PeerNamesRowItem : GeneralRowItem {
     
     override func viewClass() -> AnyClass {
         return PeerNamesRowView.self
+    }
+
+    override var accessibilityLabel: String? {
+        return strings().voiceOverCommonColor
     }
 }
 
@@ -1115,7 +1164,7 @@ struct SelectColorState : Equatable {
         if peer.profileBackgroundEmojiId != backgroundEmojiId_profile {
             return false
         }
-        if peer.emojiStatus?.fileId != emojiStatus?.fileId {
+        if peer.emojiStatus != emojiStatus {
             return false
         }
         if wallpaper != actualWallpaper {
@@ -1704,6 +1753,7 @@ public func SelectColorController(context: any AccountContextProtocol, peer: Pee
     }
     
     let actionsDisposable = DisposableSet()
+    let saveAction = SelectColorSaveAction()
     let resaleContextDisposable = MetaDisposable()
     actionsDisposable.add(resaleContextDisposable)
 
@@ -2266,11 +2316,12 @@ public func SelectColorController(context: any AccountContextProtocol, peer: Pee
         }
     }, getColor: getColor, showEmojiStatus: {
         let setStatus:(Control, TelegramUser)->Void = { control, peer in
-            let callback:(TelegramMediaFile, StarGift.UniqueGift?, Int32?, CGRect?)->Void = { file, _, timeout, fromRect in
+            let callback:(TelegramMediaFile, StarGift.UniqueGift?, Int32?, CGRect?)->Void = { file, gift, timeout, fromRect in
+                guard let selection = SelectColorStatusUpdate.selection(file: file, gift: gift, timeout: timeout, timestamp: context.timestamp) else { return }
                 updateState { current in
                     var current = current
-                    current.emojiStatus = .init(content: .emoji(fileId: file.fileId.id), expirationDate: timeout)
-                    current.emojiStatusGift = nil
+                    current.emojiStatus = selection.status
+                    current.emojiStatusGift = selection.gift
                     return current
                 }
             }
@@ -2281,7 +2332,9 @@ public func SelectColorController(context: any AccountContextProtocol, peer: Pee
         if let control = getControl?(nil) {
             switch source {
             case let .account(peer):
-                setStatus(control, peer as! TelegramUser)
+                if let peer = peer as? TelegramUser {
+                    setStatus(control, peer)
+                }
             case .channel, .group:
                 let selectedBg: SelectColorEmojiSelectedItem? = stateValue.with { $0.emojiStatus?.fileId }.flatMap {
                     .init(source: .custom($0), type: .normal)
@@ -2291,15 +2344,12 @@ public func SelectColorController(context: any AccountContextProtocol, peer: Pee
                 
                 let interactions = SettingsHooks.shared.makeEntertainmentInteractions(.emoji, peerId)
 
-                interactions.selectColorSendAnimatedEmoji = { [weak emojis] sticker, _, _, expirationDate, fromRect in
+                interactions.selectColorSendAnimatedEmoji = { [weak emojis] sticker, gift, _, timeout, fromRect in
+                    guard let selection = SelectColorStatusUpdate.selection(file: sticker.file._parse(), gift: gift, timeout: timeout, timestamp: context.timestamp) else { return }
                     updateState { current in
                         var current = current
-                        if sticker.file._parse().mimeType.hasPrefix("bundle") {
-                            current.emojiStatus = nil
-                        } else {
-                            current.emojiStatus = .init(content: .emoji(fileId: sticker.file.fileId.id), expirationDate: expirationDate)
-                        }
-                        current.emojiStatusGift = nil
+                        current.emojiStatus = selection.status
+                        current.emojiStatusGift = selection.gift
                         return current
                     }
                     emojis?.closePopover()
@@ -2440,7 +2490,10 @@ public func SelectColorController(context: any AccountContextProtocol, peer: Pee
         return strings().selectColorApply
     })
     
+    controller.willDisappear = { _ in saveAction.setActive(false) }
+    controller.willAppear = { _ in saveAction.setActive(true) }
     controller.onDeinit = {
+        saveAction.setActive(false)
         actionsDisposable.dispose()
     }
     
@@ -2449,9 +2502,13 @@ public func SelectColorController(context: any AccountContextProtocol, peer: Pee
     }
     
         
-    let invoke:()->Void = {
+    let invoke:()->Void = { [weak controller] in
+        guard let controller, saveAction.isActive, !saveAction.isPending, controller.isLoaded(), let window = controller.view.window as? Window else { return }
         let state = stateValue.with { $0 }
-        
+        if case .account = source {
+            guard state.peer.id == context.peerId, state.peer._asPeer() is TelegramUser else { return }
+        }
+
         if case .peerId(peerId) = state.selected_Gift?.owner {
         } else if let unique = state.selected_Gift {
             arguments.buyAndApply(unique, true)
@@ -2474,40 +2531,22 @@ public func SelectColorController(context: any AccountContextProtocol, peer: Pee
         
         let request:(@escaping()->Void)->Void = { f in
             
-            updateState { current in
-                var current = current
-                current.saving = true
-                return current
-            }
-            
-            var signals:[Signal<Never, NoError>] = []
-            
+            var signals:[Signal<Never, SelectColorSaveError>] = []
+
             switch source {
             case .account:
-                signals.append(context.engine.accountData.updateNameColorAndEmoji(nameColor: nameColor.getUpdate(backgroundEmojiId), profileColor: profileColor?.nameColor, profileBackgroundEmojiId: profileBackgroundEmojiId) |> ignoreValues |> `catch` { _ in return Signal<Never, NoError>.complete() })
+                signals.append(context.engine.accountData.updateNameColorAndEmoji(nameColor: nameColor.getUpdate(backgroundEmojiId), profileColor: profileColor?.nameColor, profileBackgroundEmojiId: profileBackgroundEmojiId) |> ignoreValues |> mapError { _ in SelectColorSaveError.generic })
                 
             case .channel, .group:
-                signals.append(context.engine.peers.updatePeerNameColorAndEmoji(peerId: peerId, nameColor: nameColor.nameColor ?? .blue, backgroundEmojiId: backgroundEmojiId, profileColor: profileColor?.nameColor, profileBackgroundEmojiId: profileBackgroundEmojiId) |> ignoreValues |> `catch` { _ in return Signal<Never, NoError>.complete() })
+                signals.append(context.engine.peers.updatePeerNameColorAndEmoji(peerId: peerId, nameColor: nameColor.nameColor ?? .blue, backgroundEmojiId: backgroundEmojiId, profileColor: profileColor?.nameColor, profileBackgroundEmojiId: profileBackgroundEmojiId) |> ignoreValues |> mapError { _ in SelectColorSaveError.generic })
                 
                 if emojiPack != actualEmojiPack {
-                    signals.append(context.engine.peers.updateGroupSpecificEmojiset(peerId: peerId, info: emojiPack) |> ignoreValues |> `catch` { _ in return Signal<Never, NoError>.complete() })
+                    signals.append(context.engine.peers.updateGroupSpecificEmojiset(peerId: peerId, info: emojiPack) |> ignoreValues |> mapError { _ in SelectColorSaveError.generic })
                 }
             }
             
             
-            if emojiStatus != state.peer.emojiStatus {
-                if let emojiStatusGift {
-                    signals.append(context.engine.accountData.setStarGiftStatus(starGift: emojiStatusGift, expirationDate: nil))
-                } else if let emojiStatus {
-                    signals.append(context.engine.peers.updatePeerEmojiStatus(peerId: peerId, fileId: emojiStatus.fileId, expirationDate: emojiStatus.expirationDate) |> ignoreValues |> `catch` { _ in return Signal<Never, NoError>.complete() })
-                }
-            }
-            
-            
-            
-            if emojiStatus?.fileId != state.peer.emojiStatus?.fileId {
-                signals.append(context.engine.peers.updatePeerEmojiStatus(peerId: peerId, fileId: emojiStatus?.fileId, expirationDate: emojiStatus?.expirationDate) |> ignoreValues |> `catch` { _ in return Signal<Never, NoError>.complete() })
-            }
+            signals.append(SelectColorStatusUpdate.request(context: context, peer: state.peer, status: emojiStatus, gift: emojiStatusGift))
             if wallpaper != actualWallpaper {
                 if let wallpaper = wallpaper {
                     switch wallpaper {
@@ -2516,18 +2555,39 @@ public func SelectColorController(context: any AccountContextProtocol, peer: Pee
                         
                         context.account.pendingPeerMediaUploadManager.add(peerId: peerId, content: .wallpaper(wallpaper: .image([rep], file.settings), forBoth: false))
                     default:
-                        signals.append(context.engine.themes.setChatWallpaper(peerId: peerId, wallpaper: wallpaper, forBoth: false) |> `catch` { _ in return Signal<Never, NoError>.complete() })
+                        signals.append(context.engine.themes.setChatWallpaper(peerId: peerId, wallpaper: wallpaper, forBoth: false) |> mapError { _ in SelectColorSaveError.generic })
                     }
                 } else {
-                    signals.append(context.engine.themes.setChatWallpaper(peerId: peerId, wallpaper: nil, forBoth: false) |> `catch` { _ in return Signal<Never, NoError>.complete() })
+                    signals.append(context.engine.themes.setChatWallpaper(peerId: peerId, wallpaper: nil, forBoth: false) |> mapError { _ in SelectColorSaveError.generic })
                 }
             }
-            actionsDisposable.add((combineLatest(signals) |> deliverOnMainQueue).startStandalone(completed: {
+            let clearSaving: () -> Void = {
+                updateState { current in
+                    var current = current
+                    current.saving = false
+                    return current
+                }
+            }
+            saveAction.perform(signal: combineLatest(signals) |> ignoreValues, window: window, canPresent: { [weak controller, weak window] in
+                guard let controller, let window else { return false }
+                return controller.isLoaded() && controller.view.window === window
+            }, started: {
+                updateState { current in
+                    var current = current
+                    current.saving = true
+                    return current
+                }
+            }, cancelled: clearSaving, failed: { [weak controller, weak window, weak saveAction] in
+                clearSaving()
+                if let controller, let window, saveAction?.isActive == true, controller.view.window === window {
+                    showModalText(for: window, text: strings().unknownError)
+                }
+            }, completed: {
                 close?()
                 f()
-            }))
+            })
         }
-        
+
         let peer = source.peer
         switch source {
         case .channel, .group:
@@ -2606,7 +2666,7 @@ public func SelectColorController(context: any AccountContextProtocol, peer: Pee
                     showModal(with: SettingsNavigationHooks.shared.makeBoostInfoController(context, peer, stats, myStatus, .profileColor(profileColorLevel)), for: context.window)
                 } else if stats.level < profileIconLevel, profileBackgroundEmojiId != peer.profileBackgroundEmojiId {
                     showModal(with: SettingsNavigationHooks.shared.makeBoostInfoController(context, peer, stats, myStatus, .profileIcon(profileIconLevel)), for: context.window)
-                } else if stats.level < emojiStatusLevel, emojiStatus?.fileId != peer.emojiStatus?.fileId {
+                } else if stats.level < emojiStatusLevel, emojiStatus != peer.emojiStatus {
                     showModal(with: SettingsNavigationHooks.shared.makeBoostInfoController(context, peer, stats, myStatus, .emojiStatus(emojiStatusLevel)), for: context.window)
                 } else if stats.level < emojiPackLevel, emojiPack != actualEmojiPack {
                     showModal(with: SettingsNavigationHooks.shared.makeBoostInfoController(context, peer, stats, myStatus, .emojiPack(emojiStatusLevel)), for: context.window)

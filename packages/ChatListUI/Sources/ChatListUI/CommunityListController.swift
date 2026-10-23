@@ -447,6 +447,7 @@ open class CommunityListController<Context: AccountContextProtocol>: PeersListCo
         let button = addChatButton
         button.set(font: .medium(.text), for: .Normal)
         button.set(text: strings().communityListAddChatToCommunity, for: .Normal)
+        addChatButton.setAccessibilityLabel(strings().communityListAddChatToCommunity)
         button.set(color: theme.colors.underSelectedColor, for: .Normal)
         button.set(background: .clear, for: .Normal)
         button.set(image: generateCommunityAddChatIcon(), for: .Normal)
@@ -561,8 +562,10 @@ private final class CommunityPendingRowItem: GeneralRowItem {
     fileprivate let titleLayout: TextViewLayout
     fileprivate let badge: BadgeNode
     fileprivate let pendingAction: () -> Void
+    fileprivate let count: Int32
     init(_ initialSize: NSSize, stableId: AnyHashable, context: any AccountContextProtocol, count: Int32, action: @escaping () -> Void) {
         self.context = context
+        self.count = count
         self.pendingAction = action
         self.titleLayout = TextViewLayout(.initialize(string: strings().communityListPendingRequests, color: theme.colors.text, font: .normal(.title)), maximumNumberOfLines: 1)
         self.badge = BadgeNode(.initialize(string: "\(count)", color: theme.chatList.badgeTextColor, font: .medium(.small)), theme.colors.accent)
@@ -575,6 +578,22 @@ private final class CommunityPendingRowItem: GeneralRowItem {
     }
     override func viewClass() -> AnyClass {
         return CommunityPendingRowView.self
+    }
+    override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+    override var accessibilityValue: String? {
+        return "\(count)"
+    }
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+    override func accessibilityPerformPress() -> Bool {
+        pendingAction()
+        return true
     }
 }
 
@@ -595,6 +614,9 @@ private final class CommunityPendingRowView: TableRowView {
         textView.isSelectable = false
         textView.isEventLess = true
         badgeView.isEventLess = true
+        imageView.isAccessibilityDecorative = true
+        chevron.isAccessibilityDecorative = true
+        control.setAccessibilityLabel(strings().communityListPendingRequests)
         control.set(handler: { [weak self] _ in
             if let item = self?.item as? CommunityPendingRowItem { item.pendingAction() }
         }, for: .Click)

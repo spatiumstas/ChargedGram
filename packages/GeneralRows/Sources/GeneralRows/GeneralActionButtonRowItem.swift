@@ -19,6 +19,23 @@ public final class GeneralActionButtonRowItem : GeneralRowItem {
     public override var height: CGFloat {
         return 60
     }
+
+    public override var accessibilityLabel: String? {
+        return text
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
+    }
     
     public override var backdorColor: NSColor {
         switch viewType {

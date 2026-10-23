@@ -1,3 +1,4 @@
+#if DEBUG
 import AppKit
 
 public struct PerfLabViewCensus {
@@ -11,6 +12,9 @@ public struct PerfLabViewCensus {
     public private(set) var hiddenByParent: [String: Int] = [:]
     public private(set) var hiddenPaths: [String: String] = [:]
     public private(set) var subtreeByClass: [String: (count: Int, views: Int)] = [:]
+    public private(set) var drawingViews: Int = 0
+    public private(set) var drawingPixels: Double = 0
+    public private(set) var drawingByClass: [String: Int] = [:]
 
     private static let containerClasses: Set<String> = ["NSView", "View", "FlippableView", "LayerBackedView"]
 
@@ -32,6 +36,12 @@ public struct PerfLabViewCensus {
             self.hiddenViews += 1
         }
         self.byClass[name, default: 0] += 1
+        if !isHidden, view.wantsLayer, !view.wantsUpdateLayer, view.layer?.contents != nil {
+            let scale = view.layer?.contentsScale ?? 1
+            self.drawingViews += 1
+            self.drawingPixels += Double(view.bounds.width * scale * view.bounds.height * scale)
+            self.drawingByClass[name, default: 0] += Int(view.bounds.width * scale * view.bounds.height * scale / 1000)
+        }
         let pair = "\(name)<\(view.superview.map { String(describing: type(of: $0)) } ?? "-")"
         self.byParent[pair, default: 0] += 1
         if self.samplePaths[pair] == nil {
@@ -139,7 +149,9 @@ public struct PerfLabViewCensus {
             "censusViews": Double(self.views),
             "censusHiddenViews": Double(self.hiddenViews),
             "censusLayers": Double(self.layers),
-            "censusContainers": Double(self.containers.values.reduce(0, +))
+            "censusContainers": Double(self.containers.values.reduce(0, +)),
+            "censusDrawingViews": Double(self.drawingViews),
+            "censusDrawingMPixels": self.drawingPixels / 1_000_000
         ]
     }
 
@@ -160,7 +172,9 @@ public struct PerfLabViewCensus {
             "censusPaths": paths.joined(separator: " | "),
             "censusParents": parents.joined(separator: ", "),
             "censusClasses": classes.joined(separator: ", "),
+            "censusDrawingClasses": self.drawingByClass.sorted(by: { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }).prefix(top).map { "\($0.key)=\($0.value)" }.joined(separator: ", "),
             "censusContainerList": containers.joined(separator: ", ")
         ]
     }
 }
+#endif

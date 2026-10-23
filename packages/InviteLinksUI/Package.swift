@@ -22,6 +22,7 @@ let deps: [(String, String)] = [
     ("InputView", "../InputView"),
     ("InputTextView", "../InputTextView"),
     ("InlineStickerLayer", "../InlineStickerLayer"),
+
 ]
 
 let package = Package(

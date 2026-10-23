@@ -23,6 +23,16 @@ public struct GalleryHooks {
     public let executeLink: (Any, @escaping (Bool) -> Void) -> Void
     public let openInfo: (any AccountContextProtocol, PeerId, Bool, MessageId?, ChatInitialAction?) -> Void
     public let showShare: (any AccountContextProtocol, Message, [Message]?, Window) -> Void
+    public var showShareWithContext: ((any AccountContextProtocol, Message, [Message]?, Window) -> Void)?
+
+    public func showShareObserved(_ context: any AccountContextProtocol, _ message: Message, _ messages: [Message]?, _ window: Window) {
+        if let showShareWithContext {
+            showShareWithContext(context, message, messages, window)
+        } else {
+            showShare(context, message, messages, window)
+        }
+    }
+
     public let makeCaption: (any AccountContextProtocol, Message, [MessageTextEntity], String, @escaping () -> Void) -> NSAttributedString
     public let makeAdMessageText: (any AccountContextProtocol, Message) -> NSAttributedString
     public let showAdAbout: (any AccountContextProtocol, Window) -> Void

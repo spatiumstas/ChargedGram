@@ -216,6 +216,8 @@ private class ChatCallRowView : ChatRowView {
         super.init(frame: frameRect)
         
         fallbackControl.animates = false
+        fallbackControl.isAccessibilityDecorative = true
+        imageView.isAccessibilityDecorative = true
         
         addSubview(fallbackControl)
         addSubview(imageView)

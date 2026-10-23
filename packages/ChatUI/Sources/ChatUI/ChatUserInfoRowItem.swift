@@ -91,7 +91,7 @@ public final class ChatUserInfoRowItem : ChatRowItem {
     
     public func openCommonGroups() {
         if groupsCount > 0 {
-            ChatNavigationHooks.shared.pushGroupsInCommon(context, _peer.id)
+            ChatNavigationHooks.shared.pushGroupsInCommonObserved(context, _peer.id)
         }
     }
 }

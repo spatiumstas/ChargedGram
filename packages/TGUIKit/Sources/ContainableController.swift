@@ -145,20 +145,17 @@ public extension NSView {
 
 public extension ContainedViewLayoutTransition {
     func updateFrame(view: NSView, frame: CGRect, completion: ((Bool) -> Void)? = nil) {
-        if view.endFrame == frame {
-            completion?(true)
-            return
-        }
-
         switch self {
         case .immediate:
-            if view.frame != frame {
+            if view.frame != frame && view.endFrame != frame {
                 view.frame = frame
             }
-            if let completion = completion {
-                completion(true)
-            }
+            completion?(true)
         case let .animated(duration, curve):
+            if view.endFrame == frame {
+                completion?(true)
+                return
+            }
 
             let curve = curve
 

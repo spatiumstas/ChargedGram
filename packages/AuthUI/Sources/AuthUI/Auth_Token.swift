@@ -95,6 +95,7 @@ public final class Auth_TokenView : View {
         thridHelp = ExportTokenOptionView(frame: NSMakeRect(0, 0, frameRect.width, 0))
         super.init(frame: frameRect)
         
+        self.imageView.setAccessibilityLabel(strings().voiceOverLoginQRCode)
         self.imageView.layer?.opacity = 0
         self.imageView.isHidden = true
         

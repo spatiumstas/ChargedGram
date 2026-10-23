@@ -10,6 +10,28 @@ import TelegramTheme
 private let duration: TimeInterval = 0.4
 private let timingFunction: CAMediaTimingFunctionName = .spring
 
+private func makeCommentsImageLayer() -> SimpleLayer {
+    let layer = SimpleLayer()
+    layer.anchorPoint = .zero
+    layer.masksToBounds = true
+    layer.edgeAntialiasingMask = []
+    return layer
+}
+
+private func changeCommentsLayerPosition(_ layer: CALayer, to position: NSPoint, animated: Bool) {
+    guard position != layer.frame.origin else { return }
+    if animated {
+        var from = layer.frame.origin
+        if let presentation = layer.presentation(), layer.animation(forKey: "position") != nil {
+            from = presentation.frame.origin
+        }
+        layer.animatePosition(from: from, to: position, duration: 0.2, timingFunction: .easeOut)
+    } else {
+        layer.removeAnimation(forKey: "position")
+    }
+    layer.frame.origin = position
+}
+
 
 
 
@@ -26,7 +48,7 @@ public protocol ChannelCommentRenderer {
 
 public class CommentsBasicControl : Button, ChannelCommentRenderer {
     
-    fileprivate var textViews: [ChannelCommentsRenderData.Text : (TextView, ChannelCommentsRenderData.Text)] = [:]
+    fileprivate var textViews: [ChannelCommentsRenderData.Text : (ChatReactionTextLayer, ChannelCommentsRenderData.Text)] = [:]
     fileprivate var renderData: ChannelCommentsRenderData?
     fileprivate var size: NSSize = .zero
     fileprivate var progressView: ProgressIndicator?
@@ -67,26 +89,26 @@ public class CommentsBasicControl : Button, ChannelCommentRenderer {
                 if animated {
                     switch updated.animation {
                     case .crossFade:
-                        field.layer?.animateAlpha(from: 1, to: 0, duration: duration, timingFunction: timingFunction, removeOnCompletion: false, completion: { [weak field] _ in
-                            field?.removeFromSuperview()
+                        field.animateAlpha(from: 1, to: 0, duration: duration, timingFunction: timingFunction, removeOnCompletion: false, completion: { [weak field] _ in
+                            field?.removeFromSuperlayer()
                         })
                     case .numeric:
-                        field.layer?.animateAlpha(from: 1, to: 0, duration: duration, timingFunction: timingFunction, removeOnCompletion: false, completion: { [weak field] _ in
-                            field?.removeFromSuperview()
+                        field.animateAlpha(from: 1, to: 0, duration: duration, timingFunction: timingFunction, removeOnCompletion: false, completion: { [weak field] _ in
+                            field?.removeFromSuperlayer()
                         })
                         
                         let direction = addition[key.hashValue]
                         switch direction {
                         case .forward?:
-                            field.layer?.animatePosition(from: field.frame.origin, to: NSMakePoint(field.frame.minX, field.frame.maxY), timingFunction: timingFunction, removeOnCompletion: false)
+                            field.animatePosition(from: field.frame.origin, to: NSMakePoint(field.frame.minX, field.frame.maxY), timingFunction: timingFunction, removeOnCompletion: false)
                         case .backward?:
-                            field.layer?.animatePosition(from: field.frame.origin, to: NSMakePoint(field.frame.minX, field.frame.minY - field.frame.height), timingFunction: timingFunction, removeOnCompletion: false)
+                            field.animatePosition(from: field.frame.origin, to: NSMakePoint(field.frame.minX, field.frame.minY - field.frame.height), timingFunction: timingFunction, removeOnCompletion: false)
                         case .none:
                             break
                         }
                     }
                 } else {
-                    field.removeFromSuperview()
+                    field.removeFromSuperlayer()
                 }
             }
         }
@@ -94,33 +116,30 @@ public class CommentsBasicControl : Button, ChannelCommentRenderer {
         for layout in data.titleLayout {
             if let view = textViews[layout.1] {
                 if animated {
-                    view.0.layer?.animatePosition(from: view.0.frame.origin - pos, to: .zero, timingFunction: timingFunction, removeOnCompletion: true, additive: true)
+                    view.0.animatePosition(from: view.0.frame.origin - pos, to: .zero, timingFunction: timingFunction, removeOnCompletion: true, additive: true)
                 }
-                view.0.setFrameOrigin(pos)
+                if view.0.frame.origin != pos { view.0.frame.origin = pos }
             } else {
-                let current = TextView()
-                current.userInteractionEnabled = false
-                current.isSelectable = false
-                current.disableBackgroundDrawing = true
+                let current = ChatReactionTextLayer()
+                current.frame = CGRect(origin: pos, size: layout.0.layoutSize)
                 self.textViews[layout.1] = (current, layout.1)
-                current.update(layout.0, origin: pos)
-                addSubview(current)
+                current.update(layout.0, in: self)
                 if animated {
                     switch layout.1.animation {
                     case .crossFade:
-                        current.layer?.animateAlpha(from: 0, to: 1, duration: duration)
+                        current.animateAlpha(from: 0, to: 1, duration: duration)
                     case .numeric:
                         let direction = addition[layout.1.hashValue]
                         switch direction {
                         case .forward?:
-                            current.layer?.animatePosition(from: NSMakePoint(pos.x, pos.y - layout.0.layoutSize.height), to: pos, timingFunction: timingFunction)
+                            current.animatePosition(from: NSMakePoint(pos.x, pos.y - layout.0.layoutSize.height), to: pos, timingFunction: timingFunction)
                         case .backward?:
-                            current.layer?.animatePosition(from: NSMakePoint(pos.x, pos.y + layout.0.layoutSize.height), to: pos, timingFunction: timingFunction)
+                            current.animatePosition(from: NSMakePoint(pos.x, pos.y + layout.0.layoutSize.height), to: pos, timingFunction: timingFunction)
                         case .none:
                             break
                         }
                         
-                        current.layer?.animateAlpha(from: 0, to: 1, duration: duration)
+                        current.animateAlpha(from: 0, to: 1, duration: duration)
                     }
                 }
             }
@@ -156,6 +175,27 @@ public class CommentsBasicControl : Button, ChannelCommentRenderer {
     
     public var firstTextPosition: NSPoint {
         return .zero
+    }
+
+    public override var accessibilityDefaultLabel: String? {
+        guard let renderData else { return nil }
+        let label = renderData._title.map { $0.text.string }.joined()
+        return label.isEmpty ? nil : label
+    }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateTextScale()
+    }
+
+    public override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        updateTextScale()
+    }
+
+    private func updateTextScale() {
+        let scale = backingScaleFactor
+        for (layer, _) in textViews.values { layer.updateScale(scale) }
     }
     
     public var progressIndicatorSize: NSSize {
@@ -317,18 +357,17 @@ public class ChannelCommentsBubbleControl: CommentsBasicControl {
     private var peers:[Avatar] = []
     private var avatars:[AvatarContentLayer] = []
     private let avatarsContainer = SimpleLayer(frame: NSMakeRect(0, 0, 22 * 3, 22))
-    private let arrowView = ImageView()
-    private var dotView: View? = nil
+    private let arrowView = makeCommentsImageLayer()
+    private var dotView: SimpleLayer? = nil
+    private var dotColor: NSColor?
         
     public required init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         self.layer?.addSublayer(avatarsContainer)
-        addSubview(arrowView)
-        arrowView.isEventLess = true
-        
-        arrowView.image = theme.icons.channel_comments_bubble_next
-        arrowView.sizeToFit()
-        
+        let arrow = theme.icons.channel_comments_bubble_next
+        arrowView.contents = arrow
+        arrowView.frame = CGRect(origin: .zero, size: arrow.backingSize)
+        self.layer?.addSublayer(arrowView)
     }
 
     
@@ -478,7 +517,7 @@ public class ChannelCommentsBubbleControl: CommentsBasicControl {
         if animated {
             var f = size.bounds.focus(arrowView.frame.size)
             f.origin.x = size.width - 6 - f.width
-            arrowView.layer?.animatePosition(from: arrowView.frame.origin - f.origin, to: .zero, timingFunction: timingFunction, additive: true)
+            arrowView.animatePosition(from: arrowView.frame.origin - f.origin, to: .zero, timingFunction: timingFunction, additive: true)
         }
         
         
@@ -489,31 +528,43 @@ public class ChannelCommentsBubbleControl: CommentsBasicControl {
             f.origin.y += 1
             if self.dotView == nil {
                 let effectivePos = previousLastTextPosition != .zero ? previousLastTextPosition : f.origin
-                self.dotView = View(frame: CGRect(origin: effectivePos, size: f.size))
-                self.dotView?.layer?.cornerRadius = size.height / 2
-                addSubview(self.dotView!)
+                let dot = SimpleLayer()
+                dot.anchorPoint = .zero
+                dot.masksToBounds = true
+                dot.isOpaque = true
+                dot.edgeAntialiasingMask = []
+                if #available(macOS 10.15, *) { dot.cornerCurve = .continuous }
+                dot.frame = CGRect(origin: effectivePos, size: f.size)
+                dot.cornerRadius = size.height / 2
+                self.dotView = dot
+                self.layer?.addSublayer(dot)
                 if animated {
-                    self.dotView?.layer?.animateAlpha(from: 0, to: 1, duration: duration, timingFunction: timingFunction)
-                    self.dotView?.layer?.animateScaleSpring(from: 0.2, to: 1.0, duration: duration, bounce: true)
+                    dot.animateAlpha(from: 0, to: 1, duration: duration, timingFunction: timingFunction)
+                    dot.animateScaleSpring(from: 0.2, to: 1.0, duration: duration, bounce: true)
                 }
             }
             guard let dotView = self.dotView else {
                 return
             }
             if animated {
-                dotView.layer?.animatePosition(from: dotView.frame.origin - f.origin, to: .zero, timingFunction: timingFunction, additive: true)
+                dotView.animatePosition(from: dotView.frame.origin - f.origin, to: .zero, timingFunction: timingFunction, additive: true)
             }
-            dotView.backgroundColor = theme.colors.accentIcon
+            let color = theme.colors.accentIcon
+            if dotColor != color || dotView.backgroundColor == nil {
+                dotColor = color
+                dotView.backgroundColor = color.cgColor
+            }
         } else {
             if let dotView = dotView {
                 self.dotView = nil
+                self.dotColor = nil
                 if animated {
-                    dotView.layer?.animateAlpha(from: 1, to: 0, duration: duration, timingFunction: timingFunction, removeOnCompletion: false, completion: { [weak dotView] _ in
-                        dotView?.removeFromSuperview()
+                    dotView.animateAlpha(from: 1, to: 0, duration: duration, timingFunction: timingFunction, removeOnCompletion: false, completion: { [weak dotView] _ in
+                        dotView?.removeFromSuperlayer()
                     })
-                    dotView.layer?.animateScaleSpring(from: 1, to: 0.2, duration: duration)
+                    dotView.animateScaleSpring(from: 1, to: 0.2, duration: duration)
                 } else {
-                    dotView.removeFromSuperview()
+                    dotView.removeFromSuperlayer()
                 }
             }
         }
@@ -530,9 +581,13 @@ public class ChannelCommentsBubbleControl: CommentsBasicControl {
         } else {
             rect.origin.x = 0
         }
-        self.avatarsContainer.frame = rect
-        self.arrowView.centerY(x: frame.width - arrowView.frame.width - (bubbleMode ? 6 : 0))
-        self.dotView?.centerY(x: lastTextPosition.x + 6, addition: 1)
+        if self.avatarsContainer.frame != rect { self.avatarsContainer.frame = rect }
+        let arrowOrigin = NSMakePoint(frame.width - arrowView.frame.width - (bubbleMode ? 6 : 0), round((frame.height - arrowView.frame.height) / 2))
+        if arrowView.frame.origin != arrowOrigin { arrowView.frame.origin = arrowOrigin }
+        if let dotView {
+            let dotOrigin = NSMakePoint(lastTextPosition.x + 6, round((frame.height - dotView.frame.height) / 2) + 1)
+            if dotView.frame.origin != dotOrigin { dotView.frame.origin = dotOrigin }
+        }
     }
     
 }
@@ -543,11 +598,10 @@ public class ChannelCommentsBubbleControl: CommentsBasicControl {
 
 public final class ChannelCommentsSmallControl : CommentsBasicControl {
 
-    private let imageView = ImageView()
+    private let imageView = makeCommentsImageLayer()
     public required init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        imageView.isEventLess = true
-        addSubview(imageView)
+        self.layer?.addSublayer(imageView)
     }
 
     public override var firstTextPosition: NSPoint {
@@ -600,12 +654,9 @@ public final class ChannelCommentsSmallControl : CommentsBasicControl {
         imageView.isHidden = data.isLoading
         
         
-        if theme.bubbled && theme.backgroundMode.hasWallpaper {
-            imageView.image = theme.chat_comments_overlay
-        } else {
-            imageView.image = theme.icons.channel_comments_overlay
-        }
-        imageView.sizeToFit()
+        let icon = theme.bubbled && theme.backgroundMode.hasWallpaper ? theme.chat_comments_overlay : theme.icons.channel_comments_overlay
+        imageView.contents = icon
+        imageView.frame.size = icon.backingSize
         
         layer?.cornerRadius = min(size.height, size.width) / 2
         
@@ -620,14 +671,15 @@ public final class ChannelCommentsSmallControl : CommentsBasicControl {
             iconPosition = rect.focus(iconSize).origin
         }
         
-        imageView.change(pos: iconPosition, animated: animated)
+        changeCommentsLayerPosition(imageView, to: iconPosition, animated: animated)
         change(size: size, animated: animated)
         needsDisplay = true
     }
     
     public override func layout() {
         super.layout()
-        imageView.setFrameOrigin(imagePosition)
+        let origin = imagePosition
+        if imageView.frame.origin != origin { imageView.frame.origin = origin }
     }
     
     public required init?(coder: NSCoder) {

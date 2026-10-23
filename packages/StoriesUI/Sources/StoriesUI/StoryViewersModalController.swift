@@ -71,6 +71,10 @@ private final class StoryViewerEmptyRowItem : GeneralRowItem {
     override func viewClass() -> AnyClass {
         return StoryViewerEmptyRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return text.attributedString.string
+    }
 }
 
 private final class StoryViewerEmptyRowView : TableRowView {
@@ -86,6 +90,7 @@ private final class StoryViewerEmptyRowView : TableRowView {
         addSubview(container)
         textView.userInteractionEnabled = false
         textView.isSelectable = false
+        textView.isAccessibilityDecorative = true
     }
     
     override var backdorColor: NSColor {
@@ -271,6 +276,50 @@ private final class StoryViewerRowItem : GeneralRowItem {
     override func viewClass() -> AnyClass {
         return StoryViewerRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return peer.displayTitle
+    }
+
+    override var accessibilityValue: String? {
+        var parts: [String] = [dateLayout.attributedString.string]
+        if case let .builtin(value) = reaction {
+            parts.append(value)
+        }
+        return parts.joined(separator: "\n")
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        callback(peer.id)
+        return true
+    }
+
+    override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        var actions: [NSAccessibilityCustomAction] = []
+        let peerId = peer.id
+        if avatarComponent != nil {
+            actions.append(NSAccessibilityCustomAction(name: strings().voiceOverCommonStory, handler: { [weak self] in
+                self?.openStory(peerId)
+                return true
+            }))
+        }
+        if case let .repost(repost) = item {
+            let storyId = StoryId(peerId: repost.peer.id, id: repost.story.id)
+            actions.append(NSAccessibilityCustomAction(name: strings().voiceOverCommonRepost, handler: { [weak self] in
+                self?.openRepostStory(storyId)
+                return true
+            }))
+        }
+        return actions.isEmpty ? nil : actions
+    }
 }
 
 private var repost_story: CGImage {
@@ -308,6 +357,9 @@ private final class StoryViewerRowView: GeneralRowView {
         title.isSelectable = false
 
         stateIcon.isEventLess = true
+        stateIcon.isAccessibilityDecorative = true
+        container.setAccessibilityLabel(strings().voiceOverCommonStory)
+        content.setAccessibilityLabel(strings().voiceOverCommonOpen)
         
         avatar.frame = NSMakeRect(0, 0, 36, 36)
         
@@ -675,11 +727,13 @@ private final class StoryViewersTopView : View {
         close.autohighlight = false
         close.scaleOnClick = true
         close.sizeToFit()
+        close.setAccessibilityLabel(strings().voiceOverCommonClose)
         
         filter.set(image: TelegramThemeHooks.shared.image(.iconStoryViewersFilter).precomposed(darkAppearance.colors.text), for: .Normal)
         filter.autohighlight = false
         filter.scaleOnClick = true
         filter.sizeToFit()
+        filter.setAccessibilityLabel(strings().voiceOverCommonSort)
         
         self.backgroundColor = darkAppearance.colors.background
         self.borderColor = darkAppearance.colors.border
@@ -832,7 +886,7 @@ func StoryViewersModalController<Context: AccountContextProtocol>(context: Conte
             return current
         }
     }, openPremium: {
-        FeatureNavigationHooks.shared.showPremiumBoarding(context, context.window, .storyViewers, true, darkAppearance)
+        FeatureNavigationHooks.shared.showPremiumBoardingObserved(context, context.window, .storyViewers, true, darkAppearance)
     }, openRepostStory: { storyId in
         StoryModalController.ShowSingleStory(context: context, storyId: storyId, initialId: .init(peerId: storyId.peerId, id: storyId.id, messageId: nil, takeControl: { [] peerId, _, storyId in
             return getControl?(peerId, storyId)

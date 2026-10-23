@@ -436,6 +436,9 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
 public func PaymentsPaymentMethodController(context: (any AccountContextProtocol), fields: PaymentsPaymentMethodAdditionalFields, publishableKey: String, passwordMissing: Bool, isTesting: Bool, provider: PaymentProvider, completion: @escaping (BotCheckoutPaymentMethod) -> Void) -> InputDataModalController {
 
     let actionsDisposable = DisposableSet()
+    let requestState = PaymentFormRequestState()
+    let requestDisposable = MetaDisposable()
+    actionsDisposable.add(requestDisposable)
 
     var close:(()->Void)? = nil
     
@@ -444,7 +447,13 @@ public func PaymentsPaymentMethodController(context: (any AccountContextProtocol
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
     let updateState: ((State) -> State) -> Void = { f in
-        statePromise.set(stateValue.modify (f))
+        statePromise.set(stateValue.modify { current in
+            let updated = f(current)
+            if current.card != updated.card || current.holderName != updated.holderName || current.billingAddress != updated.billingAddress || current.saveInfo != updated.saveInfo {
+                requestState.invalidate()
+            }
+            return updated
+        })
     }
     
     var getController:(()->ViewController?)? = nil
@@ -462,7 +471,10 @@ public func PaymentsPaymentMethodController(context: (any AccountContextProtocol
             return current
         }
     }, verify: {
-        
+        guard let controller = getController?(), let requestId = requestState.begin() else { return }
+        let operation = MetaDisposable()
+        requestDisposable.set(operation)
+        let state = stateValue.with { $0 }
         let tokenSignal:Signal<BotCheckoutPaymentMethod?, Error>
         
         switch provider {
@@ -472,8 +484,8 @@ public func PaymentsPaymentMethodController(context: (any AccountContextProtocol
             configuration.publishableKey = publishableKey
             configuration.appleMerchantIdentifier = "merchant.ph.telegra.Telegraph"
             let apiClient = STPAPIClient(configuration: configuration)
-            let card = stateValue.with { $0.stripe }
-            let saveOnServer = stateValue.with { $0.saveInfo }
+            let card = state.stripe
+            let saveOnServer = state.saveInfo
             let createToken: Signal<STPToken, Error> = Signal { subscriber in
                 apiClient.createToken(withCard: card, completion: { token, error in
                     if let error = error {
@@ -496,16 +508,21 @@ public func PaymentsPaymentMethodController(context: (any AccountContextProtocol
                 return nil
             }
         case let .smartglocal(customTokenizeUrl):
-            tokenSignal = validateSmartGlobal(publishableKey, isTesting: isTesting, state: stateValue.with { $0 }, customTokenizeUrl: customTokenizeUrl) |> map(Optional.init)
+            tokenSignal = validateSmartGlobal(publishableKey, isTesting: isTesting, state: state, customTokenizeUrl: customTokenizeUrl) |> map(Optional.init)
         }
-        _ = showModalProgress(signal: tokenSignal, for: window).start(next: { token in
+        let validation = showModalProgress(signal: tokenSignal, for: window) |> deliverOnMainQueue
+        operation.set((validation).start(next: { token in
+            guard getController?() != nil, requestState.take(requestId) else { return }
             if let token = token {
                 completion(token)
                 close?()
             }
         }, error: { error in
+            guard getController?() != nil, requestState.take(requestId) else { return }
             alert(for: window, info: error.localizedDescription)
-        })
+        }, completed: {
+            _ = requestState.take(requestId)
+        }))
 
     }, passwordMissing: passwordMissing)
     
@@ -519,7 +536,15 @@ public func PaymentsPaymentMethodController(context: (any AccountContextProtocol
         return controller
     }
     
+    controller.didAppear = { _ in requestState.resume() }
+
+    controller.willDisappear = { _ in
+        requestState.suspend()
+        requestDisposable.set(nil)
+    }
+
     controller.onDeinit = {
+        requestState.suspend()
         actionsDisposable.dispose()
         updateState { _ in
             State(card: .init(number: "", date: "", cvc: ""), holderName: "", billingAddress: .init(country: "", zipCode: ""), saveInfo: false)

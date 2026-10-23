@@ -3,73 +3,87 @@ import Cocoa
 public class SelectingControl: Control {
     
    
-    private var selectedView:ImageView?
-    private let unselectedView = ImageView()
+    private var selectedLayer: SimpleLayer?
+    private let unselectedLayer = SimpleLayer()
     private var unselectedImage:CGImage
     private var selectedImage:CGImage
     
+    public override func isAccessibilityElement() -> Bool {
+        return TGUIKitAccessibility.isEnabled && !isAccessibilityDecorative && !isHidden
+    }
+
+    public override func accessibilityRole() -> NSAccessibility.Role? {
+        return .checkBox
+    }
+
+    public override func accessibilityValue() -> Any? {
+        return NSNumber(value: isSelected ? 1 : 0)
+    }
+
     public init(unselectedImage:CGImage, selectedImage:CGImage, selected: Bool = false) {
         self.unselectedImage = unselectedImage
         self.selectedImage = selectedImage
         
-        self.unselectedView.image = unselectedImage
-        self.unselectedView.sizeToFit()
         super.init(frame:NSMakeRect(0, 0, max(unselectedImage.backingSize.width ,selectedImage.backingSize.width ), max(unselectedImage.backingSize.height,selectedImage.backingSize.height )))
         userInteractionEnabled = false
-        addSubview(unselectedView)
+        unselectedLayer.contents = unselectedImage
+        unselectedLayer.frame = focus(unselectedImage.backingSize)
+        layer?.addSublayer(unselectedLayer)
         self.set(selected: selected, animated: false)
         
-        unselectedView.layer?.masksToBounds = false
         self.layer?.masksToBounds = false
     }
     
-    public func update(unselectedImage:CGImage, selectedImage:CGImage, selected: Bool, animated: Bool) {
-        self.unselectedImage = unselectedImage
-        self.selectedImage = selectedImage
+    public func update(unselectedImage: CGImage, selectedImage: CGImage, selected: Bool, animated: Bool) {
+        if self.unselectedImage !== unselectedImage {
+            self.unselectedImage = unselectedImage
+            unselectedLayer.contents = unselectedImage
+        }
+        if self.selectedImage !== selectedImage {
+            self.selectedImage = selectedImage
+            selectedLayer?.contents = selectedImage
+        }
         self.set(selected: selected, animated: animated)
+        updateImageFrames()
     }
-    
+
     public override func layout() {
         super.layout()
-        unselectedView.center()
-        selectedView?.center()
+        updateImageFrames()
     }
-    
-    public func set(selected:Bool, animated:Bool = false) {
-        if selected != isSelected {
 
+    private func updateImageFrames() {
+        unselectedLayer.frame = focus(unselectedImage.backingSize)
+        selectedLayer?.frame = focus(selectedImage.backingSize)
+    }
+
+    public func set(selected: Bool, animated: Bool = false) {
+        if selected != isSelected {
             self.isSelected = selected
             if selected {
-                if selectedView == nil {
-                    selectedView = ImageView()
-                    addSubview(selectedView!)
-                    selectedView!.image = selectedImage
-                    selectedView!.sizeToFit()
-                    selectedView!.center()
-                    selectedView!.layer?.masksToBounds = false
-                    if animated {
-                        selectedView!.layer?.animateAlpha(from: 0, to: 1, duration: 0.2)
-                        selectedView!.layer?.animateScaleSpring(from: 0.2, to: 1.0, duration: 0.3)
-                    }
+                let selectedLayer = SimpleLayer()
+                selectedLayer.contents = selectedImage
+                selectedLayer.frame = focus(selectedImage.backingSize)
+                self.selectedLayer = selectedLayer
+                layer?.addSublayer(selectedLayer)
+                if animated {
+                    selectedLayer.animateAlpha(from: 0, to: 1, duration: 0.2)
+                    selectedLayer.animateScaleSpring(from: 0.2, to: 1.0, duration: 0.3)
                 }
-            } else {
-                if let selectedView = self.selectedView {
-                    self.selectedView = nil
-                    if animated {
-                        selectedView.layer?.animateScaleSpring(from: 1, to: 0.2, duration: 0.3, removeOnCompletion: false)
-                        selectedView.layer?.animateAlpha(from: 1, to: 0, duration: 0.2, removeOnCompletion: false, completion: { [weak selectedView] _ in
-                            selectedView?.removeFromSuperview()
-                        })
-                    } else {
-                        selectedView.removeFromSuperview()
-                    }
+            } else if let selectedLayer = self.selectedLayer {
+                self.selectedLayer = nil
+                if animated {
+                    selectedLayer.animateScaleSpring(from: 1, to: 0.2, duration: 0.3, removeOnCompletion: false)
+                    selectedLayer.animateAlpha(from: 1, to: 0, duration: 0.2, removeOnCompletion: false, completion: { [weak selectedLayer] _ in
+                        selectedLayer?.removeFromSuperlayer()
+                    })
+                } else {
+                    selectedLayer.removeFromSuperlayer()
                 }
             }
         }
-        selectedView?.image = selectedImage
-        unselectedView.image = unselectedImage
     }
-    
+
     required public init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }

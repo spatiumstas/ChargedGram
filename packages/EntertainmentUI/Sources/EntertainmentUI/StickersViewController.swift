@@ -1,5 +1,6 @@
 import Cocoa
 import TGUIKit
+import ColorPalette
 import ComponentsUI
 import SwiftSignalKit
 import TelegramCore
@@ -35,6 +36,7 @@ public final class StickerPanelArguments {
     public let selectEmojiCategory:(EmojiSearchCategories.Group?)->Void
     public let mode: EntertainmentViewController.Mode
     public let canSchedule:()->Bool
+    public var createSticker: ((Control)->Void)?
     public init(context: any AccountContextProtocol, sendMedia: @escaping(Media, NSView, Bool, Bool, ItemCollectionId?)->Void, showPack: @escaping(StickerPackReference)->Void, addPack: @escaping(StickerPackReference)->Void, navigate: @escaping(ItemCollectionViewEntryIndex)->Void, clearRecent:@escaping()->Void, removePack:@escaping(StickerPackCollectionId)->Void, closeInlineFeatured:@escaping(Int64)->Void, openFeatured:@escaping(FeaturedStickerPackItem)->Void, selectEmojiCategory:@escaping(EmojiSearchCategories.Group?)->Void, mode: EntertainmentViewController.Mode, canSchedule:@escaping()->Bool) {
         self.context = context
         self.sendMedia = sendMedia
@@ -329,7 +331,7 @@ public enum StickerPackCollectionId : Hashable {
 
 private enum StickerPackEntry : TableItemListNodeEntry {
     case whitespace(Int32, CGFloat)
-    case pack(index: StickerPacksIndex, files:[TelegramMediaFile], packInfo: StickerPackInfo, collectionId: StickerPackCollectionId)
+    case pack(index: StickerPacksIndex, files:[TelegramMediaFile], packInfo: StickerPackInfo, collectionId: StickerPackCollectionId, hasCreate: Bool = false)
     case trending(index: StickerPacksIndex, featured: [FeaturedStickerPackItem], collectionId: StickerPackCollectionId)
     
     static func < (lhs: StickerPackEntry, rhs: StickerPackEntry) -> Bool {
@@ -344,8 +346,8 @@ private enum StickerPackEntry : TableItemListNodeEntry {
             } else {
                 return false
             }
-         case let .pack(index, lhsFiles, packInfo, collectionId):
-            if case .pack(index, let rhsFiles, packInfo, collectionId) = rhs {
+         case let .pack(index, lhsFiles, packInfo, collectionId, hasCreate):
+            if case .pack(index, let rhsFiles, packInfo, collectionId, hasCreate) = rhs {
                 if lhsFiles.count != rhsFiles.count {
                     return false
                 } else {
@@ -379,7 +381,7 @@ private enum StickerPackEntry : TableItemListNodeEntry {
     
     var index: StickerPacksIndex {
         switch self {
-        case let .pack(index, _, _, _):
+        case let .pack(index, _, _, _, _):
             return index
         case let .trending(index, _, _):
             return index
@@ -390,7 +392,7 @@ private enum StickerPackEntry : TableItemListNodeEntry {
     
     var stableId: StickerPackCollectionId {
         switch self {
-        case let .pack(_, _, _, collectionId):
+        case let .pack(_, _, _, collectionId, _):
             return collectionId
         case let .trending(_, _, collectionId):
             return collectionId
@@ -403,8 +405,11 @@ private enum StickerPackEntry : TableItemListNodeEntry {
         switch self {
         case let .whitespace(_, value):
             return GeneralRowItem.init(initialSize, height: value, stableId: stableId)
-        case let .pack(_, files, packInfo, collectionId):
-            return StickerPackPanelRowItem(initialSize, context: arguments.context, arguments: arguments, files: files, packInfo: packInfo, collectionId: collectionId, canSend: true)
+        case let .pack(_, files, packInfo, collectionId, hasCreate):
+            let addTile = hasCreate ? arguments.createSticker.map { action in
+                return StickerPackPanelAddTile(position: .leading, accessibilityLabel: strings().stickersViewControllerCreateSticker, action: action)
+            } : nil
+            return StickerPackPanelRowItem(initialSize, context: arguments.context, arguments: arguments, files: files, packInfo: packInfo, collectionId: collectionId, canSend: true, addTile: addTile)
         case let .trending(_, items, collectionId):
             return StickerPackTrendingItem(initialSize, context: arguments.context, featured: items, collectionId: collectionId, close: arguments.closeInlineFeatured, click: arguments.openFeatured)
         }
@@ -537,6 +542,20 @@ private func stickersEntries(view: ItemCollectionsView?, context: any AccountCon
                 break
             }
             index += 1
+        }
+        
+        if mode == .common, view.lower == nil, let createIndex = entries.firstIndex(where: { entry in
+            if case let .pack(_, _, packInfo, _, _) = entry {
+                switch packInfo {
+                case .recent, .speficicPack, .pack:
+                    return true
+                default:
+                    return false
+                }
+            }
+            return false
+        }), case let .pack(packIndex, files, packInfo, collectionId, _) = entries[createIndex] {
+            entries[createIndex] = .pack(index: packIndex, files: files, packInfo: packInfo, collectionId: collectionId, hasCreate: true)
         }
     } else if let searchData = searchData {
         if !searchData.loading {
@@ -701,11 +720,24 @@ fileprivate func preparePackTransition(from:[AppearanceWrapperEntry<PackEntry>]?
     
 }
 
+private func stickerSearchHasResults(_ table: TableView) -> Bool {
+    var hasResults = false
+    table.enumerateItems(with: { item in
+        if item is StickerPackPanelRowItem {
+            hasResults = true
+            return false
+        }
+        return true
+    })
+    return hasResults
+}
+
 public class NStickersView : View {
     let tableView:TableView = TableView(frame: NSZeroRect)
     fileprivate var restrictedView:RestrictionWrappedView?
-    private let emptySearchView = ImageView()
-    private let emptySearchContainer: View = View()
+    private let searchStatusView = PanelSearchStatusView(frame: .zero)
+    private var searchStatus: PanelSearchPresentation = .hidden
+    private var searchPresentationTheme: TelegramPresentationTheme?
     
     public let searchView = SearchView(frame: .zero)
     private let searchContainer = View()
@@ -720,7 +752,16 @@ public class NStickersView : View {
 
 
     private let searchInside = View()
-    
+    private let searchBackdrop = View()
+
+    public var isGlass: Bool = false {
+        didSet {
+            if oldValue != isGlass {
+                updateLocalizationAndTheme(theme: presentation ?? theme)
+                needsLayout = true
+            }
+        }
+    }
     
     public required init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -734,18 +775,15 @@ public class NStickersView : View {
 
         addSubview(searchContainer)
         
+        searchContainer.addSubview(searchBackdrop)
         searchContainer.addSubview(searchInside)
         searchContainer.addSubview(searchBorder)
         
-        emptySearchContainer.addSubview(emptySearchView)
         tabsContainer.addSubview(selectionView)
         tabsContainer.addSubview(packsView)
         tabsContainer.addSubview(separator)
         addSubview(tabsContainer)
-        addSubview(emptySearchContainer)
-        
-        emptySearchContainer.isHidden = true
-        emptySearchContainer.isEventLess = true
+        addSubview(searchStatusView)
         
         
         packsView.getBackgroundColor = {
@@ -788,23 +826,12 @@ public class NStickersView : View {
         needsLayout = true
     }
     
-    public func updateEmpties(isEmpty: Bool, animated: Bool) {
-        
-        let emptySearchHidden: Bool = !isEmpty
-        
-        if !emptySearchHidden {
-            emptySearchContainer.isHidden = false
-        }
-        
-        emptySearchContainer.change(opacity: emptySearchHidden ? 0 : 1, animated: animated, completion: { [weak self] completed in
-            if completed {
-                self?.emptySearchContainer.isHidden = emptySearchHidden
-            }
-        })
-        
+    func updateSearchStatus(isSearching: Bool, isLoading: Bool) {
+        searchStatus = .resolve(isSearching: isSearching, isLoading: isLoading, hasResults: !isSearching || stickerSearchHasResults(tableView))
+        searchStatusView.updateSearchStatus(searchStatus, kind: .stickers, query: searchView.query, theme: searchPresentationTheme ?? theme)
         needsLayout = true
     }
-    
+
     private var searchState: SearchState? = nil
     
     public func updateSearchState(_ searchState: SearchState, animated: Bool) {
@@ -930,7 +957,7 @@ public class NStickersView : View {
         let rect = NSMakeRect(view.frame.origin.y - point.y, 5, item.height, packsView.frame.height)
         
         selectionView.layer?.cornerRadius = item.height == item.width ? .cornerRadius : item.width / 2
-        selectionView.background = theme.colors.grayBackground
+        selectionView.background = isGlass ? theme.colors.vibrant.mixedWith(NSColor(0x000000), alpha: 0.1) : theme.colors.grayBackground
         if animated {
             selectionView.layer?.animateCornerRadius()
         }
@@ -1025,18 +1052,29 @@ public class NStickersView : View {
     public override func updateLocalizationAndTheme(theme: PresentationTheme) {
         self.restrictedView?.updateLocalizationAndTheme(theme: theme)
         let theme = (theme as! TelegramPresentationTheme)
-        self.separator.backgroundColor = theme.colors.border
+        let background: NSColor = isGlass ? .clear : theme.colors.background
+        let border: NSColor = isGlass ? theme.colors.grayIcon.withAlphaComponent(0.1) : theme.colors.border
+        self.separator.backgroundColor = border
         self.tableView.updateLocalizationAndTheme(theme: theme)
-        self.tableView.backgroundColor = theme.colors.background
-        self.tableView.documentView?.background = theme.colors.background
-        self.emptySearchView.image = theme.icons.stickersEmptySearch
-        self.emptySearchView.sizeToFit()
-        self.emptySearchContainer.backgroundColor = theme.colors.background
-        self.searchContainer.backgroundColor = theme.colors.background
-        self.tabsContainer.backgroundColor = theme.colors.background
-        self.searchBorder.backgroundColor = theme.colors.border
-        
-        self.searchView.searchTheme = theme.search
+        self.tableView.backgroundColor = background
+        self.tableView.documentView?.background = background
+        searchPresentationTheme = theme
+        self.searchStatusView.updateSearchStatus(searchStatus, kind: .stickers, query: searchView.query, theme: theme)
+        self.searchContainer.backgroundColor = background
+        self.tabsContainer.backgroundColor = background
+        self.searchBorder.backgroundColor = border
+        self.searchBackdrop.backgroundColor = theme.colors.background.withAlphaComponent(0.85)
+        self.searchBackdrop.isHidden = !isGlass
+
+        if isGlass {
+            let searchBackground = theme.colors.vibrant.mixedWith(NSColor(0x000000), alpha: 0.1)
+            let searchTheme = SearchTheme(searchBackground, theme.search.searchImage, theme.search.clearImage, theme.search.placeholder, theme.search.textColor, theme.search.placeholderColor)
+            self.searchView.searchTheme = searchTheme
+            self.categories?.searchTheme = searchTheme
+        } else {
+            self.searchView.searchTheme = theme.search
+            self.categories?.searchTheme = theme.search
+        }
         self.searchView.updateLocalizationAndTheme(theme: theme)
     }
     
@@ -1067,6 +1105,10 @@ public class NStickersView : View {
         transition.updateFrame(view: searchBorder, frame: NSMakeRect(0, searchContainer.frame.height - .borderSize, size.width, .borderSize))
         let alpha: CGFloat = inSearch && tableView.documentOffset.y > 0 ? 1 : 0
         transition.updateAlpha(view: searchBorder, alpha: alpha)
+        if isGlass {
+            transition.updateAlpha(view: searchBackdrop, alpha: alpha)
+        }
+        transition.updateFrame(view: searchBackdrop, frame: searchInsideRect)
         
         if let categories = categories {
             transition.updateFrame(view: categories, frame: categories.centerFrameY(x: searchInside.frame.width - categories.frame.width - searchView.frame.minX))
@@ -1081,7 +1123,7 @@ public class NStickersView : View {
         transition.updateFrame(view: tableView, frame: NSMakeRect(0, tabsContainer.frame.maxY, size.width, size.height))
 
                 
-        transition.updateFrame(view: emptySearchContainer, frame: size.bounds)
+        transition.updateFrame(view: searchStatusView, frame: NSMakeRect(0, searchContainer.frame.maxY, size.width, max(0, size.height - searchContainer.frame.maxY - 56)))
         
         
         self.updateSelectionState(animated: transition.isAnimated)
@@ -1138,10 +1180,12 @@ public class NStickersViewController<Context: AccountContextProtocol>: TelegramG
         _frameRect = NSMakeRect(0, 0, 350, 350)
     }
     
+    
     private func updateSearchState(_ state: SearchState) {
         self.position.set(.initial)
+        let changed = self.searchState.request.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ").lowercased() != state.request.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ").lowercased()
         self.searchState = state
-        if !state.request.isEmpty {
+        if changed && !state.request.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             self.makeSearchCommand?(.loading)
         }
         if self.isLoaded() == true {
@@ -1291,8 +1335,18 @@ public class NStickersViewController<Context: AccountContextProtocol>: TelegramG
         
                
         let searchInteractions = SearchInteractions({ [weak self] state, _ in
+            self?.updateState? { current in
+                var current = current
+                current.selectedEmojiCategory = nil
+                return current
+            }
             self?.updateSearchState(state)
         }, { [weak self] state in
+            self?.updateState? { current in
+                var current = current
+                current.selectedEmojiCategory = nil
+                return current
+            }
             self?.updateSearchState(state)
         })
         
@@ -1408,6 +1462,13 @@ public class NStickersViewController<Context: AccountContextProtocol>: TelegramG
             return self?.chatInteraction?.presentationSendPaidMessageStars == nil
         })
         
+        if #available(macOS 14.0, *), mode == .common {
+            arguments.createSticker = { [weak self] _ in
+                guard let self else { return }
+                presentCreateSticker(context: context, chatInteraction: self.chatInteraction)
+            }
+        }
+        
         let specificPackData: Signal<Tuple2<PeerSpecificStickerPackData, Peer>?, NoError> = self.specificPeerId.get() |> mapToSignal { peerId -> Signal<Peer?, NoError> in
             if peerId.toInt64() == 0 {
                 return .single(nil)
@@ -1443,12 +1504,22 @@ public class NStickersViewController<Context: AccountContextProtocol>: TelegramG
         }
 
         
-        let signal = combineLatest(queue: prepareQueue, self.searchValue.get(), self.position.get()) |> mapToSignal { values -> Signal<StickerPacksUpdateData, NoError> in
+        let searchQueries = self.searchValue.get() |> map { $0.request.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ").lowercased() } |> distinctUntilChanged
+        let selectedCategories = Signal<EmojiSearchCategories.Group?, NoError>.single(initialState.selectedEmojiCategory) |> then(statePromise.get() |> map { $0.selectedEmojiCategory }) |> distinctUntilChanged
+        let positionedSearchInputs = combineLatest(queue: prepareQueue, searchQueries, self.position.get(), selectedCategories) |> map { query, position, category -> (String, StickerPacksScrollState, EmojiSearchCategories.Group?) in
+            return (query, query.isEmpty && category == nil ? position : .initial, category)
+        }
+        let searchInputs = positionedSearchInputs |> distinctUntilChanged(isEqual: { previous, next in
+            return previous.0 == next.0 && previous.1 == next.1 && previous.2 == next.2
+        })
+        let featuredForUnread = Promise<[FeaturedStickerPackItem]>()
+        featuredForUnread.set(context.account.viewTracker.featuredStickerPacks())
+        let signal = searchInputs |> mapToSignal { values -> Signal<StickerPacksUpdateData, NoError> in
             
             let count = initialSize.with { size -> Int in
                 return max(100, Int(round((size.height * (values.1 == .initial ? 2 : 20)) / 60 * 5)))
             }
-            if values.0.request.isEmpty {
+            if values.0.isEmpty && values.2 == nil {
                 var firstTime: Bool = true
                 
                 let settings = stickerSettings(postbox: context.account.postbox)
@@ -1502,7 +1573,7 @@ public class NStickersViewController<Context: AccountContextProtocol>: TelegramG
                     fatalError("load featured for basic packs is not possible")
                 }
             } else {
-                let searchText = values.0.request.lowercased()
+                let searchText = values.0
                                 
                 let premiumStickers: Signal<[TelegramMediaFile], NoError>
                 if searchText == "premium" {
@@ -1523,29 +1594,29 @@ public class NStickersViewController<Context: AccountContextProtocol>: TelegramG
                 
                 
                 
-                let searchLocal = context.engine.stickers.searchStickerSets(query: searchText) |> delay(0.2, queue: prepareQueue) |> map(Optional.init)
-                let searchRemote = context.engine.stickers.searchStickerSetsRemotely(query: searchText) |> delay(0.2, queue: prepareQueue) |> map(Optional.init)
-                                
-                
-                let input: Signal<String, NoError> = Signal { subscriber in
-                    subscriber.putNext(currentKeyboardLanguage())
-                    subscriber.putCompletion()
-                    
-                    return EmptyDisposable
-                } |> runOn(.mainQueue())
-                
-                
-                let emojiRelated: Signal<[FoundStickerItem], NoError> = combineLatest(EntertainmentUIHooks.shared.inputSource(context).searchEmoji(postbox: context.account.postbox, engine: context.engine, sharedContext: context.sharedContext, query: searchText, completeMatch: true, checkPrediction: false), input) |> mapToSignal { emojis, input in
-                    
-                    return context.engine.stickers.searchStickers(query: searchText, emoticon: [], inputLanguageCode: input) |> map { $0.0 }
-//                    return combineLatest(signals) |> map {
-//                        $0.reduce([], { current, value in
-//                            return current + value.0
-//                        })
-//                    }
-                } |> delay(0.2, queue: prepareQueue)
+                let searchLocal: Signal<FoundStickerSets?, NoError>
+                let searchRemote: Signal<FoundStickerSets?, NoError>
+                let emojiRelated: Signal<([FoundStickerItem], Bool), NoError>
+                if let category = values.2, category.kind != .premium {
+                    searchLocal = .single(nil)
+                    searchRemote = .single(nil)
+                    emojiRelated = context.engine.stickers.searchStickers(category: category) |> map { ($0.items, $0.isFinalResult) }
+                } else {
+                    searchLocal = context.engine.stickers.searchStickerSets(query: searchText) |> map(Optional.init)
+                    searchRemote = .single(nil) |> then(context.engine.stickers.searchStickerSetsRemotely(query: searchText) |> delay(0.2, queue: prepareQueue) |> map(Optional.init))
+                    let input: Signal<String, NoError> = Signal { subscriber in
+                        subscriber.putNext(currentKeyboardLanguage())
+                        subscriber.putCompletion()
+                        return EmptyDisposable
+                    } |> runOn(.mainQueue())
+                    emojiRelated = combineLatest(EntertainmentUIHooks.shared.inputSource(context).searchEmoji(postbox: context.account.postbox, engine: context.engine, sharedContext: context.sharedContext, query: searchText, completeMatch: searchText.count < 3, checkPrediction: false), input) |> mapToSignal { emojis, input in
+                        let emoticons = panelSearchAppendingUnique([], emojis.map { $0.basicEmoji.0 }, id: { $0 })
+                        return context.engine.stickers.searchStickers(query: searchText.isSingleEmoji ? nil : searchText, emoticon: emoticons, inputLanguageCode: input) |> map { ($0.items, $0.isFinalResult) }
+                    }
+                }
+                let relatedResults = Signal<([FoundStickerItem], Bool), NoError>.single(([], false)) |> then(emojiRelated |> delay(0.15, queue: prepareQueue))
 
-                return combineLatest(searchLocal, searchRemote, emojiRelated, statePromise.get(), premiumStickers) |> map { local, remote, emojiRelated, state, premiumStickers in
+                return combineLatest(searchLocal, searchRemote, relatedResults, statePromise.get(), premiumStickers) |> map { local, remote, emojiRelated, state, premiumStickers in
                     var value = FoundStickerSets()
                     if let local = local {
                         value = value.merge(with: local)
@@ -1554,7 +1625,7 @@ public class NStickersViewController<Context: AccountContextProtocol>: TelegramG
                         value = value.merge(with: remote)
                     }
                     
-                    let searchData = StickerPacksSearchData(sets: value, loading: remote == nil && value.entries.isEmpty, basicFeaturedCount: 0, emojiRelated: emojiRelated, premiumStickers: premiumStickers)
+                    let searchData = StickerPacksSearchData(sets: value, loading: (values.2 == nil ? remote == nil || !emojiRelated.1 : !emojiRelated.1) && value.entries.isEmpty && emojiRelated.0.isEmpty && premiumStickers.isEmpty, basicFeaturedCount: 0, emojiRelated: emojiRelated.0, premiumStickers: premiumStickers)
                     return StickerPacksUpdateData(view: nil, update: .generic(animated: true, scrollToTop: nil), specificPack: nil, searchData: searchData, hasUnread: false, featured: [], mode: mode, state: state)
                 }
                 
@@ -1562,7 +1633,7 @@ public class NStickersViewController<Context: AccountContextProtocol>: TelegramG
             
         } |> deliverOnPrepareQueue
         |> mapToSignal { data -> Signal<StickerPacksUpdateData, NoError> in
-            let hasUnread = context.account.viewTracker.featuredStickerPacks() |> map { featured in
+            let hasUnread = featuredForUnread.get() |> map { featured in
                 return featured.contains(where: { $0.unread })
             }
             return hasUnread |> map {
@@ -1599,7 +1670,7 @@ public class NStickersViewController<Context: AccountContextProtocol>: TelegramG
             self.genericView.tableView.removeScroll(listener: self.listener)
             self.genericView.tableView.merge(with: transition)
             self.genericView.packsView.merge(with: packTransition)
-            self.genericView.updateEmpties(isEmpty: self.genericView.tableView.isEmpty, animated: !first)
+            self.genericView.updateSearchStatus(isSearching: data.searchData != nil, isLoading: data.searchData?.loading ?? false)
             self.genericView.tableView.addScroll(listener: self.listener)
             
             

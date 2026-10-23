@@ -47,6 +47,18 @@ public final class ChatNewThreadRowItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return ChatNewThreadRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return title.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return info.attributedString.string
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 
@@ -77,6 +89,8 @@ private final class ChatNewThreadRowView: TableRowView {
             
             addSubview(photo)
             addSubview(chevron)
+            photo.isAccessibilityDecorative = true
+            chevron.isAccessibilityDecorative = true
             
             layer?.cornerRadius = 10
         }

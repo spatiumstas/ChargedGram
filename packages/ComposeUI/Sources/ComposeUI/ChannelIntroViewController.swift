@@ -21,6 +21,7 @@ class ChannelIntroView : NSScrollView, AppearanceViewProtocol {
         documentView?.addSubview(imageView)
         documentView?.addSubview(textView)
         documentView?.addSubview(button)
+        imageView.isAccessibilityDecorative = true
 
         button.set(font: .medium(.title), for: .Normal)
         updateLocalizationAndTheme(theme: theme)

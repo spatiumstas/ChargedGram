@@ -68,6 +68,41 @@ public final class StorageUsageCategoryItem : GeneralRowItem {
         return true
     }
     
+    public override var accessibilityLabel: String? {
+        return nameLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return subLayout.attributedString.string
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .checkBox
+    }
+
+    public override var accessibilityToggleState: Bool? {
+        return selected
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        _action(.selection)
+        return true
+    }
+
+    public override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        guard case let .basic(true, revealed) = itemCategory else {
+            return nil
+        }
+        return [NSAccessibilityCustomAction(name: revealed ? strings().voiceOverCommonCollapse : strings().voiceOverCommonExpand, handler: { [weak self] in
+            self?._action(.toggle)
+            return true
+        })]
+    }
+
     public override func viewClass() -> AnyClass {
         return StorageUsageCategoryView.self
     }
@@ -194,6 +229,7 @@ private final class StorageUsageCategoryView : GeneralContainableRowView {
                 current = view
             } else {
                 current = ImageView()
+                current.isAccessibilityDecorative = true
                 self.subImageView = current
                 addSubview(current)
             }

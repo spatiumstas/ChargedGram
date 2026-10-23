@@ -16,6 +16,7 @@ public class StickerShimmerEffectView: View {
     private var currentForegroundColor: NSColor?
     private var currentShimmeringColor: NSColor?
     private var currentSize = CGSize()
+    private var currentScale: CGFloat = 0
     
     public override init() {
         self.backgroundView = View()
@@ -41,23 +42,28 @@ public class StickerShimmerEffectView: View {
         self.effectView.updateAbsoluteRect(rect, within: containerSize)
     }
     public func update(backgroundColor: NSColor?, foregroundColor: NSColor = NSColor(rgb: 0x748391, alpha: 0.2), shimmeringColor: NSColor = NSColor(rgb: 0x748391, alpha: 0.35), data: Data?, size: CGSize) {
-        if self.currentData == data, let currentBackgroundColor = self.currentBackgroundColor, currentBackgroundColor.isEqual(backgroundColor), let currentForegroundColor = self.currentForegroundColor, currentForegroundColor.isEqual(foregroundColor), let currentShimmeringColor = self.currentShimmeringColor, currentShimmeringColor.isEqual(shimmeringColor), self.currentSize == size {
+        let scale = System.backingScale
+        let backgroundKey = backgroundColor.map(resolvedShimmerColor)
+        let foregroundKey = resolvedShimmerColor(foregroundColor)
+        let shimmeringKey = resolvedShimmerColor(shimmeringColor)
+        if self.currentData == data, self.currentBackgroundColor == backgroundKey, self.currentForegroundColor == foregroundKey, self.currentShimmeringColor == shimmeringKey, self.currentSize == size, self.currentScale == scale {
             return
         }
         
-        self.currentBackgroundColor = backgroundColor
-        self.currentForegroundColor = foregroundColor
-        self.currentShimmeringColor = shimmeringColor
+        self.currentBackgroundColor = backgroundKey
+        self.currentForegroundColor = foregroundKey
+        self.currentShimmeringColor = shimmeringKey
         self.currentData = data
         self.currentSize = size
+        self.currentScale = scale
         
         self.backgroundView.backgroundColor = foregroundColor
         
         self.effectView.update(backgroundColor: backgroundColor == nil ? .clear : foregroundColor, foregroundColor: shimmeringColor)
         
-        let image = generateImage(size, rotatedContext: { size, context in
-            if let backgroundColor = backgroundColor {
-                context.setFillColor(backgroundColor.cgColor)
+        let image = generateImage(size, scale: scale, rotatedContext: { size, context in
+            if let backgroundColor = backgroundKey?.cgColor {
+                context.setFillColor(backgroundColor)
                 context.setBlendMode(.copy)
                 context.fill(CGRect(origin: CGPoint(), size: size))
                 context.setFillColor(NSColor.clear.cgColor)
@@ -107,6 +113,7 @@ public class StickerShimmerEffectView: View {
             }
         }
         
+        self.maskView?.frame = CGRect(origin: CGPoint(), size: size)
         self.maskView?.image = image
         
         self.backgroundView.frame = CGRect(origin: CGPoint(), size: size)

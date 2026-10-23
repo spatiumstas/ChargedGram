@@ -290,6 +290,10 @@ class ServiceEventLogItem: TableRowItem {
     override func viewClass() -> AnyClass {
         return ServiceEventLogRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return textLayout.attributedString.string
+    }
     
     
     fileprivate private(set) var contentMessageItem: ServiceEventLogMessageContentItem?
@@ -1051,6 +1055,14 @@ class ChannelEventLogEditedPanelItem : TableRowItem {
     
     override func viewClass() -> AnyClass {
         return ChannelEventLogEditedPanelView.self
+    }
+
+    override var accessibilityLabel: String? {
+        return panel.header.attributedString.string
+    }
+
+    override var accessibilityValue: String? {
+        return panel.content.attributedString.string
     }
 }
 

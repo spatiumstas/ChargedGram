@@ -35,6 +35,7 @@
         super.init(frame: frameRect)
         addSubview(searchView)
         addSubview(close)
+        close.setAccessibilityLabel(strings().voiceOverCommonClose)
         layer?.cornerRadius = PeerMediaTabsView.height / 2
         updateLocalizationAndTheme(theme: theme)
     }
@@ -83,6 +84,7 @@
         super.init(frame: frameRect)
         addSubview(view)
         addSubview(actionsPanelView)
+        actionsPanelView.isHidden = true
 //        backgroundColor = theme.colors.listBackground
         layout()
     }
@@ -205,6 +207,7 @@
     
     func changeState(selectState:Bool, animated:Bool) {
         self.view.changeState(selectState: selectState, animated: animated)
+        actionsPanelView.isHidden = !selectState
         let inset:CGFloat = selectState ? 50 : 0
         actionsPanelView.change(pos: NSMakePoint(0, frame.height - inset), animated: animated)
     }
@@ -982,7 +985,7 @@
         
         if let external = externalSearchData {
             modeValue.set(external.initialMode)
-            let signal = external.searchResult |> deliverOnMainQueue
+            let signal = (external.searchResult |> deliverOnMainQueue)
             externalDisposable.set(signal.start(next: { result in
                 if let result = result {
                     updateTitle?(result)
@@ -997,7 +1000,7 @@
         self.listControllers = listControllers
         
         self.members = PeerMediaGroupMembersController(context: context, peerId: peerId, editing: editing.get())
-        self.commonGroups = PeerInfoNavigationHooks.shared.makeGroupsInCommonController(context, peerId)
+        self.commonGroups = PeerInfoNavigationHooks.shared.makeGroupsInCommonControllerObserved(context, peerId)
         self.gifs = PeerMediaPhotosController(context, chatInteraction: interactions, threadInfo: threadInfo, peerId: peerId, tags: .gif)
         self.stories = StoryMediaController(context: context, peerId: peerId, listContext: storyListContext)
         self.similarChannels = SimilarChannelsController(context: context, peerId: peerId, recommendedChannels: nil)
@@ -1005,7 +1008,6 @@
 
          
         super.init(context)
-         
          
          
          
@@ -1565,7 +1567,12 @@
         
         tabsSignal.set(tabSignal)
         
-        let data: Signal<(tabs: [PeerMediaCollectionMode], selected: PeerMediaCollectionMode?, hasLoaded: Bool), NoError> = tabsSignal.get() |> deliverOnMainQueue |> mapToSignal { [weak self] data in
+        let distinctTabs: Signal<(tabs: [PeerMediaCollectionMode], selected: PeerMediaCollectionMode?, hasLoaded: Bool), NoError> = tabsSignal.get()
+        |> distinctUntilChanged(isEqual: { lhs, rhs in
+            return lhs.tabs == rhs.tabs && lhs.selected == rhs.selected && lhs.hasLoaded == rhs.hasLoaded
+        })
+
+        let data: Signal<(tabs: [PeerMediaCollectionMode], selected: PeerMediaCollectionMode?, hasLoaded: Bool), NoError> = distinctTabs |> deliverOnMainQueue |> mapToSignal { [weak self] data in
             guard let `self` = self else {
                 return .complete()
             }
@@ -1639,7 +1646,7 @@
                 location = .peer(id)
                 mode = .history
             }
-            PeerInfoUIHooks.shared.navigateToChat(self?.navigationController, context, location, mode, focusTarget, threadInfo?.contextHolder)
+            PeerInfoUIHooks.shared.navigateToChatObserved(self?.navigationController, context, location, mode, focusTarget, threadInfo?.contextHolder)
 
         }
         
@@ -1655,7 +1662,7 @@
             PeerInfoUIHooks.shared.showInlineAudioPlayer(controller, context, tableView, self?.currentTable)
         }
         
-        interactions.openInfo = { [weak self] (peerId, toChat, postId, action) in
+        let openInfo: (PeerId, Bool, MessageId?, ChatInitialAction?) -> Void = { [weak self] peerId, toChat, postId, action in
             if let strongSelf = self {
                 if toChat {
                     openChat(peerId, .init(messageId: postId))
@@ -1667,6 +1674,10 @@
             }
         }
         
+        interactions.openInfo = { peerId, toChat, postId, action in
+            openInfo(peerId, toChat, postId, action)
+        }
+
         interactions.deleteMessages = { [weak self] messageIds, _ in
             if let strongSelf = self, let peer = strongSelf.peer {
                 
@@ -2365,6 +2376,7 @@
                 self?.applyReadyController(mode: mode, animated: animated)
             }))
         } else {
+            toggleDisposable.set(nil)
             self.currentMainTableView?(genericView.mainTable, animated, false)
         }
         self.modeValue.set(mode)

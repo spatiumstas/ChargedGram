@@ -405,14 +405,18 @@ public final class PeerCallScreen : ViewController {
             closeAllModals(window: screen)
             let isFullScreen = screen.isFullScreen
             if isFullScreen {
+                let window = self.screen
+                window._windowDidExitFullScreen = {
+                    window.orderOut(nil)
+                }
                 screen.toggleFullScreen(nil)
             }
             closeAllModals(window: self.screen)
             self.presentTransition?.cancel()
             self.presentTransition = nil
-            if isFullScreen || !self.animatesWindow {
+            if !isFullScreen && !self.animatesWindow {
                 self.screen.orderOut(nil)
-            } else {
+            } else if !isFullScreen {
                 self.isHostedInTransition = true
                 CallWindowTransition.dismiss(window: self.screen, content: self.view, source: self.transitionSource, cornerRadius: CallWindowTransition.windowCornerRadius)
             }
@@ -429,6 +433,7 @@ public final class PeerCallScreen : ViewController {
     public func show(source: CallWindowSource? = nil, animated: Bool = false) {
         
         _ = disableScreenSleep()
+        
         
         if self.presentTransition != nil {
             return

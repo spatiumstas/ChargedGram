@@ -47,6 +47,14 @@ public class StatisticsLoadingRowItem: GeneralRowItem {
     public override var instantlyResize: Bool {
         return false
     }
+
+    public override var accessibilityLabel: String? {
+        return text?.attributedString.string ?? strings().voiceOverCommonLoading
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
     
     public override var height: CGFloat {
         if let table = table {

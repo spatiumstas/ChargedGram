@@ -48,6 +48,8 @@ public final class ShimmerEffectForegroundView: View {
     
     
     public func update(backgroundColor: NSColor, foregroundColor: NSColor, gradientSize: CGFloat? = nil, duration: Double? = nil, horizontal: Bool = false) {
+        let backgroundColor = resolvedShimmerColor(backgroundColor)
+        let foregroundColor = resolvedShimmerColor(foregroundColor)
         if let currentBackgroundColor = self.currentBackgroundColor, currentBackgroundColor.isEqual(backgroundColor), let currentForegroundColor = self.currentForegroundColor, currentForegroundColor.isEqual(foregroundColor), self.currentHorizontal == horizontal, self.currentGradientSize == gradientSize, self.currentDuration == duration {
             return
         }
@@ -59,46 +61,8 @@ public final class ShimmerEffectForegroundView: View {
         self.imageView.contentGravity = gradientSize == nil ? .resize : .resizeAspectFill
         self.imageView.layer?.masksToBounds = gradientSize == nil
 
-        let image: CGImage?
-        if horizontal {
-            image = generateImage(CGSize(width: gradientSize ?? 320.0, height: 16.0), opaque: false, scale: 1.0, rotatedContext: { size, context in
-                context.clear(CGRect(origin: CGPoint(), size: size))
-                context.setFillColor(backgroundColor.cgColor)
-                context.fill(CGRect(origin: CGPoint(), size: size))
-                
-                context.clip(to: CGRect(origin: CGPoint(), size: size))
-                
-                let transparentColor = foregroundColor.withAlphaComponent(0.0).cgColor
-                let peakColor = foregroundColor.cgColor
-                
-                var locations: [CGFloat] = [0.0, 0.5, 1.0]
-                let colors: [CGColor] = [transparentColor, peakColor, transparentColor]
-                
-                let colorSpace = CGColorSpaceCreateDeviceRGB()
-                let gradient = CGGradient(colorsSpace: colorSpace, colors: colors as CFArray, locations: &locations)!
-                
-                context.drawLinearGradient(gradient, start: CGPoint(x: 0.0, y: 0.0), end: CGPoint(x: size.width, y: 0.0), options: CGGradientDrawingOptions())
-            })
-        } else {
-            image = generateImage(CGSize(width: 16.0, height: gradientSize ?? 320.0), opaque: false, scale: 1.0, rotatedContext: { size, context in
-                context.clear(CGRect(origin: CGPoint(), size: size))
-                context.setFillColor(backgroundColor.cgColor)
-                context.fill(CGRect(origin: CGPoint(), size: size))
-                
-                context.clip(to: CGRect(origin: CGPoint(), size: size))
-                
-                let transparentColor = foregroundColor.withAlphaComponent(0.0).cgColor
-                let peakColor = foregroundColor.cgColor
-                
-                var locations: [CGFloat] = [0.0, 0.5, 1.0]
-                let colors: [CGColor] = [transparentColor, peakColor, transparentColor]
-                
-                let colorSpace = CGColorSpaceCreateDeviceRGB()
-                let gradient = CGGradient(colorsSpace: colorSpace, colors: colors as CFArray, locations: &locations)!
-                
-                context.drawLinearGradient(gradient, start: CGPoint(x: 0.0, y: 0.0), end: CGPoint(x: 0.0, y: size.height), options: CGGradientDrawingOptions())
-            })
-        }
+        let size = horizontal ? CGSize(width: gradientSize ?? 320.0, height: 16.0) : CGSize(width: 16.0, height: gradientSize ?? 320.0)
+        let image = shimmerGradientImage(backgroundColor: backgroundColor, foregroundColor: foregroundColor, size: size, horizontal: horizontal, gradientColorSpace: deviceColorSpace)
         self.imageView.image = image
         self.updateAnimation()
     }

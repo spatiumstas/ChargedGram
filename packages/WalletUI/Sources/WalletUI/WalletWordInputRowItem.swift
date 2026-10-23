@@ -3,17 +3,24 @@ import TGUIKit
 import InputDataUI
 import GeneralRows
 import TelegramTheme
+import Localization
 
 final class WalletWordInputRowItem: InputDataRowItem {
     fileprivate let isMismatched: Bool
+    private let displayNumber: Int
 
     init(_ initialSize: NSSize, stableId: AnyHashable, currentText: String, displayNumber: Int, rightItem: InputDataRightItem?, isMismatched: Bool, updated: @escaping (String) -> Void) {
         self.isMismatched = isMismatched
+        self.displayNumber = displayNumber
         super.init(initialSize, stableId: stableId, mode: .plain, error: nil, viewType: .singleItem, currentText: currentText, placeholder: .init("\(displayNumber)"), inputPlaceholder: " ", rightItem: rightItem, filter: { $0.lowercased() }, updated: updated, pasteFilter: walletRecoveryPasteFilter, limit: 300, customTheme: GeneralRowItem.Theme(backgroundColor: theme.colors.grayBackground, grayTextColor: theme.colors.text))
     }
 
     override func viewClass() -> AnyClass {
         return WalletWordInputRowView.self
+    }
+
+    override var accessibilityLabel: String? {
+        return strings().voiceOverWalletWord(displayNumber)
     }
 }
 

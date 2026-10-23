@@ -58,7 +58,7 @@ private func entries(_ stats: PollStats?, uiState: UIStatsState, arguments: Argu
     case let .Loaded(_, string):
         ChartsDataManager.readChart(data: string.data(using: .utf8)!, sync: true, success: { collection in
             entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: _id_votes_graph, equatable: InputDataEquatable(stats.votesGraph), comparable: nil, item: { initialSize, stableId in
-                return StatisticRowItem(initialSize, stableId: stableId, context: arguments.context, collection: collection, viewType: .singleItem, type: .lines, getDetailsData: { _, _ in })
+                return StatisticRowItem(initialSize, stableId: stableId, context: arguments.context, collection: collection, viewType: .singleItem, type: .lines, title: strings().messagePollStatsVoteTimeline, getDetailsData: { _, _ in })
             }))
         }, failure: { error in
             entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: _id_votes_graph, equatable: InputDataEquatable(stats.votesGraph), comparable: nil, item: { initialSize, stableId in

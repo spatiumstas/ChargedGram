@@ -72,6 +72,10 @@ private final class WallpaperGridItem : GeneralRowItem {
     override func viewClass() -> AnyClass {
         return WallpaperGridView.self
     }
+
+    override var accessibilityLabel: String? {
+        return strings().voiceOverCommonWallpaper
+    }
 }
 
 private final class WallpaperView : View {
@@ -113,6 +117,8 @@ private final class WallpaperView : View {
         
         self.callback = callback
         self.wallpaper = wallpaper
+        overlay.setAccessibilityLabel(wallpaper.theme == nil ? strings().channelWallpaperNoWallpaper : (wallpaper.emoticon.id.isEmpty ? strings().voiceOverCommonWallpaper : wallpaper.emoticon.id))
+        overlay.setAccessibilityValue(selected ? strings().voiceOverCommonSelected : nil)
         
         if selected {
             self.layer?.borderColor = theme.colors.accent.cgColor

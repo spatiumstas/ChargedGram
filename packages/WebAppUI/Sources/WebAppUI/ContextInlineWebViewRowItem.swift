@@ -54,6 +54,23 @@ public class ContextInlineWebViewRowItem: TableRowItem {
     public override var height: CGFloat {
         return 40
     }
+
+    public override var accessibilityLabel: String? {
+        return layout.attributedString.string
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        callback()
+        return true
+    }
     
 }
 

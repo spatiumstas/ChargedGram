@@ -49,6 +49,10 @@ public final class PremiumGiftRowItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return PremiumGiftRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return strings().premiumGiftTitle
+    }
     
     public override var height: CGFloat {
         return CGFloat(options.count) * 50 + (CGFloat(options.count - 1) * 10)
@@ -73,6 +77,7 @@ private final class PremiumGiftRowView: GeneralContainableRowView {
             layer?.cornerRadius = 10
             
             imageView.isEventLess = true
+            imageView.isAccessibilityDecorative = true
             title.userInteractionEnabled = false
             title.isSelectable = false
             
@@ -160,6 +165,9 @@ private final class PremiumGiftRowView: GeneralContainableRowView {
             
             self.discount.isHidden = option.discountString == 0
             
+            self.setAccessibilityLabel(option.titleString)
+            self.setAccessibilityValue(([option.priceString] + (selected ? [strings().voiceOverCommonSelected] : [])).joined(separator: ", "))
+
             self.removeAllHandlers()
             self.set(handler: { _ in
                 select(option)

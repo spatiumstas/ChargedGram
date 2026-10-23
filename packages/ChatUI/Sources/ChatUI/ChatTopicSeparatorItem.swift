@@ -153,6 +153,7 @@ private class ChatTopicSeparatorItemView : TableStickView {
     private let textView:TextView = TextView()
     private var avatarView: AvatarControl?
     private var iconView: InlineStickerView?
+    private var topicIconIdentity: ChatTopicIconIdentity?
     private let containerView: View = View()
     private let backgroundView = View()
     private let overlay = Control()
@@ -169,6 +170,8 @@ private class ChatTopicSeparatorItemView : TableStickView {
         addSubview(backgroundView)
         containerView.addSubview(textView)
         containerView.addSubview(chevron)
+        textView.isAccessibilityDecorative = true
+        chevron.isAccessibilityDecorative = true
         addSubview(containerView)
         
         addSubview(overlay)
@@ -249,6 +252,7 @@ private class ChatTopicSeparatorItemView : TableStickView {
         guard let item = item as? ChatTopicSeparatorItem else {
             return
         }
+        overlay.setAccessibilityLabel(item.layout.attributedString.string)
         
         guard case let .topicSeparator(_, type, _, _) = item.entry else {
             return
@@ -308,8 +312,9 @@ private class ChatTopicSeparatorItemView : TableStickView {
                 }
                 
                 let fileId = info.icon ?? 0
-                if let view = self.iconView, view.animateLayer.fileId == fileId || view.animateLayer.fileId == threadId {
-                } else {
+                let identity = ChatTopicIconIdentity(account: context.account, fileId: fileId, title: info.title, iconColor: info.iconColor, isGeneral: threadId == 1, generalColor: theme.chatList.badgeMutedBackgroundColor, customColor: theme.colors.accent)
+                if self.iconView == nil || topicIconIdentity != identity {
+                    topicIconIdentity = identity
                     if let iconView {
                         iconView.removeFromSuperview()
                         self.iconView = nil

@@ -127,22 +127,12 @@ public func SimilarBotsController(context: any AccountContextProtocol, peerId: P
     }))
     
 
-    let arguments = Arguments(context: context, openInfo: { channelId in
-        SimilarPeersHooks.shared.openChat(context, channelId)
-        
-        
-        var jsonString: String = "{"
-        jsonString += "\"ref_bot_id\": \"\(peerId.id._internalGetInt64Value())\","
-        jsonString += "\"open_bot_id\": \"\(channelId.id._internalGetInt64Value())\""
-        jsonString += "}"
-        
-        if let data = jsonString.data(using: .utf8), let json = JSON(data: data) {
-            context.engine.accountData.addAppLogEvent(type: "bots.open_recommended_bot", data: json)
-        }
+    let arguments = Arguments(context: context, openInfo: { selectedPeerId in
+        SimilarPeersHooks.shared.openChatObserved(context, selectedPeerId)
     }, premium: {
         prem(with: PremiumBoardingController(context: context, source: .recommended_channels), for: context.window)
     })
-    
+
     let signal = statePromise.get() |> deliverOnPrepareQueue |> map { state in
         return InputDataSignalValue(entries: entries(state, arguments: arguments))
     }

@@ -150,6 +150,8 @@ private final class Arguments {
     let showFeeInfo: () -> Void
     let showWhatsGram: ((() -> NSView?)?) -> Void
     let intro: WalletOpenIntro?
+    var updateHeader: (Bool, NSColor?) -> Void = { _, _ in }
+    var close: () -> Void = {}
 
     @available(macOS 10.15, *)
     init(context: any AccountContextProtocol, environment: WalletUIEnvironment, subject: WalletTransactionSubject, previewTimestamp: Int32, transferGaslessMinAmount: Int64, sendToCounterparty: @escaping (Int64?, String?) -> Void, decryptComment: @escaping () -> Void, toggleEncryptComment: @escaping () -> Void, toggleCommentExpansion: @escaping () -> Void, copyAddress: @escaping (String) -> Void, commentUpdated: @escaping (String) -> Void, showFeeInfo: @escaping () -> Void, showWhatsGram: @escaping ((() -> NSView?)?) -> Void) {
@@ -180,6 +182,13 @@ private final class Arguments {
         case .transaction:
             return false
         }
+    }
+
+    var usesCollectibleModalHeader: Bool {
+        if case let .transaction(transaction) = subject {
+            return transaction.kind != .keyChange && transaction.collectible != nil
+        }
+        return false
     }
 }
 
@@ -214,6 +223,7 @@ private struct State: Equatable {
     var encryptComment: Bool = false
     var isAuthorizingComment: Bool = false
     var isCommentExpanded: Bool = false
+    var accountAvatar: CGImage? = nil
 }
 
 func walletCommentPrivacyDescription(encrypted: Bool) -> String {
@@ -244,7 +254,9 @@ private func walletTransactionDisplayCollectible(_ collectible: WalletContext.Tr
         subtitle: subtitle,
         kind: kind,
         collectionName: collectible.collectionName,
-        collectionUrl: collectible.collectionUrl
+        collectionUrl: collectible.collectionUrl,
+        giftSlug: collectible.nft?.gift?.slug ?? (kind == .gift ? walletCollectibleGiftSlug(name: collectible.name) : nil),
+        nft: collectible.nft
     )
 }
 
@@ -492,6 +504,38 @@ final class WalletTransactionCommentRowItem: GeneralRowItem {
     override func viewClass() -> AnyClass {
         return WalletTransactionCommentRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        if isSpoiler {
+            return strings().walletTransactionControllerEncryptedComment
+        }
+        let text = fullLayout.attributedString.string
+        return text.isEmpty ? nil : text
+    }
+
+    override var accessibilityValue: String? {
+        return isDecrypting ? strings().voiceOverCommonLoading : nil
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return isSpoiler || isCollapsible ? .button : .staticText
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        if isSpoiler {
+            onReveal?()
+            return true
+        }
+        if isCollapsible {
+            onToggleExpansion?()
+            return true
+        }
+        return false
+    }
 }
 
 private let walletCommentRevealTransition: ContainedViewLayoutTransition = .animated(duration: 0.2, curve: .easeOut)
@@ -590,6 +634,7 @@ final class WalletTransactionCommentRowView: GeneralRowView {
         toggleView.update(item.toggleLayout)
         toggleView.isHidden = !item.showsToggle
         let isInteractive = item.isSpoiler || item.isCollapsible
+        revealControl.setAccessibilityLabel(item.isSpoiler ? strings().walletTransactionControllerEncryptedComment : strings().walletTransactionControllerShowMore)
         revealControl.isEventLess = !isInteractive
         revealControl.userInteractionEnabled = isInteractive
         revealControl.removeAllHandlers()
@@ -661,6 +706,24 @@ private final class WalletTransactionLinkRowItem: GeneralRowItem {
     override func viewClass() -> AnyClass {
         return WalletTransactionLinkRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        let title = titleLayout.attributedString.string
+        return title.isEmpty ? nil : title
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
+    }
 }
 
 private final class WalletTransactionLinkRowView: GeneralRowView {
@@ -697,6 +760,7 @@ private final class WalletTransactionLinkRowView: GeneralRowView {
             return
         }
         titleView.update(item.titleLayout)
+        control.setAccessibilityLabel(item.titleLayout.attributedString.string)
         needsLayout = true
     }
 
@@ -725,6 +789,7 @@ private struct DetailsData: Equatable {
     let counterpartyValue: String?
     let counterpartyPeerId: Int64?
     let counterpartyAddress: String?
+    let counterpartyAvatar: CGImage?
     let canSend: Bool
     let feeText: String?
     let feeFiat: String?
@@ -753,8 +818,10 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
     let heroCollectible = walletTransactionHeroCollectible(state, arguments: arguments, transaction: transaction)
     let showsAmountHero = transaction.kind != .keyChange && heroCollectible == nil
 
-    entries.append(.sectionId(sectionId, type: .customModern(showsAmountHero ? 8 : 20)))
-    sectionId += 1
+    if !arguments.usesCollectibleModalHeader {
+        entries.append(.sectionId(sectionId, type: .customModern(showsAmountHero ? 8 : 20)))
+        sectionId += 1
+    }
 
     let isPreview = arguments.isPreview
     let showsTransactionDetails = !isPreview || state.previewOperation.isTerminal
@@ -787,10 +854,19 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
         }))
     } else if let collectible = heroCollectible {
         let media = transaction.collectible
+        var subtitle: String? = collectible.kind == .other ? collectible.collectionName : nil
+        if case .telegramGift(true) = transaction.peer {
+            subtitle = displayedDirection == .incoming ? strings().walletTransactionRowItemMovedFromProfile : strings().walletTransactionRowItemMovedToProfile
+        }
         entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: _id_collectible_hero, equatable: .init(collectible), comparable: nil, item: { initialSize, stableId in
-            return WalletCollectibleHeroRowItem(initialSize, stableId: stableId, context: arguments.context, environment: arguments.environment, collectible: collectible, image: media?.image, lottie: media?.lottie, collectionAction: collectible.collectionUrl.map { url in
+            let item = WalletCollectibleHeroRowItem(initialSize, stableId: stableId, context: arguments.context, environment: arguments.environment, collectible: collectible, displaysGift: collectible.nft?.gift != nil || collectible.giftSlug != nil, subtitle: subtitle, image: media?.image, lottie: media?.lottie, collectionAction: collectible.collectionUrl.map { url in
                 { arguments.environment.openExternalURL(url) }
             })
+            if arguments.usesCollectibleModalHeader {
+                item.updateHeader = { arguments.updateHeader($0, $1) }
+                item.close = { arguments.close() }
+            }
+            return item
         }))
     } else {
         let amountData = AmountData(
@@ -830,7 +906,13 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
     let isCommentEncrypted = transaction.commentEncrypted && transaction.comment?.isEmpty == false
     let displayedComment = isCommentEncrypted ? state.decryptedComment : walletTransactionComment(transaction.comment)
     let hasEncryptedComment = isCommentEncrypted && state.decryptedComment == nil
-    if showsTransactionDetails, displayedComment != nil || hasEncryptedComment {
+    let isTelegramGift: Bool
+    if case .telegramGift = transaction.peer {
+        isTelegramGift = true
+    } else {
+        isTelegramGift = false
+    }
+    if showsTransactionDetails, !isTelegramGift, displayedComment != nil || hasEncryptedComment {
         entries.append(.sectionId(sectionId, type: .customModern(16)))
         sectionId += 1
 
@@ -875,7 +957,7 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
     var counterpartyPeerId: Int64? = nil
     var counterpartyAddress: String? = nil
     switch transaction.peer {
-    case let .user(peer, address, _):
+    case let .user(peer, address, _), let .channel(peer, address, _):
         counterpartyValue = arguments.environment.peerTitle(peer._asPeer(), compact: false)
         counterpartyPeerId = peer.id.toInt64()
         counterpartyAddress = address.isEmpty ? nil : address
@@ -885,6 +967,9 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
     case let .onramp(address, _, providerName):
         counterpartyValue = providerName
         counterpartyAddress = address
+    case let .telegramGift(ownProfile):
+        counterpartyValue = ownProfile ? arguments.context.myPeer.map { arguments.environment.peerTitle($0, compact: false) } ?? strings().walletTransactionRowItemTelegram : strings().walletTransactionRowItemTelegram
+        counterpartyPeerId = ownProfile ? arguments.context.peerId.toInt64() : nil
     case .unsupported:
         counterpartyValue = nil
     }
@@ -894,7 +979,7 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
         canSendToPeer = true
     case .address:
         canSendToPeer = transaction.peer.address != nil
-    case .onramp, .unsupported:
+    case .channel, .onramp, .telegramGift, .unsupported:
         canSendToPeer = false
     }
     let detailsData = DetailsData(
@@ -902,6 +987,10 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
         counterpartyValue: counterpartyValue,
         counterpartyPeerId: counterpartyPeerId,
         counterpartyAddress: counterpartyAddress,
+        counterpartyAvatar: {
+            if case .telegramGift(true) = transaction.peer { return state.accountAvatar }
+            return nil
+        }(),
         canSend: !isPreview && transaction.kind != .keyChange && canSendToPeer && displayedDirection != .unknown,
         feeText: feeText,
         feeFiat: feeFiat,
@@ -940,6 +1029,7 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
                 rows.append(WalletDetailsTableRowItem.Row(
                     label: detailsData.counterpartyTitle,
                     value: counterpartyValue,
+                    icon: detailsData.counterpartyAvatar,
                     valueColor: walletClassicAccent,
                     onClick: {
                         closeAllModals(window: context.window)
@@ -1081,6 +1171,17 @@ public func WalletTransactionController(context: any AccountContextProtocol, env
     let stateValue = Atomic(value: initialState)
     let updateState: ((State) -> State) -> Void = { f in
         statePromise.set(stateValue.modify(f))
+    }
+
+    if let transaction = initialState.transaction, case .telegramGift(true) = transaction.peer, let peer = context.myPeer {
+        actionsDisposable.add((environment.ownerAvatar(peer, size: NSMakeSize(WalletDetailsTableRowItem.iconSize * System.backingScale, WalletDetailsTableRowItem.iconSize * System.backingScale), font: .avatar(8))
+        |> deliverOnMainQueue).start(next: { avatar in
+            updateState { current in
+                var current = current
+                current.accountAvatar = avatar
+                return current
+            }
+        }))
     }
 
     var close: (() -> Void)? = nil
@@ -1816,14 +1917,16 @@ public func WalletTransactionController(context: any AccountContextProtocol, env
     }
 
     let title: String
-    if isPreview {
+    if arguments.usesCollectibleModalHeader {
+        title = ""
+    } else if isPreview {
         title = strings().walletTransactionControllerConfirmation
     } else {
         title = strings().walletTransactionControllerTransaction
     }
 
     let controller = InputDataController(dataSignal: signal, title: title, hasDone: false, getBackgroundColor: {
-        theme.colors.background
+        arguments.usesCollectibleModalHeader ? theme.colors.listBackground : theme.colors.background
     })
     getController = { [weak controller] in
         return controller
@@ -1950,13 +2053,7 @@ public func WalletTransactionController(context: any AccountContextProtocol, env
         }
     }
 
-    let modalController = WalletModalController(controller, modalInteractions: modalInteractions, size: NSMakeSize(360, 0))
-
-    controller.leftModalHeader = ModalHeaderData(image: theme.icons.modalClose, handler: { [weak modalController] in
-        modalController?.close()
-    })
-
-    controller.rightModalHeader = isPreview ? nil : ModalHeaderData(image: theme.icons.chatActionsActive, contextMenu: {
+    let transactionMenu: () -> [ContextMenuItem] = {
         var items: [ContextMenuItem] = []
         var explorerUrl: String? = nil
         if let transaction = stateValue.with({ $0.transaction }) {
@@ -1974,11 +2071,26 @@ public func WalletTransactionController(context: any AccountContextProtocol, env
             items.append(ContextMenuItem(strings().walletTransactionControllerWhatIsGram, handler: { showWhatsGram(nil) }, itemImage: environment.menuImage(.menu_show_info)))
         }
         return items
-    })
+    }
+
+    if arguments.usesCollectibleModalHeader {
+        arguments.updateHeader = walletCollectibleModalHeader(controller: controller, close: { close?() }, menu: transactionMenu)
+    }
+
+    let modalController = WalletModalController(controller, modalInteractions: modalInteractions, size: NSMakeSize(arguments.usesCollectibleModalHeader ? 400 : 360, 0))
+    if arguments.usesCollectibleModalHeader {
+        modalController.allowsVerticalScrollElasticity = false
+    } else {
+        controller.leftModalHeader = ModalHeaderData(image: theme.icons.modalClose, handler: { [weak modalController] in
+            modalController?.close()
+        })
+        controller.rightModalHeader = isPreview ? nil : ModalHeaderData(image: theme.icons.chatActionsActive, contextMenu: transactionMenu)
+    }
 
     close = { [weak modalController] in
         modalController?.close()
     }
+    arguments.close = { close?() }
 
     if isPreview, stateValue.with({ $0.preparedTransfer == nil }) {
         prepareCurrentComment?(0, false)

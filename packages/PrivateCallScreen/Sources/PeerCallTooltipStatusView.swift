@@ -61,6 +61,9 @@ final class PeerCallTooltipStatusView : NSVisualEffectView {
         self.addSubview(textView)
         
         addSubview(control)
+
+        imageView.isAccessibilityDecorative = true
+        control.isAccessibilityDecorative = true
         
         self.textView.userInteractionEnabled = false
         self.textView.isSelectable = false

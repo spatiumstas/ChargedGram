@@ -147,6 +147,30 @@ class LeftSidebarFolderItem: TableRowItem {
         return LeftSidebarFolderView.self
     }
 
+    override var accessibilityLabel: String? {
+        if unreadCount > 0 {
+            return folder.title + "\n" + strings().voiceOverChatUnreadMessagesOther(unreadCount)
+        }
+        return folder.title
+    }
+
+    override var accessibilityValue: String? {
+        return selected ? strings().voiceOverCommonSelected : nil
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        callback(folder)
+        return true
+    }
+
 }
 
 
@@ -164,6 +188,8 @@ private final class LeftSidebarFolderView : TableRowView {
         textView.isEventLess = true
         badgeView.isEventLess = true
         imageView.isEventLess = true
+        imageView.isAccessibilityDecorative = true
+        badgeView.isAccessibilityDecorative = true
     }
 
     override func updateIsResorting() {

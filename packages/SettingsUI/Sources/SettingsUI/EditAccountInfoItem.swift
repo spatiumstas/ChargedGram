@@ -52,6 +52,11 @@ public class EditAccountInfoItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return EditAccountInfoItemView.self
     }
+    
+    public override var accessibilityLabel: String? {
+        let name = [state.firstName, state.lastName].filter { !$0.isEmpty }.joined(separator: " ")
+        return name.isEmpty ? strings().voiceOverCommonEdit : name
+    }
 }
 
 private final class EditAccountInfoItemView : TableRowView, TGModernGrowingDelegate {
@@ -71,6 +76,7 @@ private final class EditAccountInfoItemView : TableRowView, TGModernGrowingDeleg
         super.init(frame: frameRect)
         avatar.setFrameSize(NSMakeSize(60, 60))
         avatar.layer?.cornerRadius = 30
+        updoadPhotoCap.setAccessibilityLabel(strings().voiceOverCommonProfilePhoto)
         progressView.frame = avatar.bounds
         firstNameTextView.delegate = self
         lastNameTextView.delegate = self
@@ -179,6 +185,7 @@ private final class EditAccountInfoItemView : TableRowView, TGModernGrowingDeleg
             
             if let _ = uploadState.image, self.tempImageView == nil {
                 self.tempImageView = ImageView()
+                self.tempImageView?.isAccessibilityDecorative = true
                 self.tempImageView?.contentGravity = .resizeAspect
                 self.tempImageView!.frame = avatar.bounds
                 self.avatar.addSubview(tempImageView!, positioned: .below, relativeTo: self.updoadPhotoCap)

@@ -30,6 +30,84 @@ final class LinkParsingTests: XCTestCase {
         assertPeer("TG://resolve?domain=alice&post=42", username: "alice", post: 42)
     }
 
+    func testFreeMessageLinks() {
+        let cases = [
+            ("t.me/user?free=AAAA", "user", "AAAA"),
+            ("tg://resolve?username=user&free=AAAA", "user", "AAAA"),
+            ("t.me/+1112223333?free=AAAA", "1112223333", "AAAA"),
+            ("tg://resolve?phone=1112223333&free=AAAA", "1112223333", "AAAA"),
+            ("https://t.me/user?free=AbC_123-xy", "user", "AbC_123-xy"),
+            ("https://t.me/+1112223333?free=AbC_123-xy", "1112223333", "AbC_123-xy"),
+            ("tg://resolve?domain=user&free=AbC_123-xy", "user", "AbC_123-xy"),
+            ("TG://resolve?username=user&free=AbC%2B123%3D", "user", "AbC+123=")
+        ]
+        for (value, expectedTarget, expectedToken) in cases {
+            guard case let .noPaidMessagesToken(link, target, token) = parse(value) else {
+                XCTFail("Expected a free message link: \(value)")
+                continue
+            }
+            XCTAssertEqual(link, normalizeURLScheme(value as NSString) as String)
+            XCTAssertEqual(target, expectedTarget, value)
+            XCTAssertEqual(token, expectedToken, value)
+        }
+    }
+
+    func testContactLinksPreserveFreeMessageToken() {
+        for value in ["https://t.me/contact/XXXX:YYYZZZ?free=AABBCC", "tg://contact?token=XXXX%3AYYYZZZ&free=AABBCC"] {
+            guard case let .contactToken(_, token, freeToken) = parse(value) else {
+                XCTFail("Expected contact link: \(value)")
+                continue
+            }
+            XCTAssertEqual(token, "XXXX:YYYZZZ")
+            XCTAssertEqual(freeToken, "AABBCC")
+        }
+        for value in ["t.me/contact/XXXX:YYYZZZ", "tg://contact?token=XXXX:YYYZZZ&free="] {
+            guard case let .contactToken(_, token, freeToken) = parse(value) else {
+                XCTFail("Expected ordinary contact link: \(value)")
+                continue
+            }
+            XCTAssertEqual(token, "XXXX:YYYZZZ")
+            XCTAssertNil(freeToken)
+        }
+    }
+
+    func testContactLinksRequireNavigation() {
+        for options in [InAppLinkParsingOptions(), InAppLinkParsingOptions(hasContext: true), InAppLinkParsingOptions(hasOpenInfo: true)] {
+            guard case .external = parse("https://t.me/contact/XXXX:YYYZZZ?free=AABBCC", options: options) else {
+                return XCTFail("Web contact links require navigation")
+            }
+            guard case .nothing = parse("tg://contact?token=XXXX:YYYZZZ&free=AABBCC", options: options) else {
+                return XCTFail("Contact scheme links require navigation")
+            }
+        }
+    }
+
+    func testFreeMessageLinksRequireTokenAndNavigation() {
+        for query in ["free", "free="] {
+            assertPeer("https://t.me/user?\(query)", username: "user")
+            assertPeer("https://t.me/+1112223333?\(query)", username: "1112223333")
+            assertPeer("tg://resolve?domain=user&\(query)", username: "user")
+            assertPeer("tg://resolve?phone=1112223333&\(query)", username: "1112223333")
+        }
+        for options in [InAppLinkParsingOptions(), InAppLinkParsingOptions(hasContext: true), InAppLinkParsingOptions(hasOpenInfo: true)] {
+            for value in ["https://t.me/user?free=AAAA", "https://t.me/+1112223333?free=AAAA"] {
+                guard case .external = parse(value, options: options) else {
+                    XCTFail("A free message web link requires context and openInfo: \(value)")
+                    continue
+                }
+            }
+            for value in ["tg://resolve?username=user&free=AAAA", "tg://resolve?domain=user&free=AAAA", "tg://resolve?phone=1112223333&free=AAAA"] {
+                guard case .nothing = parse(value, options: options) else {
+                    XCTFail("A free message scheme link requires context and openInfo: \(value)")
+                    continue
+                }
+            }
+        }
+        guard case .nothing = parse("tg://resolve?free=AAAA") else {
+            return XCTFail("A free message link requires a recipient")
+        }
+    }
+
     func testContextAndCallbackAvailabilityPreservesFallback() {
         for options in [InAppLinkParsingOptions(), InAppLinkParsingOptions(hasContext: true), InAppLinkParsingOptions(hasOpenInfo: true)] {
             guard case .external = parse("https://t.me/alice", options: options) else {
@@ -336,11 +414,55 @@ final class LinkParsingTests: XCTestCase {
             ("tg://ton", { if case .starsInfo(_, true) = $0 { return true }; return false }),
             ("tg://stargift_auction?slug=gift", { if case .auction(_, "gift") = $0 { return true }; return false }),
             ("tg://oauth?token=token", { if case .oauth(_, "token") = $0 { return true }; return false }),
-            ("tg://newbot?manager=owner&username=bot&title=My%20Bot", { if case .createBot(_, "owner", "bot", "My Bot") = $0 { return true }; return false }),
+            ("tg://newbot?manager=owner&username=bot&name=My%20Bot", { if case .createBot(_, "owner", "bot", "My Bot") = $0 { return true }; return false }),
             ("https://t.me/addstyle/style", { if case .addStyle(_, "style") = $0 { return true }; return false })
         ]
         for (url, matches) in cases {
             XCTAssertTrue(matches(parse(url)), "Incorrect payload for \(url)")
+        }
+    }
+
+    func testBotCreationLinksFollowTheSubmoduleUrlRules() {
+        func createBot(_ value: String) -> (manager: String, username: String, title: String?)? {
+            guard case let .createBot(_, manager, username, title) = parse(value) else {
+                return nil
+            }
+            return (manager, username, title)
+        }
+
+        let full = createBot("https://t.me/newbot/OpenClawBot/durgerkingbot?name=Durger+King")
+        XCTAssertEqual(full?.manager, "OpenClawBot")
+        XCTAssertEqual(full?.username, "durgerkingbot")
+        XCTAssertEqual(full?.title, "Durger King")
+
+        let managerOnly = createBot("https://t.me/newbot/OpenClawBot")
+        XCTAssertEqual(managerOnly?.manager, "OpenClawBot")
+        XCTAssertEqual(managerOnly?.username, "")
+        XCTAssertNil(managerOnly?.title)
+
+        XCTAssertEqual(createBot("https://t.me/newbot/OpenClawBot?name=Durger%20King")?.title, "Durger King")
+        XCTAssertEqual(createBot("https://t.me/newbot/OpenClawBot?name=1%2B1")?.title, "1 1")
+        XCTAssertNil(createBot("https://t.me/newbot/OpenClawBot?title=Durger")?.title)
+
+        let scheme = createBot("tg://newbot?manager=OpenClawBot&username=durgerkingbot&name=Durger%20King")
+        XCTAssertEqual(scheme?.manager, "OpenClawBot")
+        XCTAssertEqual(scheme?.username, "durgerkingbot")
+        XCTAssertEqual(scheme?.title, "Durger King")
+
+        let schemeManagerOnly = createBot("tg://newbot?manager=OpenClawBot")
+        XCTAssertEqual(schemeManagerOnly?.username, "")
+        XCTAssertNil(schemeManagerOnly?.title)
+        XCTAssertEqual(createBot("tg://newbot?manager=OpenClawBot&name=Durger+King")?.title, "Durger+King")
+
+        XCTAssertNil(createBot("tg://newbot?username=durgerkingbot&name=Durger"))
+        XCTAssertNil(createBot("tg://newbot?manager=&username=durgerkingbot"))
+        XCTAssertNil(createBot("https://t.me/newbot/"))
+        XCTAssertNil(createBot("https://t.me/newbot"))
+        if case .createBot = parse("tg://newbot?manager=OpenClawBot", options: InAppLinkParsingOptions()) {
+            XCTFail("A bot creation link needs a context")
+        }
+        if case .createBot = parse("https://t.me/newbot/OpenClawBot", options: InAppLinkParsingOptions()) {
+            XCTFail("A bot creation link needs a context")
         }
     }
 

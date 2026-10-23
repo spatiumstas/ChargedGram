@@ -6,6 +6,7 @@ import TGUIKit
 struct DiamondStyle: Equatable {
     typealias Appearance = InteractiveDiamondView.Appearance
     var appearance: Appearance = .blue
+    var tint: SIMD4<Float> = .zero
     enum AnimationMode: String, CaseIterable, Sendable {
         case continuous
         case reference

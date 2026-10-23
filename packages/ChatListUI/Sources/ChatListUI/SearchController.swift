@@ -2161,6 +2161,7 @@ public class SearchController<Context: AccountContextProtocol>: GenericViewContr
     
     private var closeNext: Bool = false
     
+    
     public func selectionDidChange(row:Int, item:TableRowItem, byClick:Bool, isNew:Bool) -> Void {
         var peer:Peer?
         var peerId:PeerId?
@@ -2185,7 +2186,9 @@ public class SearchController<Context: AccountContextProtocol>: GenericViewContr
         } else if let item = item as? ShortPeerRowItem {
             if let stableId = item.stableId.base as? ChatListSearchEntryStableId {
                 switch stableId {
-                case let .localPeerId(pId), let .recentSearchPeerId(pId), let .secretChat(pId):
+                case let .localPeerId(pId), let .secretChat(pId):
+                    peerId = pId
+                case let .recentSearchPeerId(pId):
                     peerId = pId
                 case let .globalPeerId(pId):
                     isGlobal = true
@@ -2278,6 +2281,7 @@ public class SearchController<Context: AccountContextProtocol>: GenericViewContr
             peerId = context.peerId
             id = .chatId(.chatList(context.peerId), context.peerId, -1)
         }
+        
         
         var storedPeer: Signal<PeerId, NoError>
         if let peer = peer {

@@ -2245,6 +2245,7 @@ public func telegramUpdateTheme(_ theme: TelegramPresentationTheme, window: Wind
 
             let image = window.windowImageShot()
             let imageView = ImageView()
+            imageView.isAccessibilityDecorative = true
             imageView.image = image
             imageView.frame = window.bounds
             contentView.addSubview(imageView)

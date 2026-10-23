@@ -101,6 +101,10 @@ public final class DockIconRowItem: GeneralRowItem {
         return DockIconRowView.self
     }
     
+    public override var accessibilityLabel: String? {
+        return strings().appearanceSettingsDockIcon
+    }
+    
     public var containerSize: NSSize {
         return NSMakeSize(DockIconRowItem.rowCount * DockIconRowItem.iconSize.width + 40, ceil(CGFloat(icons.count) / DockIconRowItem.rowCount) * DockIconRowItem.iconSize.height + 30)
     }
@@ -153,6 +157,18 @@ private final class DockIconView : Control {
     
     private var item: DockIconData?
     private weak var rowItem: DockIconRowItem?
+    
+    override func accessibilityLabel() -> String? {
+        guard let item = item else {
+            return super.accessibilityLabel()
+        }
+        let name = (item.icon.file.fileName ?? "").components(separatedBy: ".").first?.replacingOccurrences(of: "_", with: " ") ?? ""
+        return name.isEmpty ? strings().appearanceSettingsDockIcon : name
+    }
+    
+    override func isAccessibilitySelected() -> Bool {
+        return item?.selected ?? false
+    }
     private var loading: Indicator?
     
     private let statusDisposable = MetaDisposable()

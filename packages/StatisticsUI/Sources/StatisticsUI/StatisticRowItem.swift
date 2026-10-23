@@ -77,8 +77,10 @@ public class StatisticRowItem: GeneralRowItem {
     public let collection: ChartsCollection
     public let controller: BaseChartController
     fileprivate var revealed = false
-    public init(_ initialSize: NSSize, stableId: AnyHashable, context: any AccountContextProtocol, collection: ChartsCollection, viewType: GeneralViewType, type: ChartItemType, rate: Double = 1.0, getDetailsData: @escaping (Date, @escaping (String?) -> Void) -> Void) {
+    public let title: String?
+    public init(_ initialSize: NSSize, stableId: AnyHashable, context: any AccountContextProtocol, collection: ChartsCollection, viewType: GeneralViewType, type: ChartItemType, rate: Double = 1.0, title: String? = nil, getDetailsData: @escaping (Date, @escaping (String?) -> Void) -> Void) {
         self.collection = collection
+        self.title = title
         
         let controller: BaseChartController
         switch type {
@@ -191,6 +193,19 @@ public class StatisticRowItem: GeneralRowItem {
         return graphHeight
     }
     
+    private var seriesNames: String? {
+        let names = collection.chartValues.map { $0.name }.filter { !$0.isEmpty }
+        return names.isEmpty ? nil : names.joined(separator: ", ")
+    }
+
+    public override var accessibilityLabel: String? {
+        return title ?? seriesNames
+    }
+
+    public override var accessibilityValue: String? {
+        return title != nil ? seriesNames : nil
+    }
+
     public override func viewClass() -> AnyClass {
         return StatisticRowView.self
     }
@@ -354,6 +369,14 @@ public class StatisticLoadingRowItem: GeneralRowItem {
         return true
     }
     
+    public override var accessibilityLabel: String? {
+        return errorTextLayout?.attributedString.string ?? strings().voiceOverCommonLoading
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
     public override func viewClass() -> AnyClass {
         return StatisticLoadingRowView.self
     }

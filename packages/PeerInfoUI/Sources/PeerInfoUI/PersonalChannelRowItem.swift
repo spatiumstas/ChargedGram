@@ -41,6 +41,28 @@ final class PersonalChannelRowItem: GeneralRowItem {
         return PersonalChannelRowView.self
     }
     
+    override var accessibilityLabel: String? {
+        return peer._asPeer().displayTitle
+    }
+    
+    override var accessibilityValue: String? {
+        let parts = [textLayout.attributedString.string, dateLayout?.attributedString.string ?? ""].filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+    
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+    
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+    
+    override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
+    }
+    
     override func makeSize(_ width: CGFloat, oldWidth: CGFloat = 0) -> Bool {
         _ = super.makeSize(width, oldWidth: oldWidth)
         

@@ -93,6 +93,14 @@ class PassportDocumentRowItem: GeneralRowItem, InputDataRowDataValue {
     override var height: CGFloat {
         return 60
     }
+
+    override var accessibilityLabel: String? {
+        return title.attributedString.string
+    }
+
+    override var accessibilityValue: String? {
+        return status.attributedString.string
+    }
     
 }
 
@@ -111,6 +119,7 @@ final class PassportDocumentRowView : TableRowView {
         addSubview(imageView)
         addSubview(removeButton)
         imageView.setFrameSize(NSMakeSize(60, 50))
+        removeButton.setAccessibilityLabel(strings().voiceOverCommonDelete)
         
         removeButton.set(handler: { [weak self] _ in
             guard let item = self?.item as? PassportDocumentRowItem else {return}

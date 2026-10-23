@@ -190,8 +190,9 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
     return entries
 }
 
-public func PaymentsReceiptController(context: (any AccountContextProtocol), messageId: MessageId, invoice: TelegramMediaInvoice) -> InputDataModalController {
 
+public func PaymentsReceiptController(context: (any AccountContextProtocol), messageId: MessageId, invoice: TelegramMediaInvoice) -> InputDataModalController {
+    let closed = Atomic(value: false)
     var close:(()->Void)? = nil
     let actionsDisposable = DisposableSet()
 
@@ -200,20 +201,23 @@ public func PaymentsReceiptController(context: (any AccountContextProtocol), mes
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
     let updateState: ((State) -> State) -> Void = { f in
+        guard !closed.with({ $0 }) else { return }
         statePromise.set(stateValue.modify (f))
     }
 
     let arguments = Arguments(context: context)
     
-    let signal = statePromise.get() |> deliverOnPrepareQueue |> map { state in
+    let signal = (statePromise.get() |> deliverOnPrepareQueue) |> map { state in
         return InputDataSignalValue(entries: entries(state, arguments: arguments))
     }
     
     let controller = InputDataController(dataSignal: signal, title:strings().checkoutReceiptTitle)
     
-    controller.onDeinit = {
+    let dismiss = {
+        _ = closed.swap(true)
         actionsDisposable.dispose()
     }
+    controller.onDeinit = dismiss
     
     controller.validateData = { _ in
         close?()
@@ -224,37 +228,35 @@ public func PaymentsReceiptController(context: (any AccountContextProtocol), mes
         _ = controller?.returnKeyAction()
     }, singleButton: true)
     
-    let modalController = InputDataModalController(controller, modalInteractions: modalInteractions)
+    let modalController = InputDataModalController(controller, modalInteractions: modalInteractions, closeHandler: { close in
+        dismiss()
+        close()
+    })
     
     controller.leftModalHeader = ModalHeaderData(image: theme.icons.modalClose, handler: { [weak modalController] in
         modalController?.close()
     })
     
     close = { [weak modalController] in
+        dismiss()
         modalController?.modal?.close()
     }
     
     
-    //BotPaymentReceipt, RequestBotPaymentReceiptError
-    let receiptPromise: Promise<BotPaymentReceipt> = Promise()
-    receiptPromise.set(context.engine.payments.requestBotPaymentReceipt(messageId: messageId) |> `catch` { _ in return .complete() })
-    
-    
-    let botPeer = receiptPromise.get() |> mapToSignal { value in
-        return context.account.postbox.transaction { $0.getPeer(value.botPaymentId) }
+    let receipt: Signal<BotPaymentReceipt, NoError> = context.engine.payments.requestBotPaymentReceipt(messageId: messageId) |> take(1) |> `catch` { _ in .complete() }
+    let receiptAndPeer = receipt |> mapToSignal { value -> Signal<(BotPaymentReceipt, Peer?), NoError> in
+        guard !closed.with({ $0 }) else { return .complete() }
+        return (context.account.postbox.transaction { $0.getPeer(value.botPaymentId) }) |> map { (value, $0) }
     }
-    
-    actionsDisposable.add(combineLatest(receiptPromise.get(), botPeer).start(next: { receipt, botPeer in
+    actionsDisposable.add((receiptAndPeer |> deliverOnMainQueue).start(next: { receipt, botPeer in
         updateState { current in
             var current = current
             current.receipt = receipt
-            current.botPeer = botPeer != nil ? PeerEquatable(botPeer!) : nil
+            current.botPeer = botPeer.map { PeerEquatable($0) }
             return current
         }
     }))
-    
 
-    
     return modalController
 }
 

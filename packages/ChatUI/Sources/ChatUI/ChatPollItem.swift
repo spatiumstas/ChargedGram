@@ -1009,6 +1009,10 @@ public final class ChatPollItemView : ChatRowView {
         return NSPointInRect(point, NSMakeRect(0, contentNode.titleView.frame.minY, contentNode.frame.width, contentNode.titleView.frame.height))
     }
     
+    override var textSelectionSources: ChatTextSelectionSources {
+        return .views(selectableTextViews)
+    }
+
     public override var selectableTextViews: [TextView] {
         return [contentNode.titleView.textView]
     }
@@ -1148,6 +1152,7 @@ private final class PollOptionView : Control {
                 current = view
             } else {
                 current = ImageView()
+                current.isAccessibilityDecorative = true
                 self.selectedImageView = current
                 addSubview(current)
                 justAdded = true
@@ -1176,6 +1181,7 @@ private final class PollOptionView : Control {
                     current = view
                 } else {
                     current = ImageView()
+                    current.isAccessibilityDecorative = true
                     self.selectedImageView = current
                     addSubview(current)
                     justAdded = true
@@ -1227,6 +1233,7 @@ private final class PollOptionView : Control {
                 current = view
             } else {
                 current = ImageView()
+                current.isAccessibilityDecorative = true
                 percentView = current
                 addSubview(current)
                 current.setFrameSize(36, 16)
@@ -1312,6 +1319,7 @@ private final class PollOptionView : Control {
                     } else {
                         sv = ImageView(frame: NSMakeRect(0, 0, 22, 22))
                         selectingView = sv
+                        sv.isAccessibilityDecorative = true
                         addSubview(sv)
                         isNew = true
                     }
@@ -1343,6 +1351,7 @@ private final class PollOptionView : Control {
                 } else {
                     sv = ImageView(frame: NSMakeRect(0, 0, 22, 22))
                     selectingView = sv
+                        sv.isAccessibilityDecorative = true
                     addSubview(sv)
                     isNew = true
                 }
@@ -1457,6 +1466,7 @@ private final class PollOptionView : Control {
 
             if self.optionMediaOverlay == nil {
                 self.optionMediaOverlay = Control(frame: NSMakeRect(mediaX, mediaY, boundingSize.width, boundingSize.height))
+                self.optionMediaOverlay?.setAccessibilityLabel(strings().voiceOverCommonOpen)
                 addSubview(self.optionMediaOverlay!)
             }
             self.optionMediaOverlay?.removeAllHandlers()
@@ -1531,6 +1541,7 @@ private final class PollOptionView : Control {
             if file.isVideo {
                 if self.videoPlayIcon == nil {
                     let icon = ImageView()
+                    icon.isAccessibilityDecorative = true
                     let playImage = generateImage(NSMakeSize(20, 20), rotatedContext: { size, ctx in
                         ctx.clear(size.bounds)
                         ctx.setFillColor(NSColor.black.withAlphaComponent(0.5).cgColor)
@@ -1756,6 +1767,7 @@ private final class PollView : Control {
                 let button = ImageButton()
                 button.autohighlight = false
                 button.scaleOnClick = true
+                button.setAccessibilityLabel(strings().voiceOverCommonClose)
                 addSubview(button)
                 self.explanationCloseButton = button
                 button.setFrameOrigin(NSMakePoint(item.bubbleContentInset + explanationLayout.size.width - button.frame.width - 4, 4))
@@ -1842,10 +1854,12 @@ private final class PollView : Control {
             if self.addOptionButton == nil {
                 let button = Control()
                 button.scaleOnClick = true
+                button.setAccessibilityLabel(strings().chatPollAddOption)
                 optionsContainerView.addSubview(button)
                 self.addOptionButton = button
 
                 let icon = ImageView()
+                icon.isAccessibilityDecorative = true
                 button.addSubview(icon)
                 self.addOptionIcon = icon
 
@@ -2009,6 +2023,7 @@ private final class PollView : Control {
             var mayApplyAnimation = false
             if solutionButton == nil {
                 solutionButton = ImageButton()
+                solutionButton?.setAccessibilityLabel(strings().chatPollExplanation)
                 addSubview(solutionButton!)
                 mayApplyAnimation = animated
             }

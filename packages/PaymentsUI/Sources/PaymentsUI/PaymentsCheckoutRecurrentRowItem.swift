@@ -61,6 +61,23 @@ public final class PaymentsCheckoutRecurrentRowItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return PaymentsCheckoutRecurrentRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return layout.attributedString.string
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .checkBox
+    }
+
+    public override var accessibilityToggleState: Bool? {
+        return accept
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        toggle()
+        return true
+    }
 }
 
 
@@ -74,6 +91,7 @@ private final class PaymentsCheckoutRecurrentRowView : GeneralContainableRowView
         addSubview(control)
         
         textView.isSelectable = false
+        control.isAccessibilityDecorative = true
         
         control.set(handler: { [weak self] _ in
             guard let item = self?.item as? PaymentsCheckoutRecurrentRowItem else {
@@ -101,6 +119,7 @@ private final class PaymentsCheckoutRecurrentRowView : GeneralContainableRowView
         
         if accepted != item.accept {
             let view = ImageView()
+            view.isAccessibilityDecorative = true
             view.image = item.accept ? theme.chat_toggle_selected : theme.chat_toggle_unselected
             view.sizeToFit()
             addSubview(view, positioned: .below, relativeTo: self.control)

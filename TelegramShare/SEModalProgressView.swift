@@ -38,6 +38,7 @@ class SEModalProgressView: View {
         
         cancel.set(image: theme.icons.modalClose, for: .Normal)
         cancel.scaleOnClick = true
+        cancel.setAccessibilityLabel(L10n.voiceOverCommonCancel)
         _ = cancel.sizeToFit(.zero, NSMakeSize(30, 30), thatFit: true)
         
         cancel.set(handler: { [weak self] _ in

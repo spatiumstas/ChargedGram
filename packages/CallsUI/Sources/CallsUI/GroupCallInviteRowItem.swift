@@ -38,6 +38,23 @@ public final class GroupCallInviteRowItem : GeneralRowItem {
     public override var instantlyResize: Bool {
         return false
     }
+
+    public override var accessibilityLabel: String? {
+        return text
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
+    }
     
     public override func viewClass() -> AnyClass {
         return  GroupCallInviteRowView.self
@@ -54,6 +71,7 @@ private final class GroupCallInviteRowView : GeneralContainableRowView {
         addSubview(textView)
         
         thumbView.isEventLess = true
+        thumbView.isAccessibilityDecorative = true
         textView.userInteractionEnabled = false
         textView.isSelectable = false
         

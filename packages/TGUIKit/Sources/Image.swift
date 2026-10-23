@@ -20,35 +20,48 @@ public func addAvatarBubblePath(context: CGContext, rect: CGRect) {
 }
     
 
-// Decode an image file straight to a capped pixel size via ImageIO's thumbnail path, so an oversized
-// wallpaper (a user-picked photo, a high-DPI cloud wallpaper) is never held in memory at its full native
-// resolution. The longest side is capped at maxPixelSize; a smaller source is returned at its own size
-// (ImageIO does not upscale), so small pattern masks are untouched.
 public func downsampledImage(contentsOfFile path: String, maxPixelSize: CGFloat) -> NSImage? {
     return autoreleasepool {
         guard maxPixelSize >= 1, let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil) else {
             return nil
         }
-        // Only oversized images are downsampled. A source already within the cap is loaded normally so its
-        // point size / DPI is preserved: a tiled pattern wallpaper sizes its tiles from NSImage.size, which
-        // a pixel-sized thumbnail would change for a non-72-dpi source.
+        var thumbnailMaxPixelSize = maxPixelSize
+        var pointSize: NSSize?
         if let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
            let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue,
            let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue,
            max(width, height) <= Double(maxPixelSize) {
-            return NSImage(contentsOfFile: path)
+            guard let image = NSImage(contentsOfFile: path) else {
+                return nil
+            }
+            thumbnailMaxPixelSize = CGFloat(max(width, height))
+            pointSize = image.size
         }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+            kCGImageSourceThumbnailMaxPixelSize: thumbnailMaxPixelSize,
             kCGImageSourceShouldCache: false
         ]
-        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+        guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
             return NSImage(contentsOfFile: path)
         }
-        return NSImage(cgImage: image, size: NSMakeSize(CGFloat(image.width), CGFloat(image.height)))
+        let image = decodedBitmapImage(thumbnail) ?? thumbnail
+        return NSImage(cgImage: image, size: pointSize ?? NSMakeSize(CGFloat(image.width), CGFloat(image.height)))
     }
+}
+
+private func decodedBitmapImage(_ image: CGImage) -> CGImage? {
+    let bitmapInfo = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+    let makeContext: (CGColorSpace) -> CGContext? = { space in
+        return CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0, space: space, bitmapInfo: bitmapInfo)
+    }
+    let sourceSpace = image.colorSpace.flatMap { $0.model == .rgb ? $0 : nil }
+    guard let context = sourceSpace.flatMap(makeContext) ?? makeContext(CGColorSpace(name: CGColorSpace.sRGB)!) else {
+        return nil
+    }
+    context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+    return context.makeImage()
 }
 
 public func roundImage(_ data:Data, _ s:NSSize, cornerRadius:CGFloat = -1, reversed:Bool = false, scale:CGFloat = 1.0, bubble: Bool = false) -> CGImage? {

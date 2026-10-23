@@ -188,6 +188,34 @@ private final class BoosterRowItem : GeneralRowItem {
         return true
     }
     
+    override var accessibilityLabel: String? {
+        return name.attributedString.string
+    }
+
+    override var accessibilityValue: String? {
+        var parts: [String] = ["x\(boost.multiplier)"]
+        if boost.flags.contains(.isGiveaway) {
+            parts.append(strings().giveawayBoosterReasonGiveaway)
+        } else if boost.flags.contains(.isGift) {
+            parts.append(strings().giveawayBoosterReasonGift)
+        }
+        parts.append(status.attributedString.string)
+        return parts.joined(separator: ", ")
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
+    }
+
     override func viewClass() -> AnyClass {
         return BoosterRowItemView.self
     }
@@ -205,6 +233,8 @@ private final class BoosterRowItemView : GeneralContainableRowView {
         addSubview(statusView)
         addSubview(multiplierView)
         addSubview(reasonView)
+        multiplierView.isAccessibilityDecorative = true
+        reasonView.isAccessibilityDecorative = true
         
         avatar.userInteractionEnabled = false
         self.addSubview(self.avatar)
@@ -323,6 +353,10 @@ private final class BoostRowItem : TableRowItem {
         return height
     }
     
+    override var accessibilityLabel: String? {
+        return strings().boostBadgeLevel(state.currentLevel)
+    }
+
     override func viewClass() -> AnyClass {
         return BoostRowItemView.self
     }

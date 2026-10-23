@@ -40,6 +40,24 @@ public final class UserInfoResetPhotoItem : GeneralRowItem {
         return UserInfoResetPhotoView.self
     }
     
+    public override var accessibilityLabel: String? {
+        let text = nameLayout.attributedString.string
+        return text.isEmpty ? nil : text
+    }
+    
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+    
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+    
+    public override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
+    }
+    
 }
 
 private final class UserInfoResetPhotoView: GeneralContainableRowView {

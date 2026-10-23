@@ -121,6 +121,8 @@ final class StoryLikeActionButton: Control {
         addSubview(control)
         self.layer?.masksToBounds = false
         control.userInteractionEnabled = false
+        control.isAccessibilityDecorative = true
+        setAccessibilityLabel(strings().voiceOverCommonLike)
     }
     
     override func stateDidUpdate(_ state: ControlState) {
@@ -471,6 +473,21 @@ final class StoryReplyActionButton : View {
                     current.set(image: badge, for: .Normal)
                     size = NSMakeSize(badge.backingSize.width, size.height)
 
+                }
+                
+                switch state {
+                case .text:
+                    current.setAccessibilityLabel(strings().voiceOverMessageContextSend)
+                case let .empty(isVoice):
+                    current.setAccessibilityLabel(isVoice ? strings().voiceOverChatRecordModeVoiceMessage : strings().voiceOverChatRecordModeVideoMessage)
+                case .share:
+                    current.setAccessibilityLabel(strings().voiceOverCommonShare)
+                case .setprice:
+                    current.setAccessibilityLabel(strings().voiceOverCommonSetPrice)
+                case .emoji:
+                    current.setAccessibilityLabel(strings().voiceOverCommonEmoji)
+                case .starPrice, .starReactions:
+                    current.setAccessibilityLabel(strings().voiceOverCommonStars)
                 }
                 
                 self.current = current
@@ -975,6 +992,7 @@ final class StoryInputView : Control, StoryInput {
         attach.set(image: attach_image, for: .Normal)
         attach.set(image: attach_image_active, for: .Highlight)
         attach.sizeToFit(.zero, NSMakeSize(50, 50), thatFit: true)
+        attach.setAccessibilityLabel(strings().voiceOverAttachMedia)
         
         attach.contextMenu = { [weak self] in
             

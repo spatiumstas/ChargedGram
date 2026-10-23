@@ -11,53 +11,104 @@ public struct AnimatableContentObserverOptions: OptionSet {
     public static let ownBounds = AnimatableContentObserverOptions(rawValue: 1 << 3)
 }
 
+private final class AnimatableContentNotificationTarget: NSObject {
+    weak var target: AnyObject?
+    var selector: Selector?
+
+    @objc func forwardNotification(_ notification: NSNotification) {
+        guard let target, let selector else {
+            return
+        }
+        _ = target.perform(selector, with: notification)
+    }
+}
+
 public final class AnimatableContentObserver {
     private weak var observedWindow: NSWindow?
     private weak var observedContentView: NSView?
     private weak var observedDocumentView: NSView?
-    private var registered: Bool = false
-    
+    private weak var observedView: NSView?
+    private lazy var notificationTarget = AnimatableContentNotificationTarget()
+    private var observedOptions: AnimatableContentObserverOptions = []
+    private var registered = false
+
     public init() {
     }
-    
+
     public func update(for view: NSView, target: AnyObject, selector: Selector, options: AnimatableContentObserverOptions = [.contentBounds, .documentFrame]) {
-        self.update(for: view, target: target, selector: selector, contentView: view.enclosingScrollView?.contentView, documentView: view.enclosingScrollView?.documentView, options: options)
-    }
-    
-    public func update(for view: NSView, target: AnyObject, selector: Selector, contentView: NSView?, documentView: NSView?, options: AnimatableContentObserverOptions) {
-        guard let window = view.window else {
+        guard view.window != nil else {
+            unregister()
             return
         }
-        
+        let scrollView = view.enclosingScrollView
+        self.update(for: view, target: target, selector: selector, contentView: scrollView?.contentView, documentView: scrollView?.documentView, options: options)
+    }
+
+    public func update(for view: NSView, target: AnyObject, selector: Selector, contentView: NSView?, documentView: NSView?, options: AnimatableContentObserverOptions) {
+        guard let window = view.window else {
+            unregister()
+            return
+        }
         if registered
             && observedWindow === window
             && observedContentView === contentView
-            && observedDocumentView === documentView {
+            && observedDocumentView === documentView
+            && observedView === view
+            && notificationTarget.target === target
+            && notificationTarget.selector == selector
+            && observedOptions == options {
             return
         }
-        
+        unregister()
+        notificationTarget.target = target
+        notificationTarget.selector = selector
+
         let center = NotificationCenter.default
-        if registered {
-            center.removeObserver(target)
+        func add(_ name: Notification.Name, _ object: AnyObject) {
+            center.addObserver(notificationTarget, selector: #selector(AnimatableContentNotificationTarget.forwardNotification(_:)), name: name, object: object)
         }
-        center.addObserver(target, selector: selector, name: NSWindow.didBecomeKeyNotification, object: window)
-        center.addObserver(target, selector: selector, name: NSWindow.didResignKeyNotification, object: window)
-        if options.contains(.contentBounds) {
-            center.addObserver(target, selector: selector, name: NSView.boundsDidChangeNotification, object: contentView)
+        add(NSWindow.didBecomeKeyNotification, window)
+        add(NSWindow.didResignKeyNotification, window)
+        if options.contains(.contentBounds), let contentView {
+            add(NSView.boundsDidChangeNotification, contentView)
         }
         if options.contains(.ownBounds) {
-            center.addObserver(target, selector: selector, name: NSView.boundsDidChangeNotification, object: view)
+            add(NSView.boundsDidChangeNotification, view)
         }
-        if options.contains(.documentFrame) {
-            center.addObserver(target, selector: selector, name: NSView.frameDidChangeNotification, object: documentView)
+        if options.contains(.documentFrame), let documentView {
+            add(NSView.frameDidChangeNotification, documentView)
         }
         if options.contains(.ownFrame) {
-            center.addObserver(target, selector: selector, name: NSView.frameDidChangeNotification, object: view)
+            add(NSView.frameDidChangeNotification, view)
+        }
+        if (options.contains(.contentBounds) && contentView == nil) || (options.contains(.documentFrame) && documentView == nil) {
+            add(NSWindow.didResizeNotification, window)
         }
         observedWindow = window
         observedContentView = contentView
         observedDocumentView = documentView
+        observedView = view
+        observedOptions = options
         registered = true
+    }
+
+    private func unregister() {
+        guard registered else {
+            return
+        }
+        NotificationCenter.default.removeObserver(notificationTarget)
+        notificationTarget.target = nil
+        notificationTarget.selector = nil
+        observedWindow = nil
+        observedContentView = nil
+        observedDocumentView = nil
+        observedView = nil
+        observedOptions = []
+        registered = false
+    }
+
+    deinit {
+        unregister()
     }
 }
 
@@ -66,44 +117,67 @@ public final class AnimatableContentTokenObserver {
     private weak var observedContentView: NSView?
     private weak var observedDocumentView: NSView?
     private var tokens: [NSObjectProtocol] = []
-    
+    private var handler: ((Notification) -> Void)?
+    private var generation = 0
+
     public init() {
     }
-    
+
     public func update(for view: NSView, handler: @escaping (Notification) -> Void) {
-        guard let w = view.window else {
+        guard let window = view.window else {
+            removeObservers()
             return
         }
-        let cv = view.enclosingScrollView?.contentView
-        let dv = view.enclosingScrollView?.documentView
-
+        let scrollView = view.enclosingScrollView
+        let contentView = scrollView?.contentView
+        let documentView = scrollView?.documentView
         if !tokens.isEmpty
-            && observedWindow === w
-            && observedContentView === cv
-            && observedDocumentView === dv {
+            && observedWindow === window
+            && observedContentView === contentView
+            && observedDocumentView === documentView {
+            self.handler = handler
             return
         }
-
-        let center = NotificationCenter.default
-        for token in tokens {
-            center.removeObserver(token)
+        removeObservers()
+        self.handler = handler
+        let generation = self.generation
+        let callback: (Notification) -> Void = { [weak self] notification in
+            guard let self, self.generation == generation else {
+                return
+            }
+            self.handler?(notification)
         }
-        tokens.removeAll()
-
-        tokens.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: w, queue: .main, using: handler))
-        tokens.append(center.addObserver(forName: NSWindow.didResignKeyNotification, object: w, queue: .main, using: handler))
-        tokens.append(center.addObserver(forName: NSView.boundsDidChangeNotification, object: cv, queue: .main, using: handler))
-        tokens.append(center.addObserver(forName: NSView.frameDidChangeNotification, object: dv, queue: .main, using: handler))
-        observedWindow = w
-        observedContentView = cv
-        observedDocumentView = dv
+        let center = NotificationCenter.default
+        tokens.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main, using: callback))
+        tokens.append(center.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main, using: callback))
+        if let contentView {
+            tokens.append(center.addObserver(forName: NSView.boundsDidChangeNotification, object: contentView, queue: .main, using: callback))
+        }
+        if let documentView {
+            tokens.append(center.addObserver(forName: NSView.frameDidChangeNotification, object: documentView, queue: .main, using: callback))
+        }
+        if contentView == nil || documentView == nil {
+            tokens.append(center.addObserver(forName: NSWindow.didResizeNotification, object: window, queue: .main, using: callback))
+        }
+        observedWindow = window
+        observedContentView = contentView
+        observedDocumentView = documentView
     }
-    
+
     public func removeObservers() {
+        generation &+= 1
         let center = NotificationCenter.default
         for token in tokens {
             center.removeObserver(token)
         }
         tokens.removeAll()
+        handler = nil
+        observedWindow = nil
+        observedContentView = nil
+        observedDocumentView = nil
+    }
+
+    deinit {
+        removeObservers()
     }
 }

@@ -20,6 +20,22 @@ import AudioPlayerCore
 import FilePanels
 import InputView
 
+private final class SendAudioMessageIds {
+    private let lock = NSLock()
+    private var ids: [MediaId: Int32] = [:]
+
+    func id(for fileId: MediaId) -> Int32 {
+        lock.lock()
+        defer { lock.unlock() }
+        if let id = ids[fileId] {
+            return id
+        }
+        let id = Int32(ids.count) + 1
+        ids[fileId] = id
+        return id
+    }
+}
+
 private final class SendAudioArguments {
     let context: any AccountContextProtocol
     let chatInteraction: ChatInteraction
@@ -54,13 +70,13 @@ private let _id_loading = InputDataIdentifier("_id_loading")
 private let _id_empty = InputDataIdentifier("_id_empty")
 
 private func _id_saved(_ message: Message) -> InputDataIdentifier {
-    return InputDataIdentifier("saved_\(message.id.id)_\(message.id.peerId.toInt64())")
+    return InputDataIdentifier("saved_\(message.id.namespace)_\(message.id.id)_\(message.id.peerId.toInt64())")
 }
 private func _id_shared(_ message: Message) -> InputDataIdentifier {
-    return InputDataIdentifier("shared_\(message.id.id)_\(message.id.peerId.toInt64())")
+    return InputDataIdentifier("shared_\(message.id.namespace)_\(message.id.id)_\(message.id.peerId.toInt64())")
 }
 private func _id_search(_ message: Message) -> InputDataIdentifier {
-    return InputDataIdentifier("search_\(message.id.id)_\(message.id.peerId.toInt64())")
+    return InputDataIdentifier("search_\(message.id.namespace)_\(message.id.id)_\(message.id.peerId.toInt64())")
 }
 
 private func audioViewType(_ array: [Message], for index: Int) -> GeneralViewType {
@@ -80,6 +96,10 @@ private final class AudioSearchRowItem: GeneralRowItem {
     }
     override func viewClass() -> AnyClass {
         return AudioSearchRowView.self
+    }
+
+    override var accessibilityLabel: String? {
+        return strings().voiceOverCommonSearch
     }
 }
 
@@ -200,7 +220,9 @@ private func entries(_ state: SendAudioState, arguments: SendAudioArguments) -> 
         }
 
         if !state.savedMusicLoaded || !state.sharedAudioLoaded {
-            entries.append(.sectionId(s_shared, type: .normal))
+            if state.sharedAudio.isEmpty {
+                entries.append(.sectionId(s_shared, type: .normal))
+            }
             entries.append(.custom(sectionId: s_shared, index: i_loading, value: .none, identifier: _id_loading, equatable: nil, comparable: nil, item: { initialSize, stableId in
                 return GeneralLoadingRowItem(initialSize, stableId: stableId, viewType: .singleItem)
             }))
@@ -235,6 +257,9 @@ private func entries(_ state: SendAudioState, arguments: SendAudioArguments) -> 
 public func SendAudioModalController(context: any AccountContextProtocol, chatInteraction: ChatInteraction) -> InputDataModalController {
 
     let actionsDisposable = DisposableSet()
+    let messageIds = SendAudioMessageIds()
+    let sharedAudioLoadMore = ValuePipe<Void>()
+    let searchLoadMore = ValuePipe<Void>()
 
     let initialState = SendAudioState()
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
@@ -249,11 +274,11 @@ public func SendAudioModalController(context: any AccountContextProtocol, chatIn
     let arguments = SendAudioArguments(context: context, chatInteraction: chatInteraction, playAudio: { message in
         if let file = message.media.first as? TelegramMediaFile {
             let controller = PeerMediaUIHooks.shared.getAudioPlayer(context)
-            if let controller = controller, controller.currentSong?.entry.isEqual(to: message) == true {
+            if let controller = controller, controller.currentSong?.resource.id == file.resource.id {
                 _ = controller.playOrPause()
             } else {
                 let musicText = file.musicText
-                let wrapper = APSingleWrapper(resource: file.resource, name: musicText.0, performer: musicText.1, duration: file.duration, id: message.chatStableId)
+                let wrapper = APSingleWrapper(resource: file.resource, name: musicText.0, performer: musicText.1, duration: file.duration, id: file.fileId)
                 let player = APSingleResourceController(context: context, wrapper: wrapper, streamable: true)
                 PeerMediaUIHooks.shared.showInlineAudioPlayer(player, context, getController?()?.tableView, nil)
                 player.start()
@@ -298,23 +323,32 @@ public func SendAudioModalController(context: any AccountContextProtocol, chatIn
     let savedMusicContext = ProfileSavedMusicContext(account: context.account, peerId: context.account.peerId)
     actionsDisposable.add((savedMusicContext.state |> deliverOnMainQueue).start(next: { state in
         let messages: [Message] = state.files.compactMap { file in
-            let messageId = MessageId(peerId: context.account.peerId, namespace: Namespaces.Message.Cloud, id: Int32(file.fileId.id & 0x7FFFFFFF))
+            let messageId = MessageId(peerId: context.account.peerId, namespace: Namespaces.Message.Local, id: messageIds.id(for: file.fileId))
             return Message(stableId: UInt32(abs(messageId.id)), stableVersion: 0, id: messageId, globallyUniqueId: nil, groupingKey: nil, groupInfo: nil, threadId: nil, timestamp: 0, flags: [], tags: [], globalTags: [], localTags: [], customTags: [], forwardInfo: nil, author: nil, text: "", attributes: [], media: [file], peers: SimpleDictionary(), associatedMessages: SimpleDictionary(), associatedMessageIds: [], associatedMedia: [:], associatedThreadInfo: nil, associatedStories: [:])
         }
         updateState { current in
             var current = current
             current.savedMusic = messages
-            current.savedMusicLoaded = true
+            switch state.dataState {
+            case .loading:
+                current.savedMusicLoaded = false
+            case .ready:
+                current.savedMusicLoaded = true
+            }
             return current
         }
     }))
 
-    let sharedAudioSignal = context.engine.messages.searchMessages(location: .general(scope: .everywhere, groupId: nil, tags: [.music], minDate: nil, maxDate: nil, folderId: nil, communityId: nil), query: "", state: nil)
-    actionsDisposable.add((sharedAudioSignal |> deliverOnMainQueue).start(next: { result, _ in
+    let sharedAudioSignal = peerMediaSearchMessages(loadMore: sharedAudioLoadMore.signal(), request: { state in
+        context.engine.messages.searchMessages(location: .general(scope: .everywhere, groupId: nil, tags: [.music], minDate: nil, maxDate: nil, folderId: nil, communityId: nil), query: "", state: state)
+    })
+    actionsDisposable.add((sharedAudioSignal |> deliverOnMainQueue).start(next: { messages in
         updateState { current in
             var current = current
-            current.sharedAudio = result.messages
-            current.sharedAudioLoaded = true
+            if let messages {
+                current.sharedAudio = messages
+            }
+            current.sharedAudioLoaded = messages != nil
             return current
         }
     }))
@@ -326,8 +360,9 @@ public func SendAudioModalController(context: any AccountContextProtocol, chatIn
         if !query.isEmpty {
             let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
 
-            let sharedSearch: Signal<[Message], NoError> = context.engine.messages.searchMessages(location: .general(scope: .everywhere, groupId: nil, tags: [.music], minDate: nil, maxDate: nil, folderId: nil, communityId: nil), query: trimmedQuery, state: nil)
-            |> map { $0.0.messages }
+            let sharedSearch: Signal<[Message], NoError> = peerMediaSearchMessages(loadMore: searchLoadMore.signal(), request: { state in
+                context.engine.messages.searchMessages(location: .general(scope: .everywhere, groupId: nil, tags: [.music], minDate: nil, maxDate: nil, folderId: nil, communityId: nil), query: trimmedQuery, state: state)
+            }) |> filter { $0 != nil } |> map { $0 ?? [] }
 
             let botSearch: Signal<[Message], NoError>
             if let data = context.appConfiguration.data, let searchBot = data["music_search_username"] as? String, !searchBot.isEmpty, trimmedQuery.count >= 3 {
@@ -338,20 +373,19 @@ public func SendAudioModalController(context: any AccountContextProtocol, chatIn
                     }
                     return .single(result)
                 }
-                |> mapToSignal { peer -> Signal<ChatContextResultCollection?, NoError> in
+                |> mapToSignal { peer -> Signal<[ChatContextResult], NoError> in
                     guard let peer = peer else {
-                        return .single(nil)
+                        return .single([])
                     }
-                    return context.engine.messages.requestChatContextResults(botId: peer.id, peerId: context.account.peerId, query: trimmedQuery, offset: "")
-                    |> map { $0?.results }
-                    |> `catch` { _ -> Signal<ChatContextResultCollection?, NoError> in
-                        return .single(nil)
-                    }
+                    return sendAudioBotSearchResults(loadMore: searchLoadMore.signal(), request: { offset in
+                        context.engine.messages.requestChatContextResults(botId: peer.id, peerId: context.account.peerId, query: trimmedQuery, offset: offset)
+                        |> map { $0?.results }
+                        |> `catch` { _ -> Signal<ChatContextResultCollection?, NoError> in
+                            return .single(nil)
+                        }
+                    })
                 }
-                |> map { contextResult -> [Message] in
-                    guard let results = contextResult?.results else {
-                        return []
-                    }
+                |> map { results -> [Message] in
                     let peerId = context.account.peerId
                     var messages: [Message] = []
                     let peers = SimpleDictionary<PeerId, Peer>()
@@ -359,8 +393,9 @@ public func SendAudioModalController(context: any AccountContextProtocol, chatIn
                         switch result {
                         case let .internalReference(internalReference):
                             if let file = internalReference.file {
-                                let stableId = UInt32(clamping: file.fileId.id % Int64(Int32.max))
-                                messages.append(Message(stableId: stableId, stableVersion: 0, id: MessageId(peerId: peerId, namespace: Namespaces.Message.Local, id: Int32(stableId)), globallyUniqueId: nil, groupingKey: nil, groupInfo: nil, threadId: nil, timestamp: 0, flags: [], tags: [.music], globalTags: [], localTags: [], customTags: [], forwardInfo: nil, author: nil, text: "", attributes: [], media: [file], peers: peers, associatedMessages: SimpleDictionary(), associatedMessageIds: [], associatedMedia: [:], associatedThreadInfo: nil, associatedStories: [:]))
+                                let messageId = MessageId(peerId: peerId, namespace: Namespaces.Message.Local, id: messageIds.id(for: file.fileId))
+                                let stableId = UInt32(messageId.id)
+                                messages.append(Message(stableId: stableId, stableVersion: 0, id: messageId, globallyUniqueId: nil, groupingKey: nil, groupInfo: nil, threadId: nil, timestamp: 0, flags: [], tags: [.music], globalTags: [], localTags: [], customTags: [], forwardInfo: nil, author: nil, text: "", attributes: [], media: [file], peers: peers, associatedMessages: SimpleDictionary(), associatedMessageIds: [], associatedMedia: [:], associatedThreadInfo: nil, associatedStories: [:]))
                             }
                         default:
                             break
@@ -378,9 +413,9 @@ public func SendAudioModalController(context: any AccountContextProtocol, chatIn
                 updateState { current in
                     var current = current
                     var allMessages = shared
-                    let existingIds = Set(allMessages.map { $0.id })
+                    var existingIds = Set(allMessages.map { $0.id })
                     for msg in bot {
-                        if !existingIds.contains(msg.id) {
+                        if existingIds.insert(msg.id).inserted {
                             allMessages.append(msg)
                         }
                     }
@@ -401,6 +436,20 @@ public func SendAudioModalController(context: any AccountContextProtocol, chatIn
     let controller = InputDataController(dataSignal: signal, title: strings().sendAudioTitle)
 
     getController = { [weak controller] in controller }
+
+    controller.didLoad = { controller, _ in
+        controller.tableView.setScrollHandler { [weak savedMusicContext] scroll in
+            guard scroll.direction == .bottom else {
+                return
+            }
+            if stateValue.with({ $0.searchQuery.isEmpty }) {
+                savedMusicContext?.loadMore()
+                sharedAudioLoadMore.putNext(())
+            } else {
+                searchLoadMore.putNext(())
+            }
+        }
+    }
 
     var progressOverlay: ProgressIndicator? = nil
     var emptyOverlay: MediaAnimatedStickerView? = nil

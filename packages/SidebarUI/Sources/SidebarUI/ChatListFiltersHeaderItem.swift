@@ -33,6 +33,15 @@ class ChatListFiltersHeaderItem: GeneralRowItem {
     override var height: CGFloat {
         return 112 + textLayout.layoutSize.height + (textLayout.layoutSize.height > 0 ? inset.bottom : 0)
     }
+
+    override var accessibilityLabel: String? {
+        let text = textLayout.attributedString.string
+        return text.isEmpty ? nil : text
+    }
+
+    override var accessibilityIsSpacer: Bool {
+        return textLayout.attributedString.string.isEmpty
+    }
 }
 
 

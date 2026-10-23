@@ -1,10 +1,13 @@
 import Foundation
 import SwiftSignalKit
 import TelegramContext
+import TelegramCore
 
 public struct WalletUIHooks {
     public var appPasslock: () -> Signal<Bool, NoError> = { .single(false) }
     public var openTonEarnings: (any AccountContextProtocol) -> Void = { _ in }
+
+    public var openGiftVariants: (any AccountContextProtocol, StarGift.UniqueGift, String) -> Void = { _, _, _ in }
 
     public init() {}
 

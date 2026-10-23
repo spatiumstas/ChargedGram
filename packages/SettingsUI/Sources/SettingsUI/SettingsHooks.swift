@@ -191,6 +191,14 @@ public struct SettingsHooks {
     public let pushAppUpdate: (MajorNavigationController) -> Void
     public let openFaq: (any AccountContextProtocol) -> Void
     public let showStories: (any AccountContextProtocol, Bool, StoryInitialIndex?, Bool) -> Void
+    public var showStoriesWithContext: ((any AccountContextProtocol, Bool, StoryInitialIndex?, Bool) -> Void)?
+    public func showStoriesObserved(_ context: any AccountContextProtocol, _ isHidden: Bool, _ initialId: StoryInitialIndex?, _ singlePeer: Bool) {
+        if let showStoriesWithContext {
+            showStoriesWithContext(context, isHidden, initialId, singlePeer)
+        } else {
+            showStories(context, isHidden, initialId, singlePeer)
+        }
+    }
     public let authorizationStatus: (any AccountContextProtocol) -> Signal<NotificationAuthorizationStatus, NoError>
     public let wallet: Any?
 
@@ -413,6 +421,9 @@ private struct SettingsSearchPlaceholderInAppLink: SettingsSearchInAppLinkValue 
 }
 
 private final class AppearanceSmartThemePreviewPlaceholderRow: GeneralRowItem, AppearanceSmartThemePreviewRow {
+    override var accessibilityIsSpacer: Bool {
+        return true
+    }
 }
 
 private struct SelectColorPlaceholderPremiumConfiguration: SelectColorPremiumConfiguration {

@@ -2,95 +2,57 @@ import Foundation
 import Cocoa
 
 final class PathDataReader {
-    private let input: String
-    private var current: UnicodeScalar?
-    private var previous: UnicodeScalar?
-    private var iterator: String.UnicodeScalarView.Iterator
+    private var current: UInt8?
+    private var previous: UInt8?
+    private let input: String.UTF8View
+    private var position: String.UTF8View.Index
 
-    private static let spaces: Set<UnicodeScalar> = Set("\n\r\t ,".unicodeScalars)
+    private static let spaces: Set<UInt8> = Set("\n\r\t ,".utf8)
 
     init(input: String) {
-        self.input = input
-        self.iterator = input.unicodeScalars.makeIterator()
+        self.input = input.utf8
+        self.position = input.utf8.startIndex
     }
 
     public func read() -> [PathSegment] {
         readNext()
         var segments = [PathSegment]()
-        while let array = readSegments() {
-            segments.append(contentsOf: array)
-        }
+        while readSegments(into: &segments) {}
         return segments
     }
 
-    private func readSegments() -> [PathSegment]? {
+    private func readSegments(into result: inout [PathSegment]) -> Bool {
         if let type = readSegmentType() {
             let argCount = getArgCount(segment: type)
             if argCount == 0 {
-                return [PathSegment(type: type)]
+                result.append(PathSegment(type: type))
+                return true
             }
-            var result = [PathSegment]()
-            let data: [Double]
-            if type == .a || type == .A {
-                data = readDataOfASegment()
-            } else {
-                data = readData()
-            }
-            var index = 0
-            var isFirstSegment = true
-            while index < data.count {
-                let end = index + argCount
-                if end > data.count {
-                    break
+            var data = [Double]()
+            var currentType = type
+            let hasFlags = type == .a || type == .A
+            while true {
+                skipSpaces()
+                let value = hasFlags && (data.count == 3 || data.count == 4) ? readFlag() : readNum()
+                guard let value = value else {
+                    return true
                 }
-                var currentType = type
-                if type == .M && !isFirstSegment {
-                    currentType = .L
+                if data.isEmpty {
+                    data.reserveCapacity(argCount)
                 }
-                if type == .m && !isFirstSegment {
-                    currentType = .l
-                }
-                result.append(PathSegment(type: currentType, data: Array(data[index..<end])))
-                isFirstSegment = false
-                index = end
-            }
-            return result
-        }
-        return nil
-    }
-
-    private func readData() -> [Double] {
-        var data = [Double]()
-        while true {
-            skipSpaces()
-            if let value = readNum() {
                 data.append(value)
-            } else {
-                return data
+                if data.count == argCount {
+                    result.append(PathSegment(type: currentType, data: data))
+                    data = []
+                    if type == .M {
+                        currentType = .L
+                    } else if type == .m {
+                        currentType = .l
+                    }
+                }
             }
         }
-    }
-
-    private func readDataOfASegment() -> [Double] {
-        let argCount = getArgCount(segment: .A)
-        var data: [Double] = []
-        var index = 0
-        while true {
-            skipSpaces()
-            let value: Double?
-            let indexMod = index % argCount
-            if indexMod == 3 || indexMod == 4 {
-                value = readFlag()
-            } else {
-                value = readNum()
-            }
-            guard let doubleValue = value else {
-                return data
-            }
-            data.append(doubleValue)
-            index += 1
-        }
-        return data
+        return false
     }
 
     private func skipSpaces() {
@@ -106,9 +68,9 @@ final class PathDataReader {
         }
         readNext()
         switch ch {
-        case "0":
+        case UInt8(ascii: "0"):
             return 0
-        case "1":
+        case UInt8(ascii: "1"):
             return 1
         default:
             return .none
@@ -120,29 +82,40 @@ final class PathDataReader {
             return .none
         }
 
-        guard ch >= "0" && ch <= "9" || ch == "." || ch == "-" else {
+        guard ch >= UInt8(ascii: "0") && ch <= UInt8(ascii: "9") || ch == UInt8(ascii: ".") || ch == UInt8(ascii: "-") else {
             return .none
         }
 
-        var chars = [ch]
-        var hasDot = ch == "."
-        while let ch = readDigit(&hasDot) {
-            chars.append(ch)
+        let start = input.index(before: position)
+        let negative = ch == UInt8(ascii: "-")
+        var isInteger = ch != UInt8(ascii: ".")
+        var magnitude: UInt64 = 0
+        var digits = 0
+        if ch >= UInt8(ascii: "0") && ch <= UInt8(ascii: "9") {
+            magnitude = UInt64(ch - UInt8(ascii: "0"))
+            digits = 1
         }
-
-        var buf = ""
-        buf.unicodeScalars.append(contentsOf: chars)
-        guard let value = Double(buf) else {
-            return .none
+        var hasDot = ch == UInt8(ascii: ".")
+        while let next = readDigit(&hasDot) {
+            if isInteger && next >= UInt8(ascii: "0") && next <= UInt8(ascii: "9") && digits < 15 {
+                magnitude = magnitude * 10 + UInt64(next - UInt8(ascii: "0"))
+                digits += 1
+            } else {
+                isInteger = false
+            }
         }
-        return value
+        if isInteger && digits != 0 {
+            return negative ? -Double(magnitude) : Double(magnitude)
+        }
+        let end = current == nil ? position : input.index(before: position)
+        return Double(String(decoding: input[start..<end], as: UTF8.self))
     }
 
-    fileprivate func readDigit(_ hasDot: inout Bool) -> UnicodeScalar? {
+    fileprivate func readDigit(_ hasDot: inout Bool) -> UInt8? {
         if let ch = readNext() {
-            if (ch >= "0" && ch <= "9") || ch == "e" || (previous == "e" && ch == "-") {
+            if (ch >= UInt8(ascii: "0") && ch <= UInt8(ascii: "9")) || ch == UInt8(ascii: "e") || (previous == UInt8(ascii: "e") && ch == UInt8(ascii: "-")) {
                 return ch
-            } else if ch == "." && !hasDot {
+            } else if ch == UInt8(ascii: ".") && !hasDot {
                 hasDot = true
                 return ch
             }
@@ -151,9 +124,14 @@ final class PathDataReader {
     }
 
     @discardableResult
-    private func readNext() -> UnicodeScalar? {
+    private func readNext() -> UInt8? {
         previous = current
-        current = iterator.next()
+        if position == input.endIndex {
+            current = nil
+        } else {
+            current = input[position]
+            input.formIndex(after: &position)
+        }
         return current
     }
 
@@ -172,43 +150,43 @@ final class PathDataReader {
     fileprivate func getPathSegmentType() -> PathSegment.SegmentType? {
         if let ch = current {
             switch ch {
-            case "M":
+            case UInt8(ascii: "M"):
                 return .M
-            case "m":
+            case UInt8(ascii: "m"):
                 return .m
-            case "L":
+            case UInt8(ascii: "L"):
                 return .L
-            case "l":
+            case UInt8(ascii: "l"):
                 return .l
-            case "C":
+            case UInt8(ascii: "C"):
                 return .C
-            case "c":
+            case UInt8(ascii: "c"):
                 return .c
-            case "Q":
+            case UInt8(ascii: "Q"):
                 return .Q
-            case "q":
+            case UInt8(ascii: "q"):
                 return .q
-            case "A":
+            case UInt8(ascii: "A"):
                 return .A
-            case "a":
+            case UInt8(ascii: "a"):
                 return .a
-            case "z", "Z":
+            case UInt8(ascii: "z"), UInt8(ascii: "Z"):
                 return .z
-            case "H":
+            case UInt8(ascii: "H"):
                 return .H
-            case "h":
+            case UInt8(ascii: "h"):
                 return .h
-            case "V":
+            case UInt8(ascii: "V"):
                 return .V
-            case "v":
+            case UInt8(ascii: "v"):
                 return .v
-            case "S":
+            case UInt8(ascii: "S"):
                 return .S
-            case "s":
+            case UInt8(ascii: "s"):
                 return .s
-            case "T":
+            case UInt8(ascii: "T"):
                 return .T
-            case "t":
+            case UInt8(ascii: "t"):
                 return .t
             default:
                 break

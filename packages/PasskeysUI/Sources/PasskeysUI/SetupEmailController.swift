@@ -30,6 +30,10 @@ private final class CodeEntryRow : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return CodeEntryRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return strings().loginCodePlaceholder
+    }
 }
 
 private final class CodeEntryRowView : GeneralContainableRowView {
@@ -129,6 +133,7 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
         entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: _id_code, equatable: .init(state), comparable: nil, item: { initialSize, stableId in
             return CodeEntryRow(initialSize, stableId: stableId, viewType: .singleItem, count: Int(data.length), locked: state.isLoading, takeNext: arguments.takeNext, takeError: arguments.takeError)
         }))
+        index += 1
         
         if let error = state.error {
             entries.append(.desc(sectionId: sectionId, index: index, text: .plain(error.description), data: InputDataGeneralTextData(color: theme.colors.redUI, detectBold: false, viewType: .textBottomItem, centerViewAlignment: true, alignment: .center)))
@@ -152,7 +157,9 @@ public func SetupEmailController(context: any AccountContextProtocol, pattern: S
     
     
     
-    let actionsDisposable = DisposableSet()
+    let requestDisposable = MetaDisposable()
+    var requestGeneration = 0
+    var isClosed = false
 
     let initialState = State(error: nil, value: .string(""), isLoading: false)
     
@@ -171,13 +178,35 @@ public func SetupEmailController(context: any AccountContextProtocol, pattern: S
         }
     }
 
-    let arguments = Arguments(context: context, takeNext: { value in
+    func trackRequest<T, E>(_ signal: Signal<T, E>) -> Signal<T, E> {
+        requestGeneration += 1
+        let generation = requestGeneration
         updateState { current in
             var current = current
             current.isLoading = true
+            current.error = nil
             return current
         }
-        _ = showModalProgress(signal: verifyLoginEmailChange(account: context.account, code: .emailCode(value)), for: window).start(error: { error in
+        return signal |> afterDisposed {
+            Queue.mainQueue().async {
+                guard generation == requestGeneration, !isClosed else {
+                    return
+                }
+                updateState { current in
+                    var current = current
+                    current.isLoading = false
+                    return current
+                }
+            }
+        }
+    }
+
+    let arguments = Arguments(context: context, takeNext: { value in
+        let state = stateValue.with { $0 }
+        guard !isClosed, !state.isLoading, case .code = state.state else {
+            return
+        }
+        requestDisposable.set(showModalProgress(signal: trackRequest(verifyLoginEmailChange(account: context.account, code: .emailCode(value))), for: window).start(error: { error in
             let text: String
             switch error {
             case .limitExceeded:
@@ -205,12 +234,11 @@ public func SetupEmailController(context: any AccountContextProtocol, pattern: S
         }, completed: {
             close?()
             showModalText(for: window, text: strings().loginEmailChanged)
-        })
+        }))
     }, takeError: {
         updateState { current in
             var current = current
             current.error = nil
-            current.isLoading = false
             return current
         }
     })
@@ -226,21 +254,25 @@ public func SetupEmailController(context: any AccountContextProtocol, pattern: S
     }
     
     controller.validateData = { _ in
-        let state = stateValue.with { $0.state }
-        let value = stateValue.with { $0.value.stringValue ?? ""}
+        guard !isClosed else {
+            return .fail(.none)
+        }
+        let state = stateValue.with { $0 }
+        let value = state.value.stringValue ?? ""
         
-        switch state {
+        switch state.state {
         case .email:
+            guard !state.isLoading else {
+                return .fail(.none)
+            }
             if isValidEmail(value) {
                 return .fail(.doSomething(next: { f in
-                    
-                    updateState { current in
-                        var current = current
-                        current.isLoading = true
-                        return current
+                    guard !isClosed, !stateValue.with({ $0.isLoading }) else {
+                        f(.none)
+                        return
                     }
                     
-                    _ = showModalProgress(signal: sendLoginEmailChangeCode(account: context.account, email: value), for: window).start(next: { value in
+                    requestDisposable.set(showModalProgress(signal: trackRequest(sendLoginEmailChangeCode(account: context.account, email: value)), for: window).start(next: { value in
                         updateState { current in
                             var current = current
                             current.state = .code(value)
@@ -262,8 +294,14 @@ public func SetupEmailController(context: any AccountContextProtocol, pattern: S
                         case .emailNotAllowed:
                             text = strings().emailEmailNotAllowedError
                         }
+                        updateState { current in
+                            var current = current
+                            current.isLoading = false
+                            return current
+                        }
+                        f(.none)
                         showModalText(for: window, text: text)
-                    })
+                    }))
                     
                 }))
             } else {
@@ -275,10 +313,13 @@ public func SetupEmailController(context: any AccountContextProtocol, pattern: S
                 return .fail(.fields([_id_input : .shake]))
             }
         case .code:
+            requestDisposable.set(nil)
+            requestGeneration += 1
             updateState { current in
                 var current = current
                 current.state = .email
                 current.error = nil
+                current.isLoading = false
                 return current
             }
             return .none
@@ -288,9 +329,12 @@ public func SetupEmailController(context: any AccountContextProtocol, pattern: S
     }
     
     controller.updateDatas = { data in
+        guard !isClosed, let value = data[_id_input] else {
+            return .fail(.none)
+        }
         updateState { current in
             var current = current
-            current.value = data[_id_input]!
+            current.value = value
             current.error = nil
             return current
         }
@@ -298,32 +342,39 @@ public func SetupEmailController(context: any AccountContextProtocol, pattern: S
     }
     
     controller.onDeinit = {
-        actionsDisposable.dispose()
+        requestDisposable.dispose()
     }
 
     let modalInteractions = ModalInteractions(acceptTitle: strings().loginNext, accept: { [weak controller] in
         _ = controller?.returnKeyAction()
     }, singleButton: true)
     
-    let modalController = InputDataModalController(controller, modalInteractions: modalInteractions)
+    let modalController = InputDataModalController(controller, modalInteractions: modalInteractions, closeHandler: { close in
+        isClosed = true
+        requestGeneration += 1
+        requestDisposable.dispose()
+        close()
+    })
     
     controller.leftModalHeader = ModalHeaderData(image: theme.icons.modalClose, handler: { [weak modalController] in
         modalController?.close()
     })
     
     controller.afterTransaction = { [weak modalInteractions, weak modalController] controller in
-        let state = stateValue.with { $0.state }
+        let state = stateValue.with { $0 }
         modalInteractions?.updateDone { f in
-            switch state {
+            switch state.state {
             case .email:
+                f.isEnabled = !state.isLoading
                 f.set(text: strings().loginNext, for: .Normal)
                 f.set(background: theme.colors.accent, for: .Normal)
             case .code:
+                f.isEnabled = true
                 f.set(text: strings().modalCancel, for: .Normal)
                 f.set(background: theme.colors.redUI, for: .Normal)
             }
         }
-        switch state {
+        switch state.state {
         case .email:
             if let _ = pattern {
                 controller.centerModalHeader = .init(title: strings().loginEnterNewEmailTitle)
@@ -338,7 +389,7 @@ public func SetupEmailController(context: any AccountContextProtocol, pattern: S
         
     
     close = { [weak modalController] in
-        modalController?.modal?.close()
+        modalController?.close()
     }
     
     return modalController

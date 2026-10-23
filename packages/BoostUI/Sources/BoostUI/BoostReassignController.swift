@@ -42,6 +42,14 @@ private final class ReassignHeaderRowItem : GeneralRowItem {
     override var height: CGFloat {
         return 60 + 20 + textLayout.layoutSize.height
     }
+
+    override var accessibilityLabel: String? {
+        return textLayout.attributedString.string
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
     
     override func viewClass() -> AnyClass {
         return ReassignHeaderRowView.self

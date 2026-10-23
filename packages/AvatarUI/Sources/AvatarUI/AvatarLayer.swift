@@ -36,46 +36,31 @@ public func ==(lhs: AvatarNodeState, rhs: AvatarNodeState) -> Bool {
     }
 }
 
-open class AvatarControl: NSView {
-    private var trackingArea:NSTrackingArea?
-    private var displaySuspended:Bool = false
-    open var userInteractionEnabled:Bool = true
-    private let longOverHandleDisposable = MetaDisposable()
+protocol AvatarImageRenderHost: AnyObject {
+    var avatarHostLayer: CALayer? { get }
+    var avatarHostSize: NSSize { get }
+    var avatarHostBounds: NSRect { get }
+    var avatarBackingScale: CGFloat { get }
+    var avatarFont: NSFont { get }
+    var avatarDisplayView: NSView? { get }
+    func avatarContentsDidUpdate(_ contents: Any?)
+}
 
-    private var handlers:[(ControlEvent,(AvatarControl) -> Void)] = []
+final class AvatarImageRenderer {
+    private weak var host: AvatarImageRenderHost?
+    private let disposable: MetaDisposable
 
-    open var font: NSFont {
-        didSet {
-            if oldValue !== font {
-
-                if !self.displaySuspended {
-                    self.needsDisplay = true
-                }
-            }
-        }
-    }
-
-
-
-    private let disposable = MetaDisposable()
-
+    private(set) var displaySuspended: Bool = false
     private var state: AvatarNodeState = .Empty
-    private var account:Account?
+    private var account: Account?
     private var disableForum: Bool = false
     private var forceCommunityStyle: Bool = false
     private var contentScale: CGFloat = 0
 
-    // Community peers show a decorative "stack" behind the (full-size, forum-rounded) avatar — two faded
-    // cards peeking out behind-left. The avatar normally lives in `layer.contents`, which always draws
-    // BEHIND sublayers, so for community we route the avatar into a content sublayer and place the stack
-    // sublayer below it (and disable clipping so the stack can peek beyond the bounds).
     private var communityStack = false
     private var communityStackLayer: SimpleLayer?
     private var communityContentLayer: SimpleLayer?
 
-    /// The stack asset's front-card rect, as fractions of the image — derived once from the asset's alpha
-    /// (the densest, frontmost card band). The avatar maps exactly onto this rect; the faded back cards
-    /// then occupy the surrounding margins. Pixel-derived, so it stays correct if the asset is redrawn.
     private static let communityStackFrontCard: CGRect = {
         let fallback = CGRect(x: 1.0 / 6.0, y: 1.0 / 6.0, width: 2.0 / 3.0, height: 2.0 / 3.0)
         guard let rep = NSImage(named: "Icon_Community_AvatarStack")?.tiffRepresentation.flatMap({ NSBitmapImageRep(data: $0) }) else {
@@ -104,80 +89,70 @@ open class AvatarControl: NSView {
                       width: CGFloat(maxX - minX) / CGFloat(w), height: CGFloat(maxY - minY) / CGFloat(h))
     }()
 
-    open var contentUpdated: ((Any?)->Void)?
-
-    open func callContentUpdater() {
-        self.contentUpdated?(self.imageContents)
+    init(host: AvatarImageRenderHost, disposable: MetaDisposable) {
+        self.host = host
+        self.disposable = disposable
     }
 
-    open var imageContents: Any? {
+    var imageContents: Any? {
         didSet {
             if communityStack {
                 communityContentLayer?.contents = imageContents
             } else {
-                self.layer?.contents = imageContents
+                host?.avatarHostLayer?.contents = imageContents
             }
-            self.contentUpdated?(imageContents)
+            host?.avatarContentsDidUpdate(imageContents)
             noteImageDisplayed()
         }
     }
 
-    open override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        noteImageDisplayed()
-    }
-
-    private func noteImageDisplayed() {
-        if window != nil, let contents = imageContents, CFGetTypeID(contents as CFTypeRef) == CGImage.typeID {
-            ScopedImageCache.noteDisplayed(contents as! CGImage, in: self)
+    func noteImageDisplayed() {
+        if let view = host?.avatarDisplayView, view.window != nil, let contents = imageContents, CFGetTypeID(contents as CFTypeRef) == CGImage.typeID {
+            ScopedImageCache.noteDisplayed(contents as! CGImage, in: view)
         }
     }
 
-    /// Toggle the community avatar-stack decoration. When enabled the avatar moves into a content sublayer
-    /// (full-size, on top) and the stack image is drawn behind it, peeking beyond the bounds.
     private func setCommunityStack(_ enabled: Bool) {
-        guard enabled != communityStack else { return }
+        guard enabled != communityStack, let host else { return }
         communityStack = enabled
+        let layer = host.avatarHostLayer
         if enabled {
-            self.layer?.masksToBounds = false
+            layer?.masksToBounds = false
             let stack = SimpleLayer()
             stack.contentsGravity = .resize
-            stack.contentsScale = backingScaleFactor
+            stack.contentsScale = host.avatarBackingScale
             stack.contents = NSImage(named: "Icon_Community_AvatarStack")?.precomposed()
-            self.layer?.addSublayer(stack)
+            layer?.addSublayer(stack)
             communityStackLayer = stack
 
             let content = SimpleLayer()
             content.contentsGravity = .resize
-            content.contentsScale = backingScaleFactor
-            content.contents = self.layer?.contents   // carry the current avatar over
-            self.layer?.addSublayer(content)
+            content.contentsScale = host.avatarBackingScale
+            content.contents = layer?.contents
+            layer?.addSublayer(content)
             communityContentLayer = content
 
-            self.layer?.contents = nil
+            layer?.contents = nil
             layoutCommunityLayers()
         } else {
-            self.layer?.contents = communityContentLayer?.contents
+            layer?.contents = communityContentLayer?.contents
             communityStackLayer?.removeFromSuperlayer(); communityStackLayer = nil
             communityContentLayer?.removeFromSuperlayer(); communityContentLayer = nil
         }
     }
 
-    private func layoutCommunityLayers() {
-        guard communityStack else { return }
-        let b = self.bounds
+    func layoutCommunityLayers() {
+        guard communityStack, let host else { return }
+        let b = host.avatarHostBounds
         communityContentLayer?.frame = b
-        // Scale the stack so its (pixel-detected) centred front card covers the avatar bounds; the faded
-        // back cards then peek out around it. No hand-tuned magic numbers — the rect comes from the asset.
-        let card = AvatarControl.communityStackFrontCard
+        let card = AvatarImageRenderer.communityStackFrontCard
         let stackW = card.width > 0 ? b.width / card.width : b.width
         let stackH = card.height > 0 ? b.height / card.height : b.height
         communityStackLayer?.frame = CGRect(x: b.midX - stackW / 2, y: b.midY - stackH / 2, width: stackW, height: stackH)
     }
 
-    open var animated: Bool = false
     private var _attemptLoadNextSynchronous: Bool = false
-    open var attemptLoadNextSynchronous: Bool {
+    var attemptLoadNextSynchronous: Bool {
         get {
             let result = _attemptLoadNextSynchronous
             _attemptLoadNextSynchronous = false
@@ -185,6 +160,171 @@ open class AvatarControl: NSView {
         }
         set {
             _attemptLoadNextSynchronous = newValue
+        }
+    }
+
+    func setState(account: Account, state: AvatarNodeState) {
+        self.account = account
+        if case let .PeerAvatar(peer, _, _, _, _, _, _, _) = state {
+            setCommunityStack((peer is TelegramCommunity) && !disableForum)
+        } else {
+            setCommunityStack(false)
+        }
+        if state != self.state {
+            contentScale = 0
+            self.state = state
+            self.updateBacking()
+        }
+    }
+
+    func setPeer(account: Account, peer: Peer?, message: Message? = nil, size: NSSize? = nil, disableForum: Bool = false, cornerRadius: CGFloat? = nil, forceMonoforum: Bool = false, forceCommunity: Bool = false) {
+        self.account = account
+        self.disableForum = disableForum
+        self.forceCommunityStyle = forceCommunity
+        let state: AvatarNodeState
+        if let peer = peer {
+            state = .PeerAvatar(peer, TelegramUtilsHooks.shared.peerLetters(peer), peer.smallProfileImage, peer.namePeerColor, message, size, ((peer.isForumOrMonoForum || (peer is TelegramCommunity)) && !disableForum) || forceMonoforum || forceCommunity, cornerRadius)
+            setCommunityStack(((peer is TelegramCommunity) || forceCommunity) && !disableForum)
+        } else {
+            state = .Empty
+            setCommunityStack(false)
+        }
+        if self.state != state || self.imageContents == nil {
+            self.state = state
+            contentScale = 0
+            self.updateBacking()
+        }
+    }
+
+    func updateBacking() {
+        guard let host else { return }
+        let backingScaleFactor = host.avatarBackingScale
+        host.avatarHostLayer?.contentsScale = backingScaleFactor
+        host.avatarHostLayer?.contentsGravity = .resizeAspectFill
+
+        if let account = account, self.state != .Empty {
+            if contentScale != backingScaleFactor {
+                contentScale = backingScaleFactor
+                self.displaySuspended = true
+                self.imageContents = nil
+                let photo: PeerPhoto?
+                var updatedSize: NSSize = host.avatarHostSize
+
+                let _disableForum: Bool
+
+                switch state {
+                case let .PeerAvatar(peer, letters, representation, nameColor, message, size, isForum, cornerRadius):
+                    _disableForum = !isForum
+                    if let peer = peer as? TelegramUser, peer.firstName == nil && peer.lastName == nil {
+                        photo = nil
+                        self.setState(account: account, state: .Empty)
+                        let icon = theme.icons.deletedAccount
+                        self.setSignal(generateEmptyPhoto(updatedSize, type: .icon(colors: theme.colors.peerColors(Int(peer.id.id._internalGetInt64Value() % 7)), icon: icon, iconSize: icon.backingSize.aspectFitted(NSMakeSize(min(50, updatedSize.width - 20), min(updatedSize.height - 20, 50))), cornerRadius: nil), bubble: peer.isMonoForum) |> map {($0, false)})
+                        return
+                    } else {
+                        photo = .peer(peer, representation, nameColor, letters, message, cornerRadius)
+                    }
+                    updatedSize = size ?? host.avatarHostSize
+                case .Empty:
+                    photo = nil
+                    _disableForum = disableForum
+                default:
+                    photo = nil
+                    _disableForum = disableForum
+                }
+                if let photo = photo {
+                    setSignal(peerAvatarImage(account: account, photo: photo, displayDimensions: updatedSize, scale: backingScaleFactor, font: host.avatarFont, synchronousLoad: attemptLoadNextSynchronous, disableForum: _disableForum, forceForum: self.forceCommunityStyle), force: false)
+                } else {
+                    let content = self.imageContents
+                    self.displaySuspended = false
+                    self.imageContents = content
+                }
+
+            }
+        } else {
+            self.state = .Empty
+        }
+    }
+
+    func setSignal(_ signal: Signal<(CGImage?, Bool), NoError>, force: Bool = true) {
+        if force {
+            self.state = .Empty
+            setCommunityStack(false)
+        }
+        self.disposable.set((signal |> deliverOnMainQueue).start(next: { [weak self] image, animated in
+            if let strongSelf = self {
+                strongSelf.imageContents = image
+                if animated {
+                    strongSelf.host?.avatarHostLayer?.animateContents()
+                }
+            }
+        }))
+    }
+}
+
+open class AvatarControl: NSView, AvatarImageRenderHost {
+    private var trackingArea:NSTrackingArea?
+    open var userInteractionEnabled:Bool = true
+    private let longOverHandleDisposable = MetaDisposable()
+
+    private var handlers:[(ControlEvent,(AvatarControl) -> Void)] = []
+
+    open var font: NSFont {
+        didSet {
+            if oldValue !== font {
+
+                if !renderer.displaySuspended {
+                    self.needsDisplay = true
+                }
+            }
+        }
+    }
+
+    private let disposable = MetaDisposable()
+    private lazy var renderer = AvatarImageRenderer(host: self, disposable: disposable)
+
+    var avatarHostLayer: CALayer? { layer }
+    var avatarHostSize: NSSize { frame.size }
+    var avatarHostBounds: NSRect { bounds }
+    var avatarBackingScale: CGFloat { backingScaleFactor }
+    var avatarFont: NSFont { font }
+    var avatarDisplayView: NSView? { self }
+    func avatarContentsDidUpdate(_ contents: Any?) {
+        self.contentUpdated?(contents)
+    }
+
+    open var contentUpdated: ((Any?)->Void)?
+
+    open func callContentUpdater() {
+        self.contentUpdated?(self.imageContents)
+    }
+
+    open var imageContents: Any? {
+        get {
+            return renderer.imageContents
+        }
+        set {
+            renderer.imageContents = newValue
+        }
+    }
+
+    open override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        noteImageDisplayed()
+        updateTrackingAreas()
+    }
+
+    private func noteImageDisplayed() {
+        renderer.noteImageDisplayed()
+    }
+
+    open var animated: Bool = false
+    open var attemptLoadNextSynchronous: Bool {
+        get {
+            return renderer.attemptLoadNextSynchronous
+        }
+        set {
+            renderer.attemptLoadNextSynchronous = newValue
         }
     }
 
@@ -210,45 +350,20 @@ open class AvatarControl: NSView {
             let updateImage = !value.size.equalTo(super.frame.size)
             super.frame = value
             if updateImage {
-                layoutCommunityLayers()
+                renderer.layoutCommunityLayers()
             }
-            if updateImage && !self.displaySuspended {
+            if updateImage && !renderer.displaySuspended {
                 self.needsDisplay = true
             }
         }
     }
 
     open func setState(account: Account, state: AvatarNodeState) {
-        self.account = account
-        if case let .PeerAvatar(peer, _, _, _, _, _, _, _) = state {
-            setCommunityStack((peer is TelegramCommunity) && !disableForum)
-        } else {
-            setCommunityStack(false)
-        }
-        if state != self.state {
-            contentScale = 0
-            self.state = state
-            self.viewDidChangeBackingProperties()
-        }
+        renderer.setState(account: account, state: state)
     }
 
     open func setPeer(account: Account, peer: Peer?, message: Message? = nil, size: NSSize? = nil, disableForum: Bool = false, cornerRadius: CGFloat? = nil, forceMonoforum: Bool = false, forceCommunity: Bool = false) {
-        self.account = account
-        self.disableForum = disableForum
-        self.forceCommunityStyle = forceCommunity
-        let state: AvatarNodeState
-        if let peer = peer {
-            state = .PeerAvatar(peer, TelegramUtilsHooks.shared.peerLetters(peer), peer.smallProfileImage, peer.namePeerColor, message, size, ((peer.isForumOrMonoForum || (peer is TelegramCommunity)) && !disableForum) || forceMonoforum || forceCommunity, cornerRadius)
-            setCommunityStack(((peer is TelegramCommunity) || forceCommunity) && !disableForum)
-        } else {
-            state = .Empty
-            setCommunityStack(false)
-        }
-        if self.state != state || self.imageContents == nil {
-            self.state = state
-            contentScale = 0
-            self.viewDidChangeBackingProperties()
-        }
+        renderer.setPeer(account: account, peer: peer, message: message, size: size, disableForum: disableForum, cornerRadius: cornerRadius, forceMonoforum: forceMonoforum, forceCommunity: forceCommunity)
     }
 
     open func set(handler:@escaping (AvatarControl) -> Void, for event:ControlEvent) -> Void {
@@ -307,75 +422,20 @@ open class AvatarControl: NSView {
     }
 
     open override func viewDidChangeBackingProperties() {
-
-        layer?.contentsScale = backingScaleFactor
-        layer?.contentsGravity = .resizeAspectFill
-
-        if let account = account, self.state != .Empty {
-            if contentScale != backingScaleFactor {
-                contentScale = backingScaleFactor
-                self.displaySuspended = true
-                self.imageContents = nil
-                let photo: PeerPhoto?
-                var updatedSize: NSSize = self.frame.size
-
-                let _disableForum: Bool
-
-                switch state {
-                case let .PeerAvatar(peer, letters, representation, nameColor, message, size, isForum, cornerRadius):
-                    _disableForum = !isForum
-                    if let peer = peer as? TelegramUser, peer.firstName == nil && peer.lastName == nil {
-                        photo = nil
-                        self.setState(account: account, state: .Empty)
-                        let icon = theme.icons.deletedAccount
-                        self.setSignal(generateEmptyPhoto(updatedSize, type: .icon(colors: theme.colors.peerColors(Int(peer.id.id._internalGetInt64Value() % 7)), icon: icon, iconSize: icon.backingSize.aspectFitted(NSMakeSize(min(50, updatedSize.width - 20), min(updatedSize.height - 20, 50))), cornerRadius: nil), bubble: peer.isMonoForum) |> map {($0, false)})
-                        return
-                    } else {
-                        photo = .peer(peer, representation, nameColor, letters, message, cornerRadius)
-                    }
-                    updatedSize = size ?? frame.size
-                case .Empty:
-                    photo = nil
-                    _disableForum = disableForum
-                default:
-                    photo = nil
-                    _disableForum = disableForum
-                }
-                if let photo = photo {
-                    setSignal(peerAvatarImage(account: account, photo: photo, displayDimensions: updatedSize, scale:backingScaleFactor, font: self.font, synchronousLoad: attemptLoadNextSynchronous, disableForum: _disableForum, forceForum: self.forceCommunityStyle), force: false)
-                } else {
-                    let content = self.imageContents
-                    self.displaySuspended = false
-                    self.imageContents = content
-                }
-
-            }
-        } else {
-            self.state = .Empty
-        }
+        renderer.updateBacking()
     }
 
     open func setSignal(_ signal: Signal<(CGImage?, Bool), NoError>, force: Bool = true) {
-        if force {
-            self.state = .Empty
-            // A forced external image (Saved Messages, custom icons) is never a community — drop any
-            // stack decoration left over from a recycled community avatar. The community generation
-            // path uses force: false, so its stack is preserved.
-            setCommunityStack(false)
-        }
-        self.disposable.set((signal |> deliverOnMainQueue).start(next: { [weak self] image, animated in
-            if let strongSelf = self {
-                strongSelf.imageContents = image
-                if animated {
-                    strongSelf.layer?.animateContents()
-                }
-            }
-        }))
+        renderer.setSignal(signal, force: force)
     }
 
     open override func updateTrackingAreas() {
         super.updateTrackingAreas();
 
+        let needsTracking = window != nil
+        if needsTracking == (trackingArea != nil) {
+            return
+        }
 
         if let trackingArea = trackingArea {
             self.removeTrackingArea(trackingArea)
@@ -383,7 +443,7 @@ open class AvatarControl: NSView {
 
         trackingArea = nil
 
-        if let _ = window {
+        if needsTracking {
             let options:NSTrackingArea.Options = [.cursorUpdate, .mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect]
             self.trackingArea = NSTrackingArea(rect: self.bounds, options: options, owner: self, userInfo: nil)
 
@@ -415,5 +475,84 @@ open class AvatarControl: NSView {
         view.layer?.shouldRasterize = true
         view.layer?.rasterizationScale = backingScaleFactor
         return view
+    }
+}
+
+public final class AvatarImageLayer: SimpleLayer, AvatarImageRenderHost {
+    private let disposable = MetaDisposable()
+    private lazy var renderer = AvatarImageRenderer(host: self, disposable: disposable)
+
+    public var font: NSFont
+    public var contentUpdated: ((Any?) -> Void)?
+    public weak var displayView: NSView? {
+        didSet {
+            if displayView !== oldValue {
+                renderer.noteImageDisplayed()
+            }
+        }
+    }
+
+    public init(font: NSFont) {
+        self.font = font
+        super.init()
+    }
+
+    public override init(layer: Any) {
+        self.font = (layer as? AvatarImageLayer)?.font ?? .systemFont(ofSize: 13)
+        super.init(layer: layer)
+    }
+
+    public required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        disposable.dispose()
+    }
+
+    var avatarHostLayer: CALayer? { self }
+    var avatarHostSize: NSSize { bounds.size }
+    var avatarHostBounds: NSRect { bounds }
+    var avatarBackingScale: CGFloat { contentsScale }
+    var avatarFont: NSFont { font }
+    var avatarDisplayView: NSView? { displayView }
+    func avatarContentsDidUpdate(_ contents: Any?) {
+        contentUpdated?(contents)
+    }
+
+    public var imageContents: Any? {
+        return renderer.imageContents
+    }
+
+    public var attemptLoadNextSynchronous: Bool {
+        get { renderer.attemptLoadNextSynchronous }
+        set { renderer.attemptLoadNextSynchronous = newValue }
+    }
+
+    public func setPeer(account: Account, peer: Peer?, message: Message? = nil, size: NSSize? = nil, disableForum: Bool = false, cornerRadius: CGFloat? = nil, forceMonoforum: Bool = false, forceCommunity: Bool = false) {
+        renderer.setPeer(account: account, peer: peer, message: message, size: size, disableForum: disableForum, cornerRadius: cornerRadius, forceMonoforum: forceMonoforum, forceCommunity: forceCommunity)
+    }
+
+    public func setState(account: Account, state: AvatarNodeState) {
+        renderer.setState(account: account, state: state)
+    }
+
+    public func setSignal(_ signal: Signal<(CGImage?, Bool), NoError>, force: Bool = true) {
+        renderer.setSignal(signal, force: force)
+    }
+
+    public func updateScale(_ scale: CGFloat) {
+        if contentsScale != scale {
+            contentsScale = scale
+            renderer.updateBacking()
+        }
+    }
+
+    public func layoutContent() {
+        renderer.layoutCommunityLayers()
+    }
+
+    public func hostDidMoveToWindow() {
+        renderer.noteImageDisplayed()
     }
 }

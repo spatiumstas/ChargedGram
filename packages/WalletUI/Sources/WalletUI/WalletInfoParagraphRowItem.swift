@@ -85,6 +85,35 @@ public final class WalletInfoParagraphRowItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return WalletInfoParagraphRowView.self
     }
+
+    private var accessibilityText: String {
+        let text = textLayout.attributedString.string
+        return inlineTextIcon != nil ? text.replacingOccurrences(of: "#", with: "") : text
+    }
+
+    public override var accessibilityLabel: String? {
+        if let title = titleLayout?.attributedString.string, !title.isEmpty {
+            return title
+        }
+        let text = accessibilityText
+        return text.isEmpty ? nil : text
+    }
+
+    public override var accessibilityValue: String? {
+        guard let title = titleLayout?.attributedString.string, !title.isEmpty else {
+            return nil
+        }
+        let text = accessibilityText
+        return text.isEmpty ? nil : text
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .staticText
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 private final class WalletInfoParagraphRowView: TableRowView {
@@ -101,6 +130,9 @@ private final class WalletInfoParagraphRowView: TableRowView {
         titleView.isSelectable = false
         textView.userInteractionEnabled = false
         textView.isSelectable = false
+
+        iconView.isAccessibilityDecorative = true
+        textIconView.isAccessibilityDecorative = true
 
         addSubview(iconView)
         addSubview(titleView)

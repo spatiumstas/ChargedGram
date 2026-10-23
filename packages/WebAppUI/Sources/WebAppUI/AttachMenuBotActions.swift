@@ -28,86 +28,56 @@ import SystemPermissions
 import Svg
 import LocalAuthentication
 
-public func installAttachMenuBot(context: (any AccountContextProtocol), peer: Peer, completion: @escaping(Bool)->Void) {
-    let signal = context.engine.messages.addBotToAttachMenu(botId: peer.id, allowWrite: true) |> deliverOnMainQueue
-    
+
+public func installAttachMenuBot(context: any AccountContextProtocol, peer: Peer, completion: @escaping (Bool) -> Void) {
+    let signal = context.engine.messages.addBotToAttachMenu(botId: peer.id, allowWrite: true) |> take(1) |> deliverOnMainQueue
     _ = signal.start(next: { value in
-        if value {
-            completion(value)
-        }
+        if value { completion(value) }
     })
 }
 
-public func openWebBot(_ bot: AttachMenuBot, context: (any AccountContextProtocol)) {
-    let open:()->Void = {
-        BrowserStateContext.get(context).open(tab: .simple(bot: bot.peer, url: nil, buttonText: "", source: .settings))
+
+public func openWebBot(_ bot: AttachMenuBot, context: any AccountContextProtocol) {
+    let tab: BrowserTabData.Data = .simple(bot: bot.peer, url: nil, buttonText: "", source: .settings)
+    var opened = false
+    let open: () -> Void = {
+        guard !opened else { return }
+        opened = true
+        do {
+            BrowserStateContext.get(context).open(tab: tab)
+        }
     }
-    
-    if bot.flags.contains(.showInSettingsDisclaimer) || bot.flags.contains(.notActivated) { //
-        var options: [ModalAlertData.Option] = []
-        options.append(.init(string: strings().webBotAccountDisclaimerThird, isSelected: false, mandatory: true))
-        
-       
-        var description: ModalAlertData.Description? = nil
+    if bot.flags.contains(.showInSettingsDisclaimer) || bot.flags.contains(.notActivated) {
+        let options: [ModalAlertData.Option] = [.init(string: strings().webBotAccountDisclaimerThird, isSelected: false, mandatory: true)]
+        var description: ModalAlertData.Description?
         let installBot = !bot.flags.contains(.notActivated) && bot.peer._asPeer().botInfo?.flags.contains(.canBeAddedToAttachMenu) == true && !bot.flags.contains(.showInAttachMenu)
-        
         if installBot {
             description = .init(string: strings().webBotAccountDesclaimerDesc(bot.shortName), onlyWhenEnabled: false)
         }
-        
         let data = ModalAlertData(title: strings().webBotAccountDisclaimerTitle, info: strings().webBotAccountDisclaimerText, description: description, ok: strings().webBotAccountDisclaimerOK, options: options)
-        showModalAlert(for: context.window, data: data, completion: { result in
-            
-            _ = context.engine.messages.acceptAttachMenuBotDisclaimer(botId: bot.peer.id).start()
-            installAttachMenuBot(context: context, peer: bot.peer._asPeer(), completion: { value in
-                if value, installBot {
-                    showModalText(for: context.window, text: strings().webAppAttachSuccess(bot.peer._asPeer().displayTitle))
-                }
-                open()
-            })
+        let decision = BrowserDecision()
+        showModalAlert(for: context.window, data: data, completion: { _ in
+            decision.resolve {
+                _ = (context.engine.messages.acceptAttachMenuBotDisclaimer(botId: bot.peer.id)).start()
+                installAttachMenuBot(context: context, peer: bot.peer._asPeer(), completion: { value in
+                    guard value else { return }
+                    if installBot {
+                        showModalText(for: context.window, text: strings().webAppAttachSuccess(bot.peer._asPeer().displayTitle))
+                    }
+                    open()
+                })
+            }
+        }, cancel: {
+            decision.resolve {}
+        }, onDeinit: {
+            decision.dismissed()
         })
     } else {
         open()
     }
 }
 
-public func openJoinChatBotWebView(context: (any AccountContextProtocol), botId: PeerId, url: String?, queryId: Int64, joinedPeerId: PeerId?) {
-    let _ = (context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: botId))
-    |> deliverOnMainQueue).start(next: { botPeer in
-        guard let botPeer else {
-            alert(for: context.window, info: strings().unknownError)
-            return
-        }
-        let tabUniqueId: BrowserTabData.Unique = .webapp(queryId)
-        // `url` is optional (matches iOS `JoinChatWebView.url`): open the web-app tab now when it's known;
-        // when deferred (nil) the bot supplies the resolved URL via a `.webView` join decision below, which
-        // reopens with it.
-        if let url = url {
-            let result = RequestWebViewResult(flags: [], queryId: queryId, url: url, keepAliveSignal: nil)
-            let tab: BrowserTabData.Data = .straight(bot: botPeer, peerId: joinedPeerId ?? botId, title: botPeer._asPeer().displayTitle, result: result)
-            BrowserStateContext.get(context).open(tab: tab, uniqueId: tabUniqueId)
-        }
 
-        _ = (context.account.stateManager.joinChatWebViewDecisions
-        |> mapToSignal { decisions -> Signal<JoinChatWebViewDecision, NoError> in
-            for decision in decisions where decision.queryId == queryId {
-                return .single(decision)
-            }
-            return .complete()
-        }
-        |> take(1)
-        |> deliverOnMainQueue).start(next: { decision in
-            BrowserStateContext.get(context).closeTab(uniqueId: tabUniqueId)
-            switch decision.result {
-            case .approved:
-                _ = showModalSuccess(for: context.window, icon: theme.icons.successModalProgress, delay: 1.5).start()
-            case .declined:
-                alert(for: context.window, info: strings().unknownError)
-            case .queued:
-                showModalText(for: context.window, text: strings().chatSendJoinRequestInfo, title: strings().chatSendJoinRequestTitle)
-            case let .webView(newUrl):
-                openJoinChatBotWebView(context: context, botId: botId, url: newUrl, queryId: queryId, joinedPeerId: joinedPeerId)
-            }
-        })
-    })
+public func openJoinChatBotWebView(context: any AccountContextProtocol, botId: PeerId, url: String?, queryId: Int64, joinedPeerId: PeerId?) {
+    BrowserStateContext.get(context).openJoinChatWebView(botId: botId, url: url, queryId: queryId, peerId: joinedPeerId)
 }

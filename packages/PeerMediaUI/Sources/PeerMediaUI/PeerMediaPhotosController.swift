@@ -110,6 +110,15 @@ final class PeerMediaPhotosArguments {
 
 private struct PeerMediaPhotosState : Equatable {
     static func == (lhs: PeerMediaPhotosState, rhs: PeerMediaPhotosState) -> Bool {
+        if lhs.view !== rhs.view {
+            guard lhs.view?.laterId == rhs.view?.laterId,
+                  lhs.view?.earlierId == rhs.view?.earlierId,
+                  lhs.view?.holeLater == rhs.view?.holeLater,
+                  lhs.view?.holeEarlier == rhs.view?.holeEarlier,
+                  lhs.view?.anchorIndex == rhs.view?.anchorIndex else {
+                return false
+            }
+        }
         return lhs.isLoading == rhs.isLoading && lhs.messages == rhs.messages && lhs.searchState == rhs.searchState && lhs.contentSettings == rhs.contentSettings && lhs.scrollPosition == rhs.scrollPosition && lhs.updateType == rhs.updateType && lhs.side == rhs.side && lhs.perRowCount == rhs.perRowCount
     }
     
@@ -394,37 +403,12 @@ open class PeerMediaPhotosController<Context: AccountContextProtocol>: TableView
     }
     
     private var perRowCount: Int {
-        var rowCount:Int = 7
-        var perWidth: CGFloat = 0
-        let blockWidth = atomicSize.with { $0.width }//min(600, atomicSize.with { $0.width })
-        while true {
-            let maximum = blockWidth - CGFloat(rowCount * 2)
-            perWidth = maximum / CGFloat(rowCount)
-            if perWidth >= 90 {
-                break
-            } else {
-                rowCount -= 1
-            }
-        }
-        return rowCount
+        return PeerMediaGridSizing(width: atomicSize.with { $0.width }, maximumColumns: 7).columns
     }
     
     private func perPageCount() -> Int {
-        var rowCount:Int = 7
-        var perWidth: CGFloat = 0
-        let blockWidth = atomicSize.with { $0.width }//min(600, atomicSize.with { $0.width })
-        while true {
-            let maximum = blockWidth - CGFloat(rowCount * 2)
-            perWidth = maximum / CGFloat(rowCount)
-            if perWidth >= 90 {
-                break
-            } else {
-                rowCount -= 1
-            }
-        }
-        let pageCount = Int((atomicSize.with { $0.height } / perWidth) * CGFloat(rowCount) + CGFloat(rowCount)) * 2
-//        pageCount -= (pageCount % rowCount)
-        return pageCount * 5
+        let size = atomicSize.with { $0 }
+        return PeerMediaGridSizing(width: size.width, maximumColumns: 7).itemCount(height: size.height) * 10
     }
     
     public override func viewDidResized(_ size: NSSize) {
@@ -451,6 +435,7 @@ open class PeerMediaPhotosController<Context: AccountContextProtocol>: TableView
                 
         let context = self.context
         let peerId = self.peerId
+        let threadId = self.threadInfo?.message.threadId
         let initialSize = self.atomicSize
         let tags = self.tags
         let isExternalSearch = self.isExternalSearch
@@ -555,6 +540,7 @@ open class PeerMediaPhotosController<Context: AccountContextProtocol>: TableView
         }
         
         let chatLocationInput: ChatLocationInput = self.chatLocationInput
+        let searchLoadMore = self.searchLoadMore.signal()
         
         
         let history: Signal<(ChatHistoryViewUpdate?, SearchResult?, SearchState, TableSavingSide?), NoError> = combineLatest(searchState.get(), location.get(), externalSearch.get()) |> mapToSignal { search, location, externalSearch in
@@ -562,9 +548,10 @@ open class PeerMediaPhotosController<Context: AccountContextProtocol>: TableView
                 return .single((nil, SearchResult(result: externalSearch.messages), search, nil))
             } else if !search.request.isEmpty {
                 
-                let req = context.engine.messages.searchMessages(location: .peer(peerId: peerId, fromId: nil, tags: .photoOrVideo, reactions: [], threadId: nil, minDate: nil, maxDate: nil), query: search.request, state: nil)
-                
-                return .single((nil, SearchResult(result: nil), search, nil)) |> then(req |> delay(0.2, queue: .concurrentDefaultQueue()) |> map { (nil, SearchResult(result: $0.0.messages), search, nil) })
+                return peerMediaSearchMessages(loadMore: searchLoadMore, request: { state in
+                    context.engine.messages.searchMessages(location: .peer(peerId: peerId, fromId: nil, tags: tags, reactions: [], threadId: threadId, minDate: nil, maxDate: nil), query: search.request, state: state)
+                    |> delay(0.2, queue: .concurrentDefaultQueue())
+                }) |> map { (nil, SearchResult(result: $0), search, nil) }
             } else {
                 return chatHistoryViewForLocation(location, context: context, chatLocation: .peer(peerId), fixedCombinedReadStates: nil, tag: .tag(tags), chatLocationInput: chatLocationInput) |> map { ($0, nil, search, location.side) }
             }
@@ -689,6 +676,12 @@ open class PeerMediaPhotosController<Context: AccountContextProtocol>: TableView
         }))
         
         genericView.setScrollHandler { [weak self] scroll in
+            if stateValue.with({ !$0.searchState.request.isEmpty }) {
+                if scroll.direction == .bottom {
+                    self?.searchLoadMore.putNext(())
+                }
+                return
+            }
             let view = historyView.with { $0 }
             if let view = view, let strongSelf = self {
                 var messageIndex:MessageIndex?
@@ -741,6 +734,7 @@ open class PeerMediaPhotosController<Context: AccountContextProtocol>: TableView
     
     private let mediaSearchState:ValuePromise<MediaSearchState> = ValuePromise(ignoreRepeated: true)
     private let searchState:Promise<SearchState> = Promise()
+    private let searchLoadMore = ValuePipe<Void>()
     
     public func setSearchValue(_ value: Signal<SearchState, NoError>) {
         searchState.set(value)

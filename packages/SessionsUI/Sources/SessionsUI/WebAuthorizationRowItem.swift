@@ -61,6 +61,14 @@ public class WebAuthorizationRowItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return WebAuthorizationRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return nameLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return "\(statusLayout.attributedString.string.replacingOccurrences(of: "\n", with: ", ")), \(dateLayout.attributedString.string)"
+    }
     
 }
 

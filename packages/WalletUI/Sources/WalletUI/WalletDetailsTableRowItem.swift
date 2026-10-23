@@ -172,6 +172,24 @@ public final class WalletDetailsTableRowItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return WalletDetailsTableRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        let labels = measuredRows.map { $0.row.label }.filter { !$0.isEmpty }
+        return labels.isEmpty ? nil : labels.joined(separator: ", ")
+    }
+
+    public override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        let actions = measuredRows.compactMap { measured -> NSAccessibilityCustomAction? in
+            guard let onClick = measured.row.onClick else {
+                return nil
+            }
+            return NSAccessibilityCustomAction(name: measured.row.label, handler: {
+                onClick()
+                return true
+            })
+        }
+        return actions.isEmpty ? nil : actions
+    }
 }
 
 private final class WalletDetailsTableRowView: GeneralContainableRowView, WalletIntroParticipant {
@@ -284,6 +302,7 @@ private final class WalletDetailsTableRowView: GeneralContainableRowView, Wallet
             if let icon = measured.row.icon {
                 let iconView = ImageView(frame: NSMakeRect(0, 0, WalletDetailsTableRowItem.iconSize, WalletDetailsTableRowItem.iconSize))
                 iconView.contentGravity = .resizeAspect
+                iconView.isAccessibilityDecorative = true
                 iconView.image = icon
                 containerView.addSubview(iconView)
                 rowView.iconView = iconView
@@ -318,10 +337,12 @@ private final class WalletDetailsTableRowView: GeneralContainableRowView, Wallet
                 actionView.backgroundColor = walletClassicAccent.withAlphaComponent(0.1)
                 actionView.layer?.cornerRadius = measured.actionSize.height / 2
                 actionView.scaleOnClick = true
+                actionView.setAccessibilityLabel(action.title)
                 let actionTextView = TextView()
                 actionTextView.userInteractionEnabled = false
                 actionTextView.isSelectable = false
                 actionTextView.isEventLess = true
+                actionTextView.isAccessibilityDecorative = true
                 actionTextView.update(actionLayout)
                 actionView.addSubview(actionTextView)
                 actionTextView.center()

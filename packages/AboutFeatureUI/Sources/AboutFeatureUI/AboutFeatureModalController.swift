@@ -74,10 +74,12 @@ private final class AboutFeatureHeaderItem: GeneralRowItem {
     fileprivate let headerSticker: LocalAnimatedSticker?
     fileprivate let headerBackgroundColor: NSColor
     fileprivate let dismiss: () -> Void
+    fileprivate let title: String
     fileprivate let stickerSize = NSMakeSize(100, 100)
 
-    init(_ initialSize: NSSize, stableId: AnyHashable, context: any AccountContextProtocol, headerImage: CGImage?, headerSticker: LocalAnimatedSticker?, headerBackgroundColor: NSColor, dismiss: @escaping () -> Void) {
+    init(_ initialSize: NSSize, stableId: AnyHashable, context: any AccountContextProtocol, headerImage: CGImage?, headerSticker: LocalAnimatedSticker?, headerBackgroundColor: NSColor, title: String, dismiss: @escaping () -> Void) {
         self.context = context
+        self.title = title
         self.headerImage = headerImage
         self.headerSticker = headerSticker
         self.headerBackgroundColor = headerBackgroundColor
@@ -87,6 +89,10 @@ private final class AboutFeatureHeaderItem: GeneralRowItem {
 
     override func viewClass() -> AnyClass {
         return AboutFeatureHeaderView.self
+    }
+
+    override var accessibilityLabel: String? {
+        return title
     }
 
     override var height: CGFloat {
@@ -109,7 +115,9 @@ private final class AboutFeatureHeaderView: GeneralRowView {
         addSubview(imageView)
         addSubview(dismiss)
 
+        imageView.isAccessibilityDecorative = true
         dismiss.scaleOnClick = true
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
     }
 
     required init?(coder: NSCoder) {
@@ -225,6 +233,10 @@ private final class AboutFeatureFeaturesItem: GeneralRowItem {
         return AboutFeatureFeaturesView.self
     }
 
+    override var accessibilityLabel: String? {
+        return features.map { $0.titleLayout.attributedString.string }.joined(separator: ", ")
+    }
+
     override var height: CGFloat {
         var height: CGFloat = 0
         for (i, feature) in features.enumerated() {
@@ -250,6 +262,7 @@ private final class AboutFeatureFeaturesView: GeneralContainableRowView {
             addSubview(titleView)
             addSubview(descriptionView)
 
+            iconView.isAccessibilityDecorative = true
             titleView.userInteractionEnabled = false
             titleView.isSelectable = false
         }
@@ -351,7 +364,7 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
     let config = arguments.configuration
 
     entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: .init("header"), equatable: .init(state), comparable: nil, item: { initialSize, stableId in
-        return AboutFeatureHeaderItem(initialSize, stableId: stableId, context: arguments.context, headerImage: config.headerImage, headerSticker: config.headerSticker, headerBackgroundColor: config.headerBackgroundColor, dismiss: arguments.dismiss)
+        return AboutFeatureHeaderItem(initialSize, stableId: stableId, context: arguments.context, headerImage: config.headerImage, headerSticker: config.headerSticker, headerBackgroundColor: config.headerBackgroundColor, title: config.title, dismiss: arguments.dismiss)
     }))
     index += 1
 
@@ -413,7 +426,7 @@ public func AboutFeatureModalController(context: any AccountContextProtocol, con
         close?()
     }, configuration: configuration)
 
-    let signal = statePromise.get() |> deliverOnPrepareQueue |> map { state in
+    let signal = (statePromise.get() |> deliverOnPrepareQueue) |> map { state in
         return InputDataSignalValue(entries: entries(state, arguments: arguments))
     }
 
@@ -448,6 +461,22 @@ public func AboutFeatureModalController(context: any AccountContextProtocol, con
 }
 
 public func showAboutCocoonModal<Context: AccountContextProtocol>(context: Context) {
+    let openLink: (String) -> Bool = { link in
+        let parsed = ChatHistoryLink.inApp(for: link.nsstring, context: context, openInfo: { peerId, toChat, messageId, initialAction in
+            if toChat || initialAction != nil {
+                let controller = ChatAdditionController(context: context, chatLocation: .peer(peerId), focusTarget: .init(messageId: messageId), initialAction: initialAction)
+                context.bindings.rootNavigation().push(controller)
+            } else {
+                PeerInfoController<Context>.push(navigation: context.bindings.rootNavigation(), context: context, peerId: peerId)
+            }
+            context.window.makeKeyAndOrderFront(nil)
+        }, confirm: false)
+        ChatHistoryLink.execute(inapp: parsed)
+        if case .external = parsed.chatHistoryInAppLink {
+            return false
+        }
+        return true
+    }
     let configuration = AboutFeatureConfiguration(
         headerImage: TelegramThemeHooks.shared.image(.cocoon120).precomposed(),
         headerBackgroundColor: .clear,
@@ -468,40 +497,12 @@ public func showAboutCocoonModal<Context: AccountContextProtocol>(context: Conte
                 icon: TelegramThemeHooks.shared.image(.iconOptionGift).precomposed(theme.colors.accent),
                 title: strings().aboutCocoonFeatureForEveryoneTitle,
                 description: strings().aboutCocoonFeatureForEveryoneDescription,
-                linkCallback: { link in
-                    let parsed = ChatHistoryLink.inApp(for: link.nsstring, context: context, openInfo: { peerId, toChat, messageId, initialAction in
-                        if toChat || initialAction != nil {
-                            context.bindings.rootNavigation().push(ChatAdditionController(context: context, chatLocation: .peer(peerId), focusTarget: .init(messageId: messageId), initialAction: initialAction))
-                        } else {
-                            PeerInfoController<Context>.push(navigation: context.bindings.rootNavigation(), context: context, peerId: peerId)
-                        }
-                        context.window.makeKeyAndOrderFront(nil)
-                    }, confirm: false)
-                    ChatHistoryLink.execute(inapp: parsed)
-                    if case .external = parsed.chatHistoryInAppLink {
-                        return false
-                    }
-                    return true
-                }
+                linkCallback: openLink
             )
         ],
         footerText: strings().aboutCocoonFooter,
         buttonTitle: strings().monetizationIntroUnderstood,
-        footerLinkCallback: { link in
-            let parsed = ChatHistoryLink.inApp(for: link.nsstring, context: context, openInfo: { peerId, toChat, messageId, initialAction in
-                if toChat || initialAction != nil {
-                    context.bindings.rootNavigation().push(ChatAdditionController(context: context, chatLocation: .peer(peerId), focusTarget: .init(messageId: messageId), initialAction: initialAction))
-                } else {
-                    PeerInfoController<Context>.push(navigation: context.bindings.rootNavigation(), context: context, peerId: peerId)
-                }
-                context.window.makeKeyAndOrderFront(nil)
-            }, confirm: false)
-            ChatHistoryLink.execute(inapp: parsed)
-            if case .external = parsed.chatHistoryInAppLink {
-                return false
-            }
-            return true
-        }
+        footerLinkCallback: openLink
     )
 
     showModal(with: AboutFeatureModalController(context: context, configuration: configuration), for: context.window)

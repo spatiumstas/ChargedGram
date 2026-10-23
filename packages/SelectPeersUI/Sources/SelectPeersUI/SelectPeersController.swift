@@ -470,6 +470,10 @@ private final class TokenizedRowItem: TableRowItem {
 
     public override var height: CGFloat { _rowHeight }
     public override func viewClass() -> AnyClass { TokenizedRowView.self }
+
+    public override var accessibilityLabel: String? {
+        return strings().voiceOverCommonSearch
+    }
 }
 
 private final class TokenizedRowView: TableRowView, TokenizedProtocol {

@@ -52,6 +52,7 @@ public final class CallControl : Control {
     public required init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         self.imageView.isEventLess = true
+        self.imageView.isAccessibilityDecorative = true
         self.layer?.masksToBounds = false
     }
     
@@ -128,8 +129,15 @@ public final class CallControl : Control {
     public var size: NSSize {
         return imageBackgroundView?.frame.size ?? frame.size
     }
+
+    private var accessibilityText: String?
+
+    public override var accessibilityDefaultLabel: String? {
+        return accessibilityText
+    }
     
     public func updateWithData(_ data: CallControlData, animated: Bool) {
+        self.accessibilityText = data.text
         
         if let text = data.text?.lowercased() {
             let current: TextView
@@ -141,6 +149,7 @@ public final class CallControl : Control {
                 current.isSelectable = false
                 current.userInteractionEnabled = false
                 current.isEventLess = true
+                current.isAccessibilityDecorative = true
                 addSubview(current)
                 current.layer?.animateAlpha(from: 0, to: 1, duration: 0.2)
             }

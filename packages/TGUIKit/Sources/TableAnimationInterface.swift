@@ -84,6 +84,11 @@ open class TableAnimationInterface: NSObject {
             
             if range.length >= added[0].index {
                 for idx in added[0].index ..< range.length {
+                    _ = table.viewNecessary(at: idx, makeIfNecessary: true)
+                }
+                table.layoutSubtreeIfNeeded()
+                table.window?.displayIfNeeded()
+                for idx in added[0].index ..< range.length {
                     
                     if let view = table.viewNecessary(at: idx), let layer = view.layer {
                         
@@ -110,7 +115,7 @@ open class TableAnimationInterface: NSObject {
                         
                         for item in added {
                             if item.index == idx {
-                                //layer.animateAlpha(from: 0, to: 1, duration: 0.2)
+                                layer.animateAlpha(from: 0, to: 1, duration: 0.2)
                             }
                         }
                         

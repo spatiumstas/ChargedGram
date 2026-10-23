@@ -113,6 +113,7 @@ final class CrashRecoveryView: View {
 
         configure(secondaryButton, title: continueTitle, font: .medium(13), color: palette.text)
         secondaryButton.setGlassEffect(forceAppearance: glassAppearance)
+        secondaryButton.setAccessibilityLabel(continueTitle)
         secondaryButton.set(handler: { [weak self] _ in
             self?.secondary?()
         }, for: .Click)

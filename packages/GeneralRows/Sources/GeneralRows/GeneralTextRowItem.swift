@@ -182,6 +182,37 @@ open class GeneralTextRowItem: GeneralRowItem {
     open override func viewClass() -> AnyClass {
         return GeneralTextRowView.self
     }
+
+    open override var accessibilityLabel: String? {
+        let string = layout.attributedString.string
+        return string.isEmpty ? nil : string
+    }
+
+    open override var accessibilityValue: String? {
+        guard let right = rightItem.text?.string, !right.isEmpty else {
+            return nil
+        }
+        return right
+    }
+
+    open override var accessibilityRole: NSAccessibility.Role? {
+        return accessibilityIncludesChildren ? nil : .staticText
+    }
+
+    open override var accessibilityIncludesChildren: Bool {
+        if clickable || rightItem.action != nil || rightItem.contextMenu != nil {
+            return true
+        }
+        var hasLink = false
+        let attributed = layout.attributedString
+        attributed.enumerateAttribute(.link, in: attributed.range, options: [.longestEffectiveRangeNotRequired]) { value, _, stop in
+            if value != nil {
+                hasLink = true
+                stop.pointee = true
+            }
+        }
+        return hasLink
+    }
     
 }
 
@@ -262,6 +293,7 @@ open class GeneralTextRowView : GeneralRowView {
             if let iconAfter = item.rightItem.afterImage {
                 if afterRightIcon == nil {
                     afterRightIcon = ImageView()
+                    afterRightIcon?.isAccessibilityDecorative = true
                     afterRightIcon?.image = iconAfter
                     afterRightIcon?.sizeToFit()
                     addSubview(afterRightIcon!)
@@ -345,6 +377,7 @@ open class GeneralTextRowView : GeneralRowView {
             }
             current.set(background: item.customTheme?.backgroundColor ?? theme.colors.background, for: .Normal)
             current.layer?.cornerRadius = item.clickableCornerRadius
+            current.setAccessibilityLabel(item.layout.attributedString.string)
             
             current.contextMenu = { [weak item] in
                 if let items = item?.contextMenu?() {

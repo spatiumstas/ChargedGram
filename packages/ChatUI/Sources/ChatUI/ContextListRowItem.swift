@@ -163,6 +163,15 @@ public class ContextListRowItem: TableRowItem {
     public override func viewClass() -> AnyClass {
         return vClass
     }
+
+    public override var accessibilityLabel: String? {
+        let string = text.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        return string.isEmpty ? nil : string
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 public class ContextListRowView : TableRowView {
@@ -305,6 +314,7 @@ public class ContextListAudioView : ContextListRowView, APDelegate {
     public required init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         progressView.state = .Icon(image: theme.icons.chatMusicPlay)
+        progressView.setAccessibilityLabel(strings().voiceOverCommonPlay)
         progressView.fetchControls = FetchControls(fetch: { [weak self] in
             self?.checkOperation()
         })
@@ -366,15 +376,19 @@ public class ContextListAudioView : ContextListRowView, APDelegate {
         switch fetchStatus {
         case let .Fetching(_, progress), let .Paused(progress):
             self.progressView.setState(.Fetching(progress: progress, force: false), animated: animated)
+            progressView.setAccessibilityLabel(strings().voiceOverCommonLoading)
         default:
             if let item = item as? ContextListRowItem, let wrapper = item.audioWrapper, let controller = ChatInputUIHooks.shared.getAudioPlayer(item.context), let song = controller.currentSong {
                 if song.entry.isEqual(to: wrapper), case .playing = song.state {
                     progressView.setState(.Icon(image: theme.icons.chatMusicPause), animated: animated)
+                    progressView.setAccessibilityLabel(strings().voiceOverCommonPause)
                 } else {
                     progressView.setState(.Icon(image: theme.icons.chatMusicPlay), animated: animated)
+                    progressView.setAccessibilityLabel(strings().voiceOverCommonPlay)
                 }
             } else {
                 progressView.setState(.Icon(image: theme.icons.chatMusicPlay), animated: animated)
+                progressView.setAccessibilityLabel(strings().voiceOverCommonPlay)
             }
         }
         

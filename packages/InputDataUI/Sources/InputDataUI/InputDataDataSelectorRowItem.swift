@@ -42,6 +42,30 @@ public class InputDataDataSelectorRowItem: GeneralRowItem, InputDataRowDataValue
     public override func viewClass() -> AnyClass {
         return InputDataDataSelectorRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return placeholderLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return values.first(where: { $0.value == value })?.localized
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        guard let view = view as? InputDataDataSelectorRowView else {
+            return false
+        }
+        view.overlay.send(event: .Click)
+        return true
+    }
     
 }
 
@@ -49,7 +73,7 @@ public class InputDataDataSelectorRowItem: GeneralRowItem, InputDataRowDataValue
 final class InputDataDataSelectorRowView : GeneralContainableRowView {
     private let placeholderTextView = TextView()
     private let dataTextView = TextView()
-    private let overlay = OverlayControl()
+    fileprivate let overlay = OverlayControl()
     required init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         addSubview(placeholderTextView)

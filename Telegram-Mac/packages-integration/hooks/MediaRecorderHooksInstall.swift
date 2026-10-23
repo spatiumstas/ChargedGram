@@ -7,7 +7,7 @@ import MediaRecorderUI
 import TelegramMediaUtils
 
 func installMediaRecorderUIHooks() {
-    installMediaRecorderHooks(.init(setPendingMedia: { chatInteraction, data in
+    let hooks = MediaRecorderHooks(setPendingMedia: { chatInteraction, data in
         guard let chatInteraction = chatInteraction as? ChatInteraction else {
             return
         }
@@ -17,5 +17,6 @@ func installMediaRecorderUIHooks() {
             return
         }
         chatInteraction.update({ $0.withoutRecordingState() })
-    }))
+    })
+    installMediaRecorderHooks(hooks)
 }

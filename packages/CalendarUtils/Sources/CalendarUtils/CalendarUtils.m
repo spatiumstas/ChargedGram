@@ -3,6 +3,14 @@
 
 @implementation CalendarUtils
 
++ (NSInteger) yearForNoYear {
+    return 4;
+}
+
++ (BOOL) isYearHidden:(NSInteger)year {
+    return year == 1 || year == self.yearForNoYear;
+}
+
 + (NSCalendar *) gregorianCalendar {
     NSCalendar *cal = [[NSCalendar alloc] initWithCalendarIdentifier:NSCalendarIdentifierGregorian];
     cal.locale = [NSLocale currentLocale];

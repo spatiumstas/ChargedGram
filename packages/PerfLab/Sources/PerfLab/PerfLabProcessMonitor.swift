@@ -1,3 +1,4 @@
+#if DEBUG
 import Foundation
 import Darwin
 
@@ -45,3 +46,4 @@ public final class PerfLabProcessMonitor {
         return PerfLabProcessSnapshot(time: CFAbsoluteTimeGetCurrent(), cpuTime: cpuTime, mainThreadCpuTime: mainThreadCpuTime, footprint: footprint)
     }
 }
+#endif

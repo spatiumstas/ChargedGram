@@ -25,6 +25,18 @@ class SearchSettingsEmptyItem: TableRowItem {
     override func viewClass() -> AnyClass {
         return SearchSettingsEmptyView.self
     }
+    
+    override var accessibilityLabel: String? {
+        return textLayout.attributedString.string
+    }
+    
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .staticText
+    }
+    
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 class SearchSettingsEmptyView : TableRowView {

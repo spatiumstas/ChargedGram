@@ -67,7 +67,7 @@ private func mapChatListInAppLink(_ link: inAppLink) -> ChatListInAppLink {
 }
 
 func installChatListUIHooks() {
-    ChatListUIHooks.install(ChatListUIHooks(makeShareLinkModal: { context, link in
+    var hooks = ChatListUIHooks(makeShareLinkModal: { context, link in
         return ShareModalController(ShareLinkObject(context.concrete, link: link))
     }, pushPeerInfo: { navigation, context, peerId in
         PeerInfoController.push(navigation: navigation, context: context.concrete, peerId: peerId)
@@ -168,5 +168,9 @@ func installChatListUIHooks() {
                 crashReportStore.markHandled(reports)
             })
         }
-    }))
+    })
+    hooks.navigateToChatWithContext = { navigation, context, chatLocation, mode, focusTarget, initialAction, holder, additional, style, callback in
+        navigateToChat(navigation: navigation, context: context.concrete, chatLocation: chatLocation, mode: mode, focusTarget: focusTarget, initialAction: initialAction, chatLocationContextHolder: holder, additional: additional, navigationStyle: style, callback: callback)
+    }
+    ChatListUIHooks.install(hooks)
 }

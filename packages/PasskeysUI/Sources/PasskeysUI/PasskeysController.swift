@@ -75,6 +75,14 @@ private final class PasskeyRowItem : GeneralRowItem {
         return PasskeyRowView.self
     }
 
+    public override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return dateLayout.attributedString.string
+    }
+
     public override var height: CGFloat {
         return 50
     }
@@ -274,6 +282,10 @@ private final class EmptyRowItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return EmptyRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return headerLayout.attributedString.string
+    }
 }
 
 private final class EmptyRowView: GeneralContainableRowView {
@@ -334,19 +346,27 @@ private final class EmptyRowView: GeneralContainableRowView {
 
 
 
+private enum PasskeyCreationError: Error {
+    case cancelled
+    case generic
+}
+
 private final class Arguments {
     public let context: any AccountContextProtocol
     public let requestCreatePasskey: (Data, String, Data)->Void
     public let delete: (TelegramPasskey)->Void
-    public init(context: any AccountContextProtocol, requestCreatePasskey: @escaping(Data, String, Data)->Void, delete: @escaping(TelegramPasskey)->Void) {
+    public let creationFailed: (PasskeyCreationError)->Void
+    public init(context: any AccountContextProtocol, requestCreatePasskey: @escaping(Data, String, Data)->Void, delete: @escaping(TelegramPasskey)->Void, creationFailed: @escaping(PasskeyCreationError)->Void) {
         self.context = context
         self.requestCreatePasskey = requestCreatePasskey
         self.delete = delete
+        self.creationFailed = creationFailed
     }
 }
 
 private struct State : Equatable {
     public var passkeys: [TelegramPasskey]
+    public var isCreating = false
 }
 
 private let _id_empty = InputDataIdentifier("_id_empty")
@@ -404,43 +424,51 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
 private class Delegate : NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
     fileprivate let context: any AccountContextProtocol
     fileprivate let arguments: Arguments
+    private var activeAuthorization: ASAuthorizationController?
     public init(context: any AccountContextProtocol, arguments: Arguments) {
         self.arguments = arguments
         self.context = context
     }
     
     public func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
-        
-        
-        if let credential = authorization.credential as? ASAuthorizationPlatformPublicKeyCredentialRegistration {
-            if let clientData = String(data: credential.rawClientDataJSON, encoding: .utf8), let attestationObject = credential.rawAttestationObject {
-                arguments.requestCreatePasskey(credential.credentialID, clientData, attestationObject)
-            }
+        guard controller === activeAuthorization else {
+            return
+        }
+        activeAuthorization = nil
+        guard let credential = authorization.credential as? ASAuthorizationPlatformPublicKeyCredentialRegistration,
+              let clientData = String(data: credential.rawClientDataJSON, encoding: .utf8),
+              let attestationObject = credential.rawAttestationObject else {
+            arguments.creationFailed(.generic)
+            return
+        }
+        arguments.requestCreatePasskey(credential.credentialID, clientData, attestationObject)
+    }
+
+    public func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: any Error) {
+        guard controller === activeAuthorization else {
+            return
+        }
+        activeAuthorization = nil
+        if let error = error as? ASAuthorizationError, error.code == .canceled {
+            arguments.creationFailed(.cancelled)
+        } else {
+            arguments.creationFailed(.generic)
         }
     }
 
-    // ASAuthorizationControllerDelegate
-    public func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: any Error) {
-        if let authorizationError = error as? ASAuthorizationError {
-            // Handle specific errors
-            switch authorizationError.code {
-            case .canceled:
-                print("Authorization flow canceled by user.")
-            case .unknown:
-                print("Authorization flow failed due to an unknown reason.")
-            default:
-                print("Authorization flow failed with error: \(authorizationError.localizedDescription)")
-            }
-        } else {
-            print("Authorization flow completed with a non-ASAuthorizationError: \(error.localizedDescription)")
+    public func cancel() {
+        let authorization = activeAuthorization
+        activeAuthorization = nil
+        if #available(macOS 13.0, *) {
+            authorization?.cancel()
         }
     }
-    
+
     public func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
         return context.window
     }
     
-    public func createPasskey(_ registrationData: Data) {
+    public func createPasskey(_ registrationData: Data) -> Bool {
         let decodeBase64: (String) -> Data? = { string in
             var string = string.replacingOccurrences(of: "-", with: "+")
                 .replacingOccurrences(of: "_", with: "/")
@@ -451,34 +479,34 @@ private class Delegate : NSObject, ASAuthorizationControllerDelegate, ASAuthoriz
         }
         
         guard let params = try? JSONSerialization.jsonObject(with: registrationData) as? [String: Any] else {
-            return
+            return false
         }
         guard let pkDict = params["publicKey"] as? [String: Any] else {
-            return
+            return false
         }
         guard let rp = pkDict["rp"] as? [String: Any] else {
-            return
+            return false
         }
         guard let relyingPartyIdentifier = rp["id"] as? String else {
-            return
+            return false
         }
         guard let challengeBase64 = pkDict["challenge"] as? String else {
-            return
+            return false
         }
         guard let challengeData = decodeBase64(challengeBase64) else {
-            return
+            return false
         }
         guard let user = pkDict["user"] as? [String: Any] else {
-            return
+            return false
         }
         guard let userIdData = user["id"] as? String else {
-            return
+            return false
         }
         guard let userId = decodeBase64(userIdData) else {
-            return
+            return false
         }
         guard let userName = user["name"] as? String else {
-            return
+            return false
         }
         
         let platformProvider = ASAuthorizationPlatformPublicKeyCredentialProvider(relyingPartyIdentifier: relyingPartyIdentifier)
@@ -486,7 +514,9 @@ private class Delegate : NSObject, ASAuthorizationControllerDelegate, ASAuthoriz
         let authController = ASAuthorizationController(authorizationRequests: [platformKeyRequest])
         authController.delegate = self
         authController.presentationContextProvider = self
+        activeAuthorization = authController
         authController.performRequests()
+        return true
     }
 
 }
@@ -496,6 +526,7 @@ public func PasskeysController(context: any AccountContextProtocol, passkeys: [T
     
     
     let actionsDisposable = DisposableSet()
+    var isClosed = false
 
     let initialState = State(passkeys: passkeys)
     
@@ -514,30 +545,60 @@ public func PasskeysController(context: any AccountContextProtocol, passkeys: [T
     }
     
     
+    func finishCreation(_ error: PasskeyCreationError? = nil) {
+        guard !isClosed else {
+            return
+        }
+        updateState { current in
+            var current = current
+            current.isCreating = false
+            return current
+        }
+        if case .generic? = error {
+            alert(for: window, info: strings().unknownError)
+        }
+    }
+
     let arguments = Arguments(context: context, requestCreatePasskey: { credentialID, clientData, attestationObject in
+        guard !isClosed else {
+            return
+        }
         let passkey = context.engine.auth.requestCreatePasskey(id: encodeBase64URL(credentialID), clientData: clientData, attestationObject: attestationObject) |> deliverOnMainQueue
 
         actionsDisposable.add(passkey.start(next: { value in
+            guard !isClosed else {
+                return
+            }
             if let value {
                 updateState { current in
                     var current = current
+                    current.passkeys.removeAll(where: { $0.id == value.id })
                     current.passkeys.insert(value, at: 0)
                     return current
                 }
+                finishCreation()
+            } else {
+                finishCreation(.generic)
             }
         }))
 
     }, delete: { passkey in
         verifyAlert(for: window, header: strings().passkeysDeleteTitle, information: strings().passkeysDeleteConfirmation, ok: strings().passkeysDelete, cancel: strings().modalCancel, successHandler: { _ in
 
-            let _ = context.engine.auth.deletePasskey(id: passkey.id).startStandalone()
-
-            updateState { current in
-                var current = current
-                current.passkeys.removeAll(where: { $0.id == passkey.id })
-                return current
-            }
+            _ = showModalProgress(signal: context.engine.auth.deletePasskey(id: passkey.id), for: window).start(next: { deleted in
+                guard deleted else {
+                    alert(for: window, info: strings().unknownError)
+                    return
+                }
+                updateState { current in
+                    var current = current
+                    current.passkeys.removeAll(where: { $0.id == passkey.id })
+                    return current
+                }
+            })
         })
+    }, creationFailed: { error in
+        finishCreation(error)
     })
     
     let delegate = Delegate(context: context, arguments: arguments)
@@ -555,6 +616,7 @@ public func PasskeysController(context: any AccountContextProtocol, passkeys: [T
     
     controller.onDeinit = {
         actionsDisposable.dispose()
+        delegate.cancel()
     }
     
     controller.contextObject = delegate
@@ -565,14 +627,26 @@ public func PasskeysController(context: any AccountContextProtocol, passkeys: [T
 
         let state = stateValue.with { $0 }
         
-        if state.passkeys.count == maxPasskeys {
+        guard !isClosed, !state.isCreating else {
+            return .none
+        }
+        if state.passkeys.count >= maxPasskeys {
             alert(for: window, info: strings().passkeysMaxLimitReached(Int(maxPasskeys)))
         } else {
+            updateState { current in
+                var current = current
+                current.isCreating = true
+                return current
+            }
             let signal = context.engine.auth.requestPasskeyRegistration() |> deliverOnMainQueue
             
             actionsDisposable.add(signal.start(next: { [weak delegate] value in
-                if let value = value?.data(using: .utf8) {
-                    delegate?.createPasskey(value)
+                guard !isClosed else {
+                    return
+                }
+                guard let value = value?.data(using: .utf8), delegate?.createPasskey(value) == true else {
+                    finishCreation(.generic)
+                    return
                 }
             }))
         }
@@ -585,7 +659,18 @@ public func PasskeysController(context: any AccountContextProtocol, passkeys: [T
         _ = controller?.returnKeyAction()
     }, singleButton: true)
     
-    let modalController = InputDataModalController(controller, modalInteractions: modalInteractions)
+    controller.afterTransaction = { [weak modalInteractions] _ in
+        modalInteractions?.updateDone { button in
+            button.isEnabled = !stateValue.with { $0.isCreating }
+        }
+    }
+
+    let modalController = InputDataModalController(controller, modalInteractions: modalInteractions, closeHandler: { close in
+        isClosed = true
+        actionsDisposable.dispose()
+        delegate.cancel()
+        close()
+    })
     
     controller.leftModalHeader = ModalHeaderData(image: theme.icons.modalClose, handler: { [weak modalController] in
         modalController?.close()

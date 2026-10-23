@@ -142,6 +142,29 @@ public final class QuickReplyRowItem : GeneralRowItem {
         return true
     }
     
+    public override var accessibilityLabel: String? {
+        return "/\(reply.shortcut)"
+    }
+
+    public override var accessibilityValue: String? {
+        var text = _textLayout.attributedString.string
+        if text.hasPrefix("/\(reply.shortcut)") {
+            text = String(text.dropFirst(reply.shortcut.count + 1)).trimmingCharacters(in: .whitespaces)
+        }
+        if let badge = _badge {
+            return text + ", " + badge.attributedString.string
+        }
+        return text
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        if editing {
+            return super.accessibilityPerformPress()
+        }
+        open(reply)
+        return true
+    }
+
     public override func viewClass() -> AnyClass {
         return QuickReplyRowItemView.self
     }
@@ -290,6 +313,7 @@ private final class QuickReplyRowItemView: GeneralContainableRowView {
                     current = ImageButton()
                     current.scaleOnClick = true
                     current.autohighlight = false
+                    current.setAccessibilityLabel(strings().voiceOverCommonDelete)
                     addSubview(current)
                     self.remove = current
                     
@@ -320,6 +344,7 @@ private final class QuickReplyRowItemView: GeneralContainableRowView {
                     current = ImageButton()
                     current.scaleOnClick = true
                     current.autohighlight = false
+                    current.setAccessibilityLabel(strings().voiceOverCommonReorder)
                     addSubview(current)
                     self.sort = current
                     

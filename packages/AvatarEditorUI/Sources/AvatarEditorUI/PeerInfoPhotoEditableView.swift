@@ -1,6 +1,7 @@
 import Cocoa
 import TGUIKit
 import TelegramTheme
+import Localization
 
 public final class PeerInfoUpdatingPhotoState : Equatable {
     public let progress:Float
@@ -36,6 +37,8 @@ public final class PeerInfoPhotoEditableView : Control {
         
         addSubview(backgroundView)
         addSubview(camera)
+        camera.isAccessibilityDecorative = true
+        setAccessibilityLabel(strings().voiceOverCommonProfilePhoto)
         
         camera.image = theme.icons.profile_edit_photo
         camera.sizeToFit()
@@ -101,6 +104,7 @@ public final class PeerInfoPhotoEditableView : Control {
             
             if let _ = uploadState.image, self.tempImageView == nil {
                 self.tempImageView = ImageView()
+                self.tempImageView?.isAccessibilityDecorative = true
                 self.tempImageView?.contentGravity = .resizeAspect
                 self.tempImageView!.frame = bounds
                 self.addSubview(tempImageView!, positioned: .below, relativeTo: backgroundView)

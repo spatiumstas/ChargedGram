@@ -77,6 +77,8 @@ public enum ChatTextInputAttribute : Equatable, Comparable, Codable {
             self = .quote(range, try container.decodeIfPresent(Bool.self, forKey: "collapsed") ?? false)
         case 11:
             self = .date(range, try container.decode(Int32.self, forKey: "date"))
+        case 12:
+            self = .bold(0..<0)
         default:
             self = .bold(range)
             //fatalError("input attribute not supported")
@@ -332,11 +334,14 @@ public func chatTextAttributes(from attributedText: NSAttributedString) -> [Chat
                 parsedAttributes.append(.underline(range))
             } else if key == TextInputAttributes.spoiler {
                 parsedAttributes.append(.spoiler(range))
-            } else if key == TextInputAttributes.quote, let value = value as? TextInputTextQuoteAttribute {
-                parsedAttributes.append(.quote(range, value.collapsed))
             } else if key == TextInputAttributes.formattedDate, let value = value as? TextInputTextDateAttribute {
                 parsedAttributes.append(.date(range, value.date))
             }
+        }
+    })
+    attributedText.enumerateAttribute(TextInputAttributes.quote, in: NSRange(location: 0, length: attributedText.length), options: [], using: { value, range, _ in
+        if let value = value as? TextInputTextQuoteAttribute {
+            parsedAttributes.append(.quote(range.location ..< (range.location + range.length), value.collapsed))
         }
     })
     return parsedAttributes
@@ -473,7 +478,7 @@ public final class ChatTextInputState: Codable, Equatable {
         let upperBound = try container.decode(Int32.self, forKey: "s1")
 
         self.selectionRange = Int(lowerBound) ..< Int(upperBound)
-        self.attributes = try container.decode([ChatTextInputAttribute].self, forKey: "t.a")
+        self.attributes = try container.decode([ChatTextInputAttribute].self, forKey: "t.a").filter { !$0.range.isEmpty }
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -844,8 +849,7 @@ public final class ChatTextInputState: Codable, Equatable {
                         return entity.range.overlaps(extracted.range)
                     }
                 }
-                if !overlaps {
-                    let timestamp = Int32(extracted.date.timeIntervalSince1970)
+                if !overlaps, let timestamp = Int32(exactly: extracted.date.timeIntervalSince1970.rounded(.towardZero)) {
                     let dateFormat: MessageTextEntityType.DateTimeFormat
                     switch extracted.format {
                     case .relative:

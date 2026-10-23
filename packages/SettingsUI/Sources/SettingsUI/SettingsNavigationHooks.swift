@@ -86,6 +86,19 @@ public enum SettingsStarsCurrency {
 
 public struct SettingsNavigationHooks {
     public var showMultigift: (any AccountContextProtocol, (() -> NSView?)?) -> Void = { _, _ in }
+    public var openQrStudio: (any AccountContextProtocol, (() -> NSView?)?) -> Void = { _, _ in }
+    public var openQrStudioWithContext: ((any AccountContextProtocol, (() -> NSView?)?) -> Void)?
+
+    public func openQrStudioObserved(_ context: any AccountContextProtocol, _ morphSource: (() -> NSView?)?) {
+        if let openQrStudioWithContext {
+            openQrStudioWithContext(context, morphSource)
+        } else {
+            do {
+                openQrStudio(context, morphSource)
+            }
+        }
+    }
+    public var prefetchQrStudio: (any AccountContextProtocol) -> Void = { _ in }
     public var showStarsList: (any AccountContextProtocol, SettingsStarsCurrency, (() -> NSView?)?) -> Void = { _, _, _ in }
     public var newBadgeFlippedIcon: (NSColor, NSColor) -> CGImage = { bgColor, textColor in generateTextIcon_NewBadge(bgColor: bgColor, textColor: textColor) }
     public var makeDataAndStorageController: (any AccountContextProtocol, SettingsDataAndStorageTag?) -> ViewController = { _, _ in ViewController() }
@@ -114,6 +127,16 @@ public struct SettingsNavigationHooks {
     public var showPremiumLimit: (any AccountContextProtocol, SettingsPremiumLimit) -> Void = { _, _ in }
     public var showPhotosGallery: (any AccountContextProtocol, PeerId, AnyHashable, InteractionContentViewProtocol?) -> Void = { _, _, _, _ in }
     public var openWebBot: (any AccountContextProtocol, AttachMenuBot) -> Void = { _, _ in }
+    public var openWebBotWithContext: ((any AccountContextProtocol, AttachMenuBot) -> Void)?
+
+    public func openWebBotObserved(_ context: any AccountContextProtocol, _ bot: AttachMenuBot) {
+        if let openWebBotWithContext {
+            openWebBotWithContext(context, bot)
+        } else {
+            openWebBot(context, bot)
+        }
+    }
+
     public var openInstantView: (any AccountContextProtocol, String, TelegramMediaWebpage, String?) -> Void = { _, _, _, _ in }
     public var cachedInstantPage: (any AccountContextProtocol, String) -> Signal<SettingsCachedInstantPage?, NoError> = { _, _ in .single(nil) }
     public var updateCachedInstantPage: (any AccountContextProtocol, String, TelegramMediaWebpage?) -> Signal<Void, NoError> = { _, _, _ in .complete() }

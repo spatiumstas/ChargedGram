@@ -126,6 +126,14 @@ final class BoostFeatureRowItem : GeneralRowItem {
     override var height: CGFloat {
         return 40
     }
+
+    override var accessibilityLabel: String? {
+        return textLayout.attributedString.string
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
     
     override func viewClass() -> AnyClass {
         return BoostFeatureRowView.self
@@ -139,6 +147,7 @@ private final class BoostFeatureRowView: GeneralRowView {
         super.init(frame: frameRect)
         addSubview(imageView)
         addSubview(textView)
+        imageView.isAccessibilityDecorative = true
         textView.userInteractionEnabled = false
         textView.isSelectable = false
     }
@@ -183,6 +192,15 @@ final class BoostPerkLevelHeaderItem : GeneralRowItem {
     override var height: CGFloat {
         return 50
     }
+
+    override var accessibilityLabel: String? {
+        return textLayout.attributedString.string
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
     override func viewClass() -> AnyClass {
         return BoostPerkLevelHeaderView.self
     }

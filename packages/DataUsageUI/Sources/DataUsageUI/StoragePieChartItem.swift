@@ -34,6 +34,15 @@ public class StoragePieChartItem : GeneralRowItem {
     public override var height: CGFloat {
         return 200
     }
+    public override var accessibilityLabel: String? {
+        if let peer = peer {
+            return peer.displayTitle
+        }
+        return dynamicText
+    }
+    public override var accessibilityValue: String? {
+        return peer != nil ? dynamicText : nil
+    }
     public override func viewClass() -> AnyClass {
         return StoragePieChartItemView.self
     }

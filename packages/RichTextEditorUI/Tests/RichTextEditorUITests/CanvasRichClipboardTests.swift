@@ -94,5 +94,69 @@ final class CanvasRichClipboardTests: AppKitTestCase {
         XCTAssertEqual(ps.map { $0.runs.map(\.text).joined() }, ["Title", "body"])
         XCTAssertEqual(ps.first?.style, .heading1, "a heading pasted into an empty paragraph keeps its style")
     }
+
+    func testPasteContextEnclosesNativeHostAndPlainImports() throws {
+        for route in 0..<5 {
+            let pb = FakePasteboard()
+            let v = canvas([.paragraph(ParagraphBlock(id: BlockID("p"), runs: [TextRun(text: "x")]))])
+            v.pasteboard = pb
+            v.setCaret(global: v.boxes[0].textStart + v.boxes[0].textLength)
+            let fragment = [Block.paragraph(ParagraphBlock(id: BlockID("pasted"), runs: [bold("hello")]))]
+            pb.string = route == 3 ? "hello\r\nworld" : "hello"
+            if route == 0 { pb.richFragment = try DocumentCodec.encode(Document(blocks: fragment)) }
+            if route == 4 { pb.richFragment = Data("invalid".utf8) }
+            var active = false, contexts = 0, mutations = 0, hostCalls = 0
+            v.withPasteContext = { paste in
+                contexts += 1
+                active = true
+                defer { active = false }
+                paste()
+            }
+            v.hostPasteFragmentProvider = {
+                XCTAssertTrue(active)
+                hostCalls += 1
+                return route == 1 ? fragment : nil
+            }
+            v.onSelectionOrFormatChange = {
+                XCTAssertTrue(active)
+                mutations += 1
+            }
+            v.pasteFromPasteboard()
+            XCTAssertFalse(active)
+            XCTAssertEqual(contexts, 1)
+            XCTAssertEqual(hostCalls, route == 0 ? 0 : 1)
+            XCTAssertGreaterThan(mutations, 0)
+            XCTAssertEqual(paras(v).map { $0.runs.map(\.text).joined() }, route == 3 ? ["xhello", "world"] : ["xhello"])
+            if route < 2 {
+                XCTAssertEqual(paras(v).flatMap(\.runs).filter { $0.attributes.bold }.map(\.text).joined(), "hello")
+            }
+        }
+    }
+
+    func testEmptyPasteRunsContextWithoutChangingContent() {
+        let pb = FakePasteboard()
+        let v = canvas([.paragraph(ParagraphBlock(id: BlockID("p"), runs: [TextRun(text: "keep")]))])
+        v.pasteboard = pb
+        var contexts = 0
+        v.withPasteContext = { paste in contexts += 1; paste() }
+        v.pasteFromPasteboard()
+        XCTAssertEqual(contexts, 1)
+        XCTAssertEqual(paras(v).flatMap(\.runs).map(\.text).joined(), "keep")
+    }
+
+    func testEditorFacadeForwardsPasteContextAndCanClearIt() {
+        let editor = RichTextEditorView(frame: .zero)
+        let pb = FakePasteboard()
+        editor.canvas.pasteboard = pb
+        var contexts = 0
+        editor.withPasteContext = { paste in contexts += 1; paste() }
+        XCTAssertNotNil(editor.withPasteContext)
+        editor.paste()
+        XCTAssertEqual(contexts, 1)
+        editor.withPasteContext = nil
+        XCTAssertNil(editor.canvas.withPasteContext)
+        editor.paste()
+        XCTAssertEqual(contexts, 1)
+    }
 }
 #endif

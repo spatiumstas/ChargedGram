@@ -79,29 +79,6 @@ public final class TextViewFormattedDateData {
 
 
 
-func findClosestRect(rectangles: [CGRect], point: CGPoint) -> CGRect? {
-    var closestRect: CGRect?
-    var closestYDistance = CGFloat.greatestFiniteMagnitude
-    let point = point.offsetBy(dx: 0, dy: 5.0)
-    for rect in rectangles {
-        
-        let point = NSMakePoint(point.x, point.y + rect.height / 2)
-        if rect.contains(point) {
-            return rect
-        }
-        
-        let rectCenterY = rect.midY
-        let yDistance = abs(point.y - rectCenterY)
-        
-        if yDistance < closestYDistance {
-            closestYDistance = yDistance
-            closestRect = rect
-        }
-    }
-    
-    return closestRect
-}
-
 private var codeCopyIconCache: [NSColor: CGImage] = [:]
 private var codeCopyIconCacheScale: CGFloat = 0
 private let codeCopyIconCacheLock = NSLock()
@@ -293,7 +270,34 @@ public final class TextViewBlockQuoteData: NSObject {
         if self.space != other.space {
             return false
         }
+        if self.collapsable != other.collapsable {
+            return false
+        }
+        switch (self.header, other.header) {
+        case (nil, nil):
+            break
+        case let (lhs?, rhs?):
+            if lhs.0 !== rhs.0 || lhs.1 !== rhs.1 { return false }
+        default:
+            return false
+        }
         return true
+    }
+
+    public override var hash: Int {
+        var hasher = Hasher()
+        hasher.combine(id)
+        hasher.combine(colors.main)
+        hasher.combine(colors.secondary)
+        hasher.combine(colors.tertiary)
+        hasher.combine(space)
+        hasher.combine(isCode)
+        hasher.combine(collapsable)
+        if let header {
+            hasher.combine(ObjectIdentifier(header.0))
+            hasher.combine(ObjectIdentifier(header.1))
+        }
+        return hasher.finalize()
     }
 }
 
@@ -854,6 +858,19 @@ public final class TextViewLayout : Equatable {
     fileprivate var insets:NSSize = NSZeroSize
     public var lines:[TextViewLine] = []
     public private(set) var blockQuotes: [TextViewBlockQuote] = []
+
+    public func blockQuoteText(startingWith range: NSRange) -> String? {
+        let length = attributedString.length
+        guard range.location >= 0, range.location <= length, range.length >= 0, range.length <= length - range.location else { return nil }
+        var end = range.location + range.length
+        while end < length {
+            var run = NSRange()
+            guard attributedString.attribute(TextInputAttributes.quote, at: end, longestEffectiveRange: &run, in: NSRange(location: end, length: length - end)) != nil else { break }
+            end = NSMaxRange(run)
+        }
+        return (attributedString.string as NSString).substring(with: NSRange(location: range.location, length: end - range.location))
+    }
+
     public fileprivate(set) var isPerfectSized:Bool = true
     public var maximumNumberOfLines:Int32
     public let truncationType:CTLineTruncationType
@@ -870,20 +887,40 @@ public final class TextViewLayout : Equatable {
         return blockImage.1 != nil
     }
     
+    private static let quoteAttributeKey = TextInputAttributes.quote.rawValue as CFString
+
+    private func lastBlockQuote(in range: NSRange) -> TextViewBlockQuoteData? {
+        return Self.lastBlockQuote(in: range, attributedString: attributedString)
+    }
+
+    private static func lastBlockQuote(in range: NSRange, attributedString: NSAttributedString) -> TextViewBlockQuoteData? {
+        let length = attributedString.length
+        guard range.location >= 0, range.length > 0, range.location <= length, range.length <= length - range.location else { return nil }
+        let string = attributedString as CFAttributedString
+        let index = NSMaxRange(range) - 1
+        if let value = CFAttributedStringGetAttribute(string, index, Self.quoteAttributeKey, nil) {
+            return value as? TextViewBlockQuoteData
+        }
+        var missing = CFRange()
+        _ = CFAttributedStringGetAttributeAndLongestEffectiveRange(string, index, Self.quoteAttributeKey, CFRange(location: range.location, length: range.length), &missing)
+        guard missing.location > range.location else { return nil }
+        return CFAttributedStringGetAttribute(string, missing.location - 1, Self.quoteAttributeKey, nil) as? TextViewBlockQuoteData
+    }
+
     public var hasBlockQuotes: Bool {
-        return self.attributedString.containsAttribute(attributeName: TextInputAttributes.quote) is TextViewBlockQuoteData
+        return lastBlockQuote(in: NSRange(location: 0, length: attributedString.length)) != nil
     }
     
     public var lastLineIsQuote: Bool {
         if let lineRange = self.lines.last?.lineRange {
-            return self.attributedString.attributedSubstring(from: lineRange).containsAttribute(attributeName: TextInputAttributes.quote) is TextViewBlockQuoteData
+            return lastBlockQuote(in: lineRange) != nil
         } else {
             return false
         }
     }
     
     public var blockCollapsable: Bool {
-        return (self.attributedString.containsAttribute(attributeName: TextInputAttributes.quote) as? TextViewBlockQuoteData)?.collapsable ?? false
+        return lastBlockQuote(in: NSRange(location: 0, length: attributedString.length))?.collapsable ?? false
     }
     
     public var string: String {
@@ -898,8 +935,9 @@ public final class TextViewLayout : Equatable {
     public var strokeLinks: Bool
     fileprivate var strokeRects: [(NSRect, NSColor)] = []
     fileprivate var hexColorsRect: [(NSRect, NSColor, String)] = []
-    fileprivate var toolTipRects:[NSRect] = []
+    public fileprivate(set) var toolTipRects:[NSRect] = []
     private let disableTooltips: Bool
+    private var preparedText: TextViewPreparedText?
     public fileprivate(set) var isBigEmoji: Bool = false
     fileprivate let spoilers:[Spoiler]
     private let onSpoilerReveal: ()->Void
@@ -955,6 +993,7 @@ public final class TextViewLayout : Equatable {
     
     public func setAttributedString(_ string: NSAttributedString) {
         self.attributedString = string
+        self.preparedText = nil
     }
 
     public func dropLayoutSize() {
@@ -1034,7 +1073,11 @@ public final class TextViewLayout : Equatable {
         let attributedString: NSAttributedString
         let typesetter: CTTypesetter
         let needsRunDecorations: Bool
-        do {
+        if let prepared = self.preparedText, prepared.matches(self.attributedString) {
+            attributedString = prepared.attributedString
+            typesetter = prepared.typesetter
+            needsRunDecorations = prepared.needsRunDecorations
+        } else {
             let source = self.attributedString.copy() as! NSAttributedString
             let fullRange = NSMakeRange(0, source.length)
             var embeddedRanges: [NSRange] = []
@@ -1078,6 +1121,11 @@ public final class TextViewLayout : Equatable {
                 }
             }
             needsRunDecorations = !embeddedRanges.isEmpty || hasStrikethrough || hasUnderline
+            if source.length >= 64 && source.length <= 4096 {
+                self.preparedText = TextViewPreparedText(source: source, attributedString: attributedString, typesetter: typesetter, needsRunDecorations: needsRunDecorations)
+            } else {
+                self.preparedText = nil
+            }
         }
         
         var lastLineCharacterIndex: CFIndex = 0
@@ -1113,8 +1161,15 @@ public final class TextViewLayout : Equatable {
             bottomCutoutEnabled = true
         }
 
-        let blockQuote:(Int)-> TextViewBlockQuoteData? = { index in
-            return (attributedString.attribute(TextInputAttributes.quote, at: min(lastLineCharacterIndex, attributedString.length - 1), effectiveRange: nil) as? TextViewBlockQuoteData)
+        let quoteString = attributedString as CFAttributedString
+        var quoteRange = CFRange(location: 0, length: 0)
+        var quoteValue: TextViewBlockQuoteData?
+        let blockQuote: (Int) -> TextViewBlockQuoteData? = { index in
+            let position = min(index, attributedString.length - 1)
+            if position < quoteRange.location || position - quoteRange.location >= quoteRange.length {
+                quoteValue = CFAttributedStringGetAttributeAndLongestEffectiveRange(quoteString, position, Self.quoteAttributeKey, CFRange(location: 0, length: attributedString.length), &quoteRange) as? TextViewBlockQuoteData
+            }
+            return quoteValue
         }
         
         var first = true
@@ -1238,7 +1293,14 @@ public final class TextViewLayout : Equatable {
             
             
             
-            let lineCharacterCount = CTTypesetterSuggestLineBreak(typesetter, lastLineCharacterIndex, Double(lineConstrainedWidth - breakInset))
+            let isLastAllowedLine = maximumNumberOfLines > 0 && lines.count == Int(maximumNumberOfLines) - 1
+            let lineBreakWidth = lineConstrainedWidth - breakInset
+            let lineCharacterCount: CFIndex
+            if isLastAllowedLine && lastLineCharacterIndex < attributedString.length && lineBreakWidth > 0 && lineBreakWidth.isFinite {
+                lineCharacterCount = 1
+            } else {
+                lineCharacterCount = CTTypesetterSuggestLineBreak(typesetter, lastLineCharacterIndex, Double(lineBreakWidth))
+            }
             var lineRange = CFRange(location: lastLineCharacterIndex, length: lineCharacterCount)
 
             
@@ -1255,7 +1317,7 @@ public final class TextViewLayout : Equatable {
 //            }
             
             
-            if maximumNumberOfLines != 0 && lines.count == (Int(maximumNumberOfLines) - 1) && lineCharacterCount > 0 {
+            if isLastAllowedLine && lineCharacterCount > 0 {
                 
                 
                 if first {
@@ -1276,7 +1338,9 @@ public final class TextViewLayout : Equatable {
                 
                
                 
-                if CTLineGetTypographicBounds(originalLine, nil, nil, nil) - CTLineGetTrailingWhitespaceWidth(originalLine) < Double(constrainedWidth) {
+                let originalLineWidth = CTLineGetTypographicBounds(originalLine, nil, nil, nil) - CTLineGetTrailingWhitespaceWidth(originalLine)
+                var measuredLineWidth = originalLineWidth
+                if originalLineWidth < Double(constrainedWidth) {
                     coreTextLine = originalLine
                 } else {
                     
@@ -1298,11 +1362,13 @@ public final class TextViewLayout : Equatable {
 
                     
                     coreTextLine = CTLineCreateTruncatedLine(originalLine, Double(lineConstrainedWidth), truncationType, truncationToken) ?? truncationToken
+                    measuredLineWidth = CTLineGetTypographicBounds(coreTextLine, nil, nil, nil) - CTLineGetTrailingWhitespaceWidth(coreTextLine)
                     
-                    let runs = (CTLineGetGlyphRuns(coreTextLine) as [AnyObject]) as! [CTRun]
-                    for run in runs {
-                        let runAttributes: NSDictionary = CTRunGetAttributes(run)
-                        if let _ = runAttributes["CTForegroundColorFromContext"] {
+                    let runs = CTLineGetGlyphRuns(coreTextLine)
+                    let contextColorKey = Unmanaged.passUnretained(kCTForegroundColorFromContextAttributeName).toOpaque()
+                    for index in 0..<CFArrayGetCount(runs) {
+                        let run = unsafeBitCast(CFArrayGetValueAtIndex(runs, index), to: CTRun.self)
+                        if CFDictionaryContainsKey(CTRunGetAttributes(run), contextColorKey) {
                             brokenLineRange.length = CTRunGetStringRange(run).location - brokenLineRange.location
                             break
                         }
@@ -1317,22 +1383,20 @@ public final class TextViewLayout : Equatable {
                 lineRange = CTLineGetStringRange(coreTextLine)
                 
                 var isRTL = false
-                let glyphRuns = CTLineGetGlyphRuns(coreTextLine) as NSArray
-                if glyphRuns.count != 0 {
-                    for glyphRun in glyphRuns {
-                        if CTRunGetStatus(glyphRun as! CTRun).contains(CTRunStatus.rightToLeft) {
-                            isRTL = true
-                            break
-                        }
+                let glyphRuns = CTLineGetGlyphRuns(coreTextLine)
+                for index in 0..<CFArrayGetCount(glyphRuns) {
+                    let run = unsafeBitCast(CFArrayGetValueAtIndex(glyphRuns, index), to: CTRun.self)
+                    if CTRunGetStatus(run).contains(CTRunStatus.rightToLeft) {
+                        isRTL = true
+                        break
                     }
-                    
                 }
                 
                 if isRTL {
                     lineAdditionalWidth = 0
                 }
                 
-                let lineWidth = ceil(CGFloat(CTLineGetTypographicBounds(coreTextLine, nil, nil, nil) - CTLineGetTrailingWhitespaceWidth(coreTextLine)))
+                let lineWidth = ceil(CGFloat(measuredLineWidth))
                 let lineFrame = CGRect(x: lineCutoutOffset, y: lineOriginY, width: lineWidth, height: lineHeight)
                 layoutSize.height += lineHeight + fontLineSpacing
                 layoutSize.width = max(layoutSize.width, lineWidth + lineAdditionalWidth)
@@ -1418,13 +1482,13 @@ public final class TextViewLayout : Equatable {
                     layoutSize.height += lineHeight
                     layoutSize.width = max(layoutSize.width, lineWidth + lineAdditionalWidth)
                     
-                    var lineQuote: Any? = nil
-                    attributedString.enumerateAttribute(TextInputAttributes.quote, in: NSMakeRange(lineRange.location, lineRange.length), options: []) { value, _, _ in
-                        if value != nil {
-                            lineQuote = value
-                        }
+                    let lineQuote: TextViewBlockQuoteData?
+                    if lineRange.location >= quoteRange.location && lineRange.location + lineRange.length <= quoteRange.location + quoteRange.length {
+                        lineQuote = quoteValue
+                    } else {
+                        lineQuote = Self.lastBlockQuote(in: NSMakeRange(lineRange.location, lineRange.length), attributedString: attributedString)
                     }
-                    if let blockQuote = lineQuote as? TextViewBlockQuoteData {
+                    if let blockQuote = lineQuote {
                         
                         let preformattedSpace = CGFloat(blockQuote.space) * 2
                         
@@ -1470,9 +1534,9 @@ public final class TextViewLayout : Equatable {
                     }
                     
                     var isRTL = false
-                    let glyphRuns = CTLineGetGlyphRuns(coreTextLine) as NSArray
-                    if glyphRuns.count != 0 {
-                        let run = glyphRuns[0] as! CTRun
+                    let glyphRuns = CTLineGetGlyphRuns(coreTextLine)
+                    if CFArrayGetCount(glyphRuns) != 0 {
+                        let run = unsafeBitCast(CFArrayGetValueAtIndex(glyphRuns, 0), to: CTRun.self)
                         if CTRunGetStatus(run).contains(CTRunStatus.rightToLeft) {
                             isRTL = true
                         }
@@ -1548,8 +1612,10 @@ public final class TextViewLayout : Equatable {
                     ranges.append((intersection, line))
                 }
                 for range in ranges {
-                    let startOffset = CTLineGetOffsetForStringIndex(line.line, range.0.lowerBound, nil);
-                    let endOffset = CTLineGetOffsetForStringIndex(line.line, range.0.upperBound, nil);
+                    var startSecondaryOffset: CGFloat = 0
+                    var endSecondaryOffset: CGFloat = 0
+                    let startOffset = CTLineGetOffsetForStringIndex(line.line, range.0.lowerBound, &startSecondaryOffset)
+                    let endOffset = CTLineGetOffsetForStringIndex(line.line, range.0.upperBound, &endSecondaryOffset)
 
                     var ascent:CGFloat = 0
                     var descent:CGFloat = 0
@@ -1559,8 +1625,14 @@ public final class TextViewLayout : Equatable {
                     
                     var rect:NSRect = line.frame
                     
-                    rect.size.width = abs(endOffset - startOffset)
-                    rect.origin.x = min(startOffset, endOffset) + line.frame.origin.x
+                    if startOffset == endOffset, range.0.length > 0 {
+                        let minOffset = min(startOffset, startSecondaryOffset, endSecondaryOffset)
+                        rect.size.width = max(startOffset, startSecondaryOffset, endSecondaryOffset) - minOffset
+                        rect.origin.x = minOffset + line.frame.origin.x
+                    } else {
+                        rect.size.width = abs(endOffset - startOffset)
+                        rect.origin.x = min(startOffset, endOffset) + line.frame.origin.x
+                    }
                     rect.origin.y = rect.minY - rect.height + 2
                     rect.size.height += ceil(descent - leading)
                     
@@ -1576,7 +1648,6 @@ public final class TextViewLayout : Equatable {
         
         let rectsAndLines = rects(range)
         var rects = rectsAndLines.map { $0.0 }
-        let lines = rectsAndLines.map { $0.1 }
         
         if !rects.isEmpty {
             let sortedIndices = (0 ..< rects.count).sorted(by: { rects[$0].width > rects[$1].width })
@@ -1596,9 +1667,9 @@ public final class TextViewLayout : Equatable {
                 rects[i] = rects[i].insetBy(dx: 0, dy: floor((rects[i].height - height) / 2.0))
                 rects[i].size.height = height
                 
-                if lines[i].penFlush == 1.0 {
+                if rectsAndLines[i].1.penFlush == 1.0 {
                     rects[i].origin.x = layoutSize.width - rects[i].width
-                } else if lines[i].penFlush == 0.5 {
+                } else if rectsAndLines[i].1.penFlush == 0.5 {
                     rects[i].origin.x = floor((layoutSize.width - rects[i].width) / 2.0)
                 }
                 
@@ -1617,8 +1688,11 @@ public final class TextViewLayout : Equatable {
     }
     
     public func generateBlock(backgroundColor: NSColor) -> (CGPoint, CGImage?) {
-        
-        let lines = self.lines.filter { self.attributedString.attributedSubstring(from: $0.range).string != "\n" }
+        guard !self.lines.isEmpty else {
+            return (.zero, nil)
+        }
+        let text = attributedString.string as NSString
+        let lines = self.lines.filter { $0.range.length != 1 || text.character(at: $0.range.location) != 0x0A }
         var rects = lines.map({ $0.frame })
         
         
@@ -1923,28 +1997,34 @@ public final class TextViewLayout : Equatable {
     }
 
     
-    public func findIndex(location:NSPoint) -> Int {
-        
+    public func findIndex(location: NSPoint) -> Int {
+        guard !lines.isEmpty else {
+            return -1
+        }
         if location.y == .greatestFiniteMagnitude {
             return lines.count - 1
         } else if location.y == 0 {
             return 0
         }
-        
-        let rect = findClosestRect(rectangles: self.lines.map { $0.frame }, point: location)
-        return lines.firstIndex(where: { $0.frame == rect }) ?? 0
-        //var previous:NSRect = lines[0].frame
-//        var index: Int = 0
-//        for idx in 0 ..< lines.count {
-//            if isCurrentLine(pos: location, index: idx) {
-//                return idx
-//            }
-//        }
-        
-//        return location.y <= layoutSize.height ? 0 : (lines.count - 1)
-        
+        var closestIndex = 0
+        var closestYDistance = CGFloat.greatestFiniteMagnitude
+        let point = location.offsetBy(dx: 0, dy: 5.0)
+        for (index, line) in lines.enumerated() {
+            let rect = line.frame
+            let point = NSMakePoint(point.x, point.y + rect.height / 2)
+            if rect.contains(point) {
+                return index
+            }
+            let yDistance = abs(point.y - rect.midY)
+            if yDistance < closestYDistance {
+                closestYDistance = yDistance
+                closestIndex = index
+            }
+        }
+        let closestRect = lines[closestIndex].frame
+        return closestRect == closestRect ? closestIndex : 0
     }
-    
+
     public func isCurrentLine(pos:NSPoint, index:Int) -> Bool {
         
         let line = lines[index]
@@ -1978,60 +2058,97 @@ public final class TextViewLayout : Equatable {
     }
     
     func spoiler(at point: NSPoint) -> Spoiler? {
-        let rects = spoilerRects()
-        for rect in rects {
-            if rect.0.contains(point) {
-                if !rect.1.isRevealed {
-                    return rect.1
-                }
+        var result: Spoiler?
+        enumerateSpoilerRects(true) { rect, spoiler in
+            if rect.contains(point) {
+                result = spoiler
+                return false
             }
+            return true
         }
-        return nil
+        return result
     }
-    
-    func spoilerRects(_ checkRevealed: Bool = true) -> [(CGRect, Spoiler)] {
-        var rects:[(CGRect, Spoiler)] = []
-        for i in 0 ..< lines.count {
-            let line = lines[i]
-            for spoiler in spoilers.filter({ !$0.isRevealed || !checkRevealed }) {
-                if let spoilerRange = spoiler.range.intersection(line.range) {
-                    let range = spoilerRange.intersection(selectedRange.range)
-                    
-                    var ranges:[(NSRange, NSColor)] = []
-                    if let range = range {
-                        ranges.append((NSMakeRange(spoiler.range.lowerBound, range.lowerBound - spoiler.range.lowerBound), spoiler.color))
-                        ranges.append((NSMakeRange(spoiler.range.upperBound, range.upperBound - spoiler.range.upperBound), spoiler.color))
-                    } else {
-                        ranges.append((spoilerRange, spoiler.color))
-                    }
-                    for range in ranges {
-                        let startOffset = CTLineGetOffsetForStringIndex(line.line, range.0.lowerBound, nil);
-                        let endOffset = CTLineGetOffsetForStringIndex(line.line, range.0.upperBound, nil);
 
-                        var ascent:CGFloat = 0
-                        var descent:CGFloat = 0
-                        var leading:CGFloat = 0
-                        
-                        _ = CGFloat(CTLineGetTypographicBounds(line.line, &ascent, &descent, &leading));
-                        
-                        var rect:NSRect = line.frame
-                        
-                        rect.size.width = abs(endOffset - startOffset)
-                        rect.origin.x = min(startOffset, endOffset) + line.frame.origin.x
-                        rect.origin.y = rect.minY - rect.height + 2
-                        rect.size.height += ceil(descent - leading)
-                        
-                        if line.isRTL {
-                            rect.origin.x += layoutSize.width - line.frame.width
-                        }
-                        
-                        rects.append((rect, spoiler))
-      
+    func spoilerRects(_ checkRevealed: Bool = true) -> [(CGRect, Spoiler)] {
+        var result: [(CGRect, Spoiler)] = []
+        enumerateSpoilerRects(checkRevealed) { rect, spoiler in
+            result.append((rect, spoiler))
+            return true
+        }
+        return result
+    }
+
+    func spoilerRectFrames(_ checkRevealed: Bool = true) -> [CGRect] {
+        var result: [CGRect] = []
+        enumerateSpoilerRects(checkRevealed) { rect, _ in
+            result.append(rect)
+            return true
+        }
+        return result
+    }
+
+    @inline(__always)
+    private func enumerateSpoilerRects(_ checkRevealed: Bool, _ body: (CGRect, Spoiler) -> Bool) {
+        if spoilers.isEmpty || lines.isEmpty || (checkRevealed && !spoilers.contains(where: { !$0.isRevealed })) {
+            return
+        }
+        for line in lines {
+            var firstSpoiler = 0
+            if spoilers.count > 8 {
+                var end = spoilers.count
+                while firstSpoiler < end {
+                    let middle = firstSpoiler + (end - firstSpoiler) / 2
+                    if spoilers[middle].range.upperBound < line.range.lowerBound {
+                        firstSpoiler = middle + 1
+                    } else {
+                        end = middle
                     }
                 }
             }
+            var lineRect: CGRect?
+            for index in firstSpoiler..<spoilers.count {
+                let spoiler = spoilers[index]
+                if spoiler.range.lowerBound > line.range.upperBound {
+                    break
+                }
+                if checkRevealed && spoiler.isRevealed {
+                    continue
+                }
+                guard let spoilerRange = spoiler.range.intersection(line.range) else {
+                    continue
+                }
+                let baseRect: CGRect
+                if let lineRect {
+                    baseRect = lineRect
+                } else {
+                    var descent: CGFloat = 0
+                    var leading: CGFloat = 0
+                    _ = CTLineGetTypographicBounds(line.line, nil, &descent, &leading)
+                    var rect = line.frame
+                    rect.origin.y = rect.minY - rect.height + 2
+                    rect.size.height += ceil(descent - leading)
+                    lineRect = rect
+                    baseRect = rect
+                }
+                func rect(for range: NSRange) -> CGRect {
+                    let startOffset = CTLineGetOffsetForStringIndex(line.line, range.lowerBound, nil)
+                    let endOffset = CTLineGetOffsetForStringIndex(line.line, range.upperBound, nil)
+                    var rect = baseRect
+                    rect.size.width = abs(endOffset - startOffset)
+                    rect.origin.x = min(startOffset, endOffset) + line.frame.origin.x
+                    if line.isRTL {
+                        rect.origin.x += layoutSize.width - line.frame.width
+                    }
+                    return rect
+                }
+                if let range = spoilerRange.intersection(selectedRange.range) {
+                    if !body(rect(for: NSMakeRange(spoiler.range.lowerBound, range.lowerBound - spoiler.range.lowerBound)), spoiler) { return }
+                    if !body(rect(for: NSMakeRange(spoiler.range.upperBound, range.upperBound - spoiler.range.upperBound)), spoiler) { return }
+                } else {
+                    if !body(rect(for: spoilerRange), spoiler) { return }
+                }
+            }
         }
-        return rects
     }
 
     public func link(at point:NSPoint) -> (Any, LinkType, NSRange, NSRect)? {
@@ -2049,20 +2166,17 @@ public final class TextViewLayout : Equatable {
 
         let width:CGFloat = CGFloat(CTLineGetTypographicBounds(line.line, &ascent, &descent, &leading));
 
+        var penOffset = CGFloat(CTLineGetPenOffsetForFlush(line.line, line.penFlush, Double(layoutSize.width)))
+        if penFlush == 0.5, line.penFlush != 0.5 { penOffset = 0 }
+        if line.penFlush == 1, let size = cutout?.topRight, line.frame.maxY <= size.height {
+            penOffset -= size.width
+        }
+        if line.isRTL && blockQuotes.contains(where: { $0.frame.contains(line.frame.origin) }) {
+            penOffset -= 20 + 4 * 2
+        }
+        penOffset += line.frame.minX
         var point = point
-
-         //point.x -= floorToScreenPixels(System.backingScale, (frame.width - line.frame.width) / 2)
-
-
-//        var penOffset = CGFloat( CTLineGetPenOffsetForFlush(line.line, line.penFlush, Double(frame.width))) + line.frame.minX
-//        if layout.penFlush == 0.5, line.penFlush != 0.5 {
-//            penOffset = startPosition.x
-//        } else if layout.penFlush == 0.0 {
-//            penOffset = startPosition.x
-//        }
-
-        point.x -= ((layoutSize.width - line.frame.width) * line.penFlush)
-
+        point.x -= penOffset
 
         if  width > point.x, point.x >= 0 {
             var pos = CTLineGetStringIndexForPosition(line.line, point);
@@ -2074,7 +2188,6 @@ public final class TextViewLayout : Equatable {
             if let link = link {
                 let startOffset = CTLineGetOffsetForStringIndex(line.line, range.location, nil);
                 let endOffset = CTLineGetOffsetForStringIndex(line.line, range.location + range.length, nil);
-                let penOffset = (layoutSize.width - line.frame.width) * line.penFlush
                 return (link, interactions.makeLinkType((link, attributedString.attributedSubstring(from: range).string)), range, NSMakeRect(startOffset + penOffset, line.frame.minY, endOffset - startOffset, ceil(ascent + ceil(descent) + leading)))
             }
         }
@@ -2156,7 +2269,7 @@ public final class TextViewLayout : Equatable {
         return nil
     }
     
-    func findCharacterIndex(at point:NSPoint) -> Int {
+    public func findCharacterIndex(at point:NSPoint) -> Int {
         let index = findIndex(location: point)
         
         guard index != -1 else {
@@ -2373,12 +2486,408 @@ public func ==(lhs:TextSelectedRange, rhs:TextSelectedRange) -> Bool {
 //    
 //}
 
-private final class TextDrawLayer : SimpleLayer {
-    
-    var drawer:((CGContext)->Void)? = nil
-    
-    override func draw(in ctx: CGContext) {
-        drawer?(ctx)
+private func drawTextViewContent(_ layout: TextViewLayout?, in ctx: CGContext, size: NSSize, drawingSize: NSSize, backingScaleFactor: CGFloat, backgroundColor: NSColor = .clear, disableBackgroundDrawing: Bool = true, hasBackground: Bool = false, isSelectable: Bool = false, isKeyWindow: Bool = false, clearExceptRevealed: Bool = false, inAnimation: Bool = false, canDrawBlocks: Bool = true) -> [(NSRect, NSRange)] {
+    var blockHeaderRects: [(NSRect, NSRange)] = []
+    if let layout {
+
+        ctx.setAllowsFontSubpixelPositioning(true)
+        ctx.setShouldSubpixelPositionFonts(true)
+        if !System.supportsTransparentFontDrawing {
+            ctx.setAllowsAntialiasing(true)
+
+            ctx.setAllowsFontSmoothing(backingScaleFactor == 1.0)
+            ctx.setShouldSmoothFonts(backingScaleFactor == 1.0)
+
+            if backingScaleFactor == 1.0 && !disableBackgroundDrawing {
+                ctx.setFillColor(backgroundColor.cgColor)
+                for line in layout.lines {
+                    ctx.fill(NSMakeRect(0, line.frame.minY - line.frame.height - 2, line.frame.width, line.frame.height + 6))
+                }
+            }
+        } else {
+            ctx.setAllowsAntialiasing(true)
+            ctx.setShouldAntialias(true)
+            ctx.setAllowsFontSmoothing(backingScaleFactor == 1.0)
+            ctx.setShouldSmoothFonts(backingScaleFactor == 1.0)
+        }
+
+        if clearExceptRevealed {
+            let path = CGMutablePath()
+
+            for rect in layout.spoilerRectFrames(false) {
+                path.addRect(rect)
+            }
+            ctx.addPath(path)
+            ctx.clip()
+        }
+
+        if let image = layout.blockImage.1, !hasBackground {
+            ctx.draw(image, in: NSMakeRect(layout.blockImage.0.x, layout.blockImage.0.y, image.backingSize.width, image.backingSize.height))
+        }
+
+        let firstSelection = isSelectable && layout.selectedRange.range.location != NSNotFound ? -1 : 0
+        for selectionIndex in firstSelection ..< layout.additionalSelections.count {
+            let range = selectionIndex == -1 ? (layout.selectedRange, true) : (layout.additionalSelections[selectionIndex], false)
+            if range.0.range.location != NSNotFound && !layout.lines.isEmpty && (range.1 && isSelectable || !range.1) {
+
+                var lessRange = range.0.range
+
+                let lines:[TextViewLine] = layout.lines
+
+                let beginIndex:Int = 0
+                let endIndex:Int = layout.lines.count - 1
+
+                let isReversed = endIndex < beginIndex
+
+                var i:Int = beginIndex
+
+                while isReversed ? i >= endIndex : i <= endIndex {
+
+                    let line = lines[i].line
+
+                    var rect:NSRect = lines[i].frame
+                    let lineRange = lines[i].lineRange
+
+                    var beginLineIndex:CFIndex = 0
+                    var endLineIndex:CFIndex = 0
+
+                    if let _ = lineRange.intersection(lessRange){
+                        let penOffset = CGFloat(CTLineGetPenOffsetForFlush(line, lines[i].penFlush, Double(size.width)))
+
+                        beginLineIndex = lessRange.location
+                        let max = lineRange.length + lineRange.location
+                        let maxSelect = max - beginLineIndex
+
+                        let selectLength = min(maxSelect,lessRange.length)
+
+                        lessRange.length-=selectLength
+                        lessRange.location+=selectLength
+
+                        endLineIndex = min(beginLineIndex + selectLength, lineRange.max)
+
+                        var ascent:CGFloat = 0
+                        var descent:CGFloat = 0
+                        var leading:CGFloat = 0
+
+                        var width:CGFloat = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading));
+
+                        let startOffset = CTLineGetOffsetForStringIndex(line, beginLineIndex, nil);
+                        var endOffset = CTLineGetOffsetForStringIndex(line, endLineIndex, nil);
+
+                        if beginLineIndex < endLineIndex {
+                            var index = endLineIndex - 1
+                            while endOffset == 0 && index > 0 {
+                                endOffset = CTLineGetOffsetForStringIndex(line, index, nil);
+                                index -= 1
+                            }
+                        }
+
+                        width = endOffset - startOffset;
+
+                        if beginLineIndex == -1 {
+                            beginLineIndex = 0
+                        } else if beginLineIndex >= layout.attributedString.length {
+                            beginLineIndex = layout.attributedString.length - 1
+                        }
+
+                        rect.size.width = width
+
+                        rect.origin.x = penOffset + startOffset
+
+                        rect.origin.y = rect.minY - rect.height + rect.height * 0.12
+                        let insideBlock = layout.blockQuotes.first(where: { block in
+                            if block.frame.contains(rect.origin) {
+                                return true
+                            } else {
+                                return false
+                            }
+                        })
+                        if let _ = insideBlock {
+                            rect.origin.x += 4 * 2
+                        }
+                        if let _ = insideBlock, lines[i].isRTL {
+                            rect.origin.x -= 20 + 4 * 2
+                        }
+
+                        rect.size.height += ceil(descent - leading)
+                        let color:NSColor = isKeyWindow || !range.1 ? range.0.color : NSColor.lightGray
+
+                        ctx.setFillColor(color.cgColor)
+                        ctx.fill(rect)
+
+                    }
+
+                    i += isReversed ? -1 : 1
+
+                }
+
+            }
+        }
+
+        let startPosition = CGRect(origin: .zero, size: size).focus(layout.layoutSize).origin
+
+        ctx.textMatrix = CGAffineTransform(scaleX: 1.0, y: -1.0)
+
+        if canDrawBlocks {
+            let blockAreaIsCleared = System.supportsTransparentFontDrawing && !clearExceptRevealed && (layout.blockImage.1 == nil || hasBackground) && !(isSelectable && layout.selectedRange.range.location != NSNotFound) && !layout.additionalSelections.contains(where: { $0.range.location != NSNotFound })
+            for blockQuote in layout.blockQuotes {
+                let radius: CGFloat = 3.0
+                let lineWidth: CGFloat = 3.0
+
+                let blockFrame = blockQuote.frame
+                let blockColor = blockQuote.isCode ? blockQuote.colors.tertiary ?? blockQuote.colors.main : blockQuote.colors.main
+                let tintColor = blockQuote.colors.main
+                let secondaryTintColor = blockQuote.colors.secondary
+                let tertiaryTintColor = blockQuote.colors.tertiary
+
+                if blockAreaIsCleared {
+                    fillBlockBackgroundOnClearedArea(ctx, frame: blockFrame, radius: radius, color: blockColor.withAlphaComponent(blockQuote.isCode ? 0.25 : 0.1).cgColor)
+                } else {
+                    ctx.setFillColor(blockColor.withAlphaComponent(blockQuote.isCode ? 0.25 : 0.1).cgColor)
+                    ctx.addPath(CGPath(roundedRect: blockFrame, cornerWidth: radius, cornerHeight: radius, transform: nil))
+                    ctx.fillPath()
+                }
+
+                ctx.setFillColor(tintColor.cgColor)
+
+                if !blockQuote.isCode {
+                    let iconSize = quoteIcon.backingSize
+                    let quoteRect = CGRect(origin: CGPoint(x: blockFrame.maxX - 4.0 - iconSize.width, y: blockFrame.minY + 4.0), size: iconSize)
+                    ctx.saveGState()
+                    ctx.translateBy(x: quoteRect.midX, y: quoteRect.midY)
+                    ctx.scaleBy(x: 1.0, y: -1.0)
+                    ctx.translateBy(x: -quoteRect.midX, y: -quoteRect.midY)
+                    ctx.clip(to: quoteRect, mask: quoteIcon)
+                    ctx.fill(quoteRect)
+                    ctx.restoreGState()
+                    ctx.resetClip()
+                }
+
+                drawBlockQuoteLine(ctx: ctx, blockFrame: blockFrame, radius: radius, lineWidth: lineWidth, tintColor: tintColor, secondaryTintColor: secondaryTintColor, tertiaryTintColor: tertiaryTintColor)
+
+                if let header = blockQuote.header {
+
+                    let headerHeight = blockQuote.headerInset + 2
+
+                    ctx.setFillColor(blockQuote.colors.main.withAlphaComponent(0.2).cgColor)
+                    let rect = NSMakeRect(blockFrame.minX, blockFrame.minY, blockFrame.width, headerHeight)
+                    blockHeaderRects.append((rect, blockQuote.range))
+                    ctx.drawRoundedRect(rect: rect, topLeftRadius: radius, topRightRadius: radius)
+
+                    header.1.draw(CGRect(x: blockFrame.minX + 8, y: blockFrame.minY + (headerHeight - header.0.size.height) / 2 - 1, width: header.0.size.width, height: header.0.size.height), in: ctx, backingScaleFactor: backingScaleFactor, backgroundColor: .clear)
+                    if let image = codeCopyIcon(blockQuote.colors.main) {
+                        ctx.draw(image, in: CGRect(origin: NSMakePoint(blockFrame.width - image.backingSize.width - 3, blockFrame.minY + (headerHeight - image.backingSize.height) / 2), size: image.backingSize))
+                    }
+                }
+            }
+        }
+
+        let spoilerRects = layout.spoilerRectFrames(!inAnimation)
+        if !spoilerRects.isEmpty {
+            ctx.beginPath()
+            ctx.addRects(spoilerRects)
+            ctx.closePath()
+            ctx.addRect(CGRect(x: 0, y: 0, width: drawingSize.width, height: drawingSize.height))
+            ctx.clip(using: .evenOdd)
+        }
+
+        for stroke in layout.strokeRects {
+            ctx.setFillColor(stroke.1.cgColor)
+            ctx.fill(stroke.0)
+        }
+
+        for hexColor in layout.hexColorsRect {
+            ctx.setFillColor(hexColor.1.cgColor)
+            ctx.fill(hexColor.0)
+        }
+
+        var drawnGlyphCount: Int = 0
+        for i in 0 ..< layout.lines.count {
+            let line = layout.lines[i]
+
+            if let maxGlyphDraw = layout.maxGlyphDrawCount, drawnGlyphCount >= maxGlyphDraw {
+                break
+            }
+
+            var penOffset = CGFloat( CTLineGetPenOffsetForFlush(line.line, line.penFlush, Double(size.width)))
+            if layout.penFlush == 0.5, line.penFlush != 0.5 {
+                penOffset = startPosition.x
+            }
+            if line.penFlush == 1.0 {
+                if let size = layout.cutout?.topRight {
+                    if line.frame.maxY <= size.height {
+                        penOffset -= size.width
+                    }
+                }
+            }
+
+            var additionY: CGFloat = 0
+            if layout.isBigEmoji {
+                additionY -= 4
+            }
+
+            if line.isRTL && layout.blockQuotes.contains(where: { $0.frame.contains(line.frame.origin) }) {
+                penOffset -= 20 + 4 * 2
+            }
+
+            let textPosition = CGPoint(x: penOffset + line.frame.minX, y: startPosition.y + line.frame.minY + additionY)
+
+            drawTextLineRuns(line.line, in: ctx, at: textPosition, maximumGlyphCount: layout.maxGlyphDrawCount, drawnGlyphCount: &drawnGlyphCount)
+            let decorationOffsetX = penOffset + line.frame.minX
+            for strikethrough in line.strikethrough {
+                ctx.setFillColor(strikethrough.color.cgColor)
+                ctx.fill(NSMakeRect(decorationOffsetX + strikethrough.frame.minX, line.frame.minY - strikethrough.frame.height / 2, strikethrough.frame.width, .borderSize))
+            }
+            for underline in line.underlines {
+                ctx.setFillColor(underline.color.cgColor)
+                ctx.fill(NSMakeRect(decorationOffsetX + underline.frame.minX, line.frame.minY + 1, underline.frame.width, .borderSize))
+            }
+
+        }
+
+    }
+    return blockHeaderRects
+}
+
+
+public final class TextViewLayer: SimpleLayer {
+    public private(set) var textLayout: TextViewLayout?
+    public var textSize: NSSize = .zero {
+        didSet {
+            if textSize != oldValue {
+                setNeedsDisplay()
+            }
+        }
+    }
+    public var canDrawBlocks: Bool = true {
+        didSet {
+            if canDrawBlocks != oldValue {
+                setNeedsDisplay()
+            }
+        }
+    }
+    public var isTextSelectable: Bool = false {
+        didSet {
+            if isTextSelectable != oldValue { setNeedsDisplay() }
+        }
+    }
+    public var isKeyWindow: Bool = false {
+        didSet {
+            if isKeyWindow != oldValue && isTextSelectable && textLayout?.selectedRange.hasSelectText == true { setNeedsDisplay() }
+        }
+    }
+    fileprivate var drawer: ((CGContext) -> Void)?
+
+    public override init() {
+        super.init()
+    }
+
+    public override init(layer: Any) {
+        super.init(layer: layer)
+        if let layer = layer as? TextViewLayer {
+            contentsScale = layer.contentsScale
+            textLayout = layer.textLayout
+            textSize = layer.textSize
+            canDrawBlocks = layer.canDrawBlocks
+            isTextSelectable = layer.isTextSelectable
+            isKeyWindow = layer.isKeyWindow
+        }
+    }
+
+    public required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    public func update(_ layout: TextViewLayout?, size: NSSize? = nil) {
+        textLayout = layout
+        if let size {
+            textSize = size
+        } else if let layout {
+            textSize = NSSize(width: layout.layoutSize.width + layout.insets.width, height: layout.layoutSize.height + layout.insets.height)
+        } else {
+            textSize = .zero
+        }
+        setNeedsDisplay()
+    }
+
+    public override func draw(in ctx: CGContext) {
+        if let drawer {
+            drawer(ctx)
+        } else {
+            _ = drawTextViewContent(textLayout, in: ctx, size: textSize, drawingSize: frame.size, backingScaleFactor: contentsScale, isSelectable: isTextSelectable, isKeyWindow: isKeyWindow, canDrawBlocks: canDrawBlocks)
+        }
+    }
+}
+
+private final class TextViewMenuState: Disposable {
+    private(set) var version: UInt64 = 0
+    private(set) var text: NSAttributedString?
+    private weak var layout: TextViewLayout?
+    weak var presentedMenu: ContextMenu?
+    private var disposable: Disposable?
+    private var active = false
+    private var disposed = false
+
+    func isCurrent(_ version: UInt64) -> Bool {
+        return !disposed && self.version == version
+    }
+
+    func matches(_ layout: TextViewLayout?) -> Bool {
+        guard active, let layout = layout, self.layout === layout, let text = text else { return false }
+        return text === layout.attributedString || text.isEqual(to: layout.attributedString)
+    }
+
+    func begin(_ layout: TextViewLayout) -> UInt64 {
+        let version = cancel()
+        guard isCurrent(version) else { return version }
+        self.layout = layout
+        text = layout.attributedString.copy() as? NSAttributedString
+        active = true
+        return version
+    }
+
+    @discardableResult func cancel() -> UInt64 {
+        version &+= 1
+        let version = version
+        presentedMenu = nil
+        clearPending()
+        return version
+    }
+
+    func cancelIfInvalid(_ layout: TextViewLayout?) {
+        if active && !matches(layout) {
+            cancel()
+        }
+    }
+
+    func install(_ disposable: Disposable, version: UInt64) {
+        guard isCurrent(version), active else {
+            disposable.dispose()
+            return
+        }
+        let previous = self.disposable
+        self.disposable = disposable
+        previous?.dispose()
+    }
+
+    func finish(_ version: UInt64) {
+        if isCurrent(version) { clearPending() }
+    }
+
+    private func clearPending() {
+        let previous = disposable
+        let previousText = text
+        disposable = nil
+        text = nil
+        layout = nil
+        active = false
+        previous?.dispose()
+        withExtendedLifetime(previousText) {}
+    }
+
+    func dispose() {
+        disposed = true
+        cancel()
     }
 }
 
@@ -2397,8 +2906,73 @@ open class TextView: Control, NSViewToolTipOwner, ViewDisplayDelegate {
 
     }
     
+    private var installedToolTipRects: [NSRect]?
+
+    open override func addToolTip(_ rect: NSRect, owner: Any, userData data: UnsafeMutableRawPointer?) -> NSView.ToolTipTag {
+        installedToolTipRects = nil
+        return super.addToolTip(rect, owner: owner, userData: data)
+    }
+
+    open override func removeToolTip(_ tag: NSView.ToolTipTag) {
+        installedToolTipRects = nil
+        super.removeToolTip(tag)
+    }
+
+    open override func removeAllToolTips() {
+        installedToolTipRects = nil
+        super.removeAllToolTips()
+    }
+
     private var inkViews: [InvisibleInkDustView] = []
-    public let embeddedContainer = SimpleLayer()
+    private final class EmbeddedMaskSnapshot {
+        let contentsGravity: CALayerContentsGravity
+        let contentsScale: CGFloat
+        let frame: CGRect
+        let contents: Any?
+
+        init(_ mask: CALayer) {
+            contentsGravity = mask.contentsGravity
+            contentsScale = System.backingScale
+            frame = mask.frame
+            contents = mask.contents
+        }
+
+        func makeLayer() -> SimpleLayer {
+            let layer = SimpleLayer()
+            layer.contentsGravity = contentsGravity
+            layer.contentsScale = contentsScale
+            layer.frame = frame
+            layer.contents = contents
+            return layer
+        }
+    }
+
+    private var currentEmbeddedContainer: SimpleLayer?
+    private var pendingEmbeddedMask: EmbeddedMaskSnapshot?
+    private var embeddedContainerBelowText = false
+
+    public var embeddedContainer: SimpleLayer {
+        if let currentEmbeddedContainer { return currentEmbeddedContainer }
+        let container = SimpleLayer()
+        container.masksToBounds = false
+        container.frame = bounds
+        container.contentsScale = backingScaleFactor
+        container.mask = pendingEmbeddedMask?.makeLayer()
+        pendingEmbeddedMask = nil
+        currentEmbeddedContainer = container
+        if let parent = drawLayer.superlayer ?? layer {
+            if drawLayer.superlayer === parent {
+                if embeddedContainerBelowText {
+                    parent.insertSublayer(container, below: drawLayer)
+                } else {
+                    parent.insertSublayer(container, above: drawLayer)
+                }
+            } else {
+                parent.addSublayer(container)
+            }
+        }
+        return container
+    }
     
     private var blockHeaderRects: [(NSRect, NSRange)] = []
     
@@ -2417,7 +2991,7 @@ open class TextView: Control, NSViewToolTipOwner, ViewDisplayDelegate {
     private var visualEffect: VisualEffect? = nil
 
     private var textView: View? = nil
-    private let drawLayer: TextDrawLayer = TextDrawLayer()
+    private let drawLayer: TextViewLayer = TextViewLayer()
     private var blockMask: SimpleLayer?
     
     public var lockDrawingLayer: Bool = false
@@ -2442,13 +3016,21 @@ open class TextView: Control, NSViewToolTipOwner, ViewDisplayDelegate {
         }
     }
     
-    private let menuDisposable = MetaDisposable()
+    private var menuDisposable: TextViewMenuState?
 
     private var longHoverTimer: SwiftSignalKit.Timer?
-    private var longHoverLink: Any?
+    private var longHoverRange = NSRange(location: NSNotFound, length: 0)
     private var longHoverDisposable: Disposable?
+    private var longHoverText: NSAttributedString?
 
-    private(set) public var textLayout:TextViewLayout?
+    private(set) public var textLayout:TextViewLayout? {
+        didSet {
+            if oldValue !== textLayout || (longHoverText != nil && !matchesLongHoverText(textLayout)) {
+                cancelLongHoverTimer()
+            }
+            menuDisposable?.cancelIfInvalid(textLayout)
+        }
+    }
     
     private var beginSelect:NSPoint = NSZeroPoint
     private var endSelect:NSPoint = NSZeroPoint
@@ -2491,8 +3073,7 @@ open class TextView: Control, NSViewToolTipOwner, ViewDisplayDelegate {
             self.draw(self.drawLayer, in: ctx)
         }
         
-        embeddedContainer.masksToBounds = false
-        self.layer?.addSublayer(embeddedContainer)
+        if let currentEmbeddedContainer { self.layer?.addSublayer(currentEmbeddedContainer) }
         self.layer?.masksToBounds = false
 
     }
@@ -2522,427 +3103,136 @@ open class TextView: Control, NSViewToolTipOwner, ViewDisplayDelegate {
     
     public func set(mask: CALayer?) {
         self.drawLayer.mask = mask
-        
-        if let mask {
-            let copy = SimpleLayer()
-            copy.contentsGravity = mask.contentsGravity
-            copy.frame = mask.frame
-            copy.contents = mask.contents
-            self.embeddedContainer.mask = copy
-        } else {
-            self.embeddedContainer.mask = nil
-        }
-    }
-    
-    public override func draw(_ layer: CALayer, in ctx: CGContext) {
-        //backgroundColor = .random
-       // super.draw(layer, in: ctx)
-
-//        if hasBackground, layer != textView?.layer {
-//            return
-//        }
-        
-        var blockHeaderRects: [(NSRect, NSRange)] = []
-
-        if drawingLayer == layer {
-            lastDrawnSelectionState = currentSelectionState
-        }
-
-        if let layout = textLayout, drawingLayer == layer {
-            
-            ctx.setAllowsFontSubpixelPositioning(true)
-            ctx.setShouldSubpixelPositionFonts(true)
-            if !System.supportsTransparentFontDrawing {
-                ctx.setAllowsAntialiasing(true)
-                
-                ctx.setAllowsFontSmoothing(backingScaleFactor == 1.0)
-                ctx.setShouldSmoothFonts(backingScaleFactor == 1.0)
-                
-                if backingScaleFactor == 1.0 && !disableBackgroundDrawing {
-                    ctx.setFillColor(backgroundColor.cgColor)
-                    for line in layout.lines {
-                        ctx.fill(NSMakeRect(0, line.frame.minY - line.frame.height - 2, line.frame.width, line.frame.height + 6))
-                    }
-                }
+        if let container = currentEmbeddedContainer {
+            if let mask {
+                let copy = SimpleLayer()
+                copy.contentsGravity = mask.contentsGravity
+                copy.frame = mask.frame
+                copy.contents = mask.contents
+                container.mask = copy
             } else {
-                ctx.setAllowsAntialiasing(true)
-                ctx.setShouldAntialias(true)
-                ctx.setAllowsFontSmoothing(backingScaleFactor == 1.0)
-                ctx.setShouldSmoothFonts(backingScaleFactor == 1.0)
+                container.mask = nil
             }
-                      
-
-                    
-            
-            if clearExceptRevealed {
-                let path = CGMutablePath()
-                
-                for spoiler in layout.spoilerRects(false) {
-                    path.addRect(spoiler.0)
-                }
-                ctx.addPath(path)
-                ctx.clip()
-            }
-            
-            
-            
-//            if !System.supportsTransparentFontDrawing {
-//                ctx.setAllowsAntialiasing(true)
-//                
-//                ctx.setAllowsFontSmoothing(backingScaleFactor == 1.0)
-//                ctx.setShouldSmoothFonts(backingScaleFactor == 1.0)
-//                
-//                if backingScaleFactor == 1.0 && !disableBackgroundDrawing {
-//                    ctx.setFillColor(backgroundColor.cgColor)
-//                    for line in layout.lines {
-//                        ctx.fill(NSMakeRect(0, line.frame.minY - line.frame.height - 2, line.frame.width, line.frame.height + 6))
-//                    }
-//                }
-//            } 
-//           
-            
-            
-            if let image = layout.blockImage.1, !hasBackground {
-                ctx.draw(image, in: NSMakeRect(layout.blockImage.0.x, layout.blockImage.0.y, image.backingSize.width, image.backingSize.height))
-            }
-            
-            
-            var ranges:[(TextSelectedRange, Bool)] = [(layout.selectedRange, true)]
-            ranges += layout.additionalSelections.map { ($0, false) }
-            
-            for range in ranges {
-                if range.0.range.location != NSNotFound && (range.1 && isSelectable || !range.1) {
-                    
-                    var lessRange = range.0.range
-                                        
-                    let lines:[TextViewLine] = layout.lines
-                    
-                    let beginIndex:Int = 0
-                    let endIndex:Int = layout.lines.count - 1
-                    
-                    
-                    let isReversed = endIndex < beginIndex
-                    
-                    var i:Int = beginIndex
-
-                    
-                    while isReversed ? i >= endIndex : i <= endIndex {
-                        
-                        let line = lines[i].line
-                 
-                        let penOffset = CGFloat(CTLineGetPenOffsetForFlush(lines[i].line, lines[i].penFlush, Double(frame.width)))
-                        
-                        var rect:NSRect = lines[i].frame
-                        let lineRange = lines[i].lineRange
-                        
-                        var beginLineIndex:CFIndex = 0
-                        var endLineIndex:CFIndex = 0
-                        
-                        
-                        if let _ = lineRange.intersection(lessRange){
-                            
-                            beginLineIndex = lessRange.location
-                            let max = lineRange.length + lineRange.location
-                            let maxSelect = max - beginLineIndex
-                            
-                            let selectLength = min(maxSelect,lessRange.length)
-                            
-                            lessRange.length-=selectLength
-                            lessRange.location+=selectLength
-                            
-                            endLineIndex = min(beginLineIndex + selectLength, lineRange.max)
-
-                            
-                            var ascent:CGFloat = 0
-                            var descent:CGFloat = 0
-                            var leading:CGFloat = 0
-                            
-                            var width:CGFloat = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading));
-                            
-                            let startOffset = CTLineGetOffsetForStringIndex(line, beginLineIndex, nil);
-                            var endOffset = CTLineGetOffsetForStringIndex(line, endLineIndex, nil);
-                            
-                            if beginLineIndex < endLineIndex {
-                                var index = endLineIndex - 1
-                                while endOffset == 0 && index > 0 {
-                                    endOffset = CTLineGetOffsetForStringIndex(line, index, nil);
-                                    index -= 1
-                                }
-                            }
-                            
-                            width = endOffset - startOffset;
-                            
-                            
-                            if beginLineIndex == -1 {
-                                beginLineIndex = 0
-                            } else if beginLineIndex >= layout.attributedString.length {
-                                beginLineIndex = layout.attributedString.length - 1
-                            }
-                            
-                           
-                            rect.size.width = width
-                            
-                            rect.origin.x = penOffset + startOffset
-                            
-                            rect.origin.y = rect.minY - rect.height + rect.height * 0.12
-                            let insideBlock = layout.blockQuotes.first(where: { block in
-                                if block.frame.contains(rect.origin) {
-                                    return true
-                                } else {
-                                    return false
-                                }
-                            })
-                            if let _ = insideBlock {
-                                rect.origin.x += 4 * 2
-                            }
-                            if let _ = insideBlock, lines[i].isRTL {
-                                rect.origin.x -= 20 + 4 * 2
-                            }
-                            
-                            
-                            rect.size.height += ceil(descent - leading)
-                            let color:NSColor = window?.isKeyWindow == true || !range.1 ? range.0.color : NSColor.lightGray
-                            
-                            ctx.setFillColor(color.cgColor)
-                            ctx.fill(rect)
-                           
-                        }
-                        
-                        i += isReversed ? -1 : 1
-                        
-                    }
-                    
-                }
-            }
-            
-            
-            
-            let startPosition = focus(layout.layoutSize).origin
-            
-            ctx.textMatrix = CGAffineTransform(scaleX: 1.0, y: -1.0)
-            
-            if canDrawBlocks {
-                let blockAreaIsCleared = System.supportsTransparentFontDrawing && !clearExceptRevealed && (layout.blockImage.1 == nil || hasBackground) && !(isSelectable && layout.selectedRange.range.location != NSNotFound) && !layout.additionalSelections.contains(where: { $0.range.location != NSNotFound })
-                for blockQuote in layout.blockQuotes {
-                    let radius: CGFloat = 3.0
-                    let lineWidth: CGFloat = 3.0
-                    
-                    
-                    let blockFrame = blockQuote.frame
-                    let blockColor = blockQuote.isCode ? blockQuote.colors.tertiary ?? blockQuote.colors.main : blockQuote.colors.main
-                    let tintColor = blockQuote.colors.main
-                    let secondaryTintColor = blockQuote.colors.secondary
-                    let tertiaryTintColor = blockQuote.colors.tertiary
-                    
-                    
-                    if blockAreaIsCleared {
-                        fillBlockBackgroundOnClearedArea(ctx, frame: blockFrame, radius: radius, color: blockColor.withAlphaComponent(blockQuote.isCode ? 0.25 : 0.1).cgColor)
-                    } else {
-                        ctx.setFillColor(blockColor.withAlphaComponent(blockQuote.isCode ? 0.25 : 0.1).cgColor)
-                        ctx.addPath(CGPath(roundedRect: blockFrame, cornerWidth: radius, cornerHeight: radius, transform: nil))
-                        ctx.fillPath()
-                    }
-                    
-                    ctx.setFillColor(tintColor.cgColor)
-                    
-                    if !blockQuote.isCode {
-                        let iconSize = quoteIcon.backingSize
-                        let quoteRect = CGRect(origin: CGPoint(x: blockFrame.maxX - 4.0 - iconSize.width, y: blockFrame.minY + 4.0), size: iconSize)
-                        ctx.saveGState()
-                        ctx.translateBy(x: quoteRect.midX, y: quoteRect.midY)
-                        ctx.scaleBy(x: 1.0, y: -1.0)
-                        ctx.translateBy(x: -quoteRect.midX, y: -quoteRect.midY)
-                        ctx.clip(to: quoteRect, mask: quoteIcon)
-                        ctx.fill(quoteRect)
-                        ctx.restoreGState()
-                        ctx.resetClip()
-                    }
-                    
-                    
-                    drawBlockQuoteLine(ctx: ctx, blockFrame: blockFrame, radius: radius, lineWidth: lineWidth, tintColor: tintColor, secondaryTintColor: secondaryTintColor, tertiaryTintColor: tertiaryTintColor)
-                    
-                    if let header = blockQuote.header {
-                        
-                        let headerHeight = blockQuote.headerInset + 2
-                        
-                        ctx.setFillColor(blockQuote.colors.main.withAlphaComponent(0.2).cgColor)
-                        let rect = NSMakeRect(blockFrame.minX, blockFrame.minY, blockFrame.width, headerHeight)
-                        blockHeaderRects.append((rect, blockQuote.range))
-                        ctx.drawRoundedRect(rect: rect, topLeftRadius: radius, topRightRadius: radius)
-
-                        header.1.draw(CGRect(x: blockFrame.minX + 8, y: blockFrame.minY + (headerHeight - header.0.size.height) / 2 - 1, width: header.0.size.width, height: header.0.size.height), in: ctx, backingScaleFactor: backingScaleFactor, backgroundColor: .clear)
-                        if let image = codeCopyIcon(blockQuote.colors.main) {
-                            ctx.draw(image, in: CGRect(origin: NSMakePoint(blockFrame.width - image.backingSize.width - 3, blockFrame.minY + (headerHeight - image.backingSize.height) / 2), size: image.backingSize))
-                        }
-                    }
-                }
-            }
-            
-            
-            
-            
-            let spoilerRects = layout.spoilerRects(!inAnimation).map { $0.0 }
-            if !spoilerRects.isEmpty {
-                ctx.beginPath()
-                ctx.addRects(spoilerRects)
-                ctx.closePath()
-                ctx.addRect(CGRect(x: 0, y: 0, width: layer.frame.width, height: layer.frame.height))
-                ctx.clip(using: .evenOdd)
-            }
-            
-            for stroke in layout.strokeRects {
-                ctx.setFillColor(stroke.1.cgColor)
-                ctx.fill(stroke.0)
-            }
-            
-            for hexColor in layout.hexColorsRect {
-                ctx.setFillColor(hexColor.1.cgColor)
-                ctx.fill(hexColor.0)
-            }
-            
-            var drawnGlyphCount: Int = 0
-            for i in 0 ..< layout.lines.count {
-                let line = layout.lines[i]
-
-                if let maxGlyphDraw = layout.maxGlyphDrawCount, drawnGlyphCount >= maxGlyphDraw {
-                    break
-                }
-
-                var penOffset = CGFloat( CTLineGetPenOffsetForFlush(line.line, line.penFlush, Double(frame.width)))
-                if layout.penFlush == 0.5, line.penFlush != 0.5 {
-                    penOffset = startPosition.x
-                }
-                if line.penFlush == 1.0 {
-                    if let size = layout.cutout?.topRight {
-                        if line.frame.maxY <= size.height {
-                            penOffset -= size.width
-                        }
-                    }
-                }
-                
-                var additionY: CGFloat = 0
-                if layout.isBigEmoji {
-                    additionY -= 4
-                }
-                
-                let insideBlock = layout.blockQuotes.first(where: { block in
-                    if block.frame.contains(line.frame.origin) {
-                        return true
-                    } else {
-                        return false
-                    }
-                })
-                if let _ = insideBlock, line.isRTL {
-                    penOffset -= 20 + 4 * 2
-                }
-                                
-//                if line.isRTL {
-//                    if let _ = insideBlock {
-//                        rect.origin.x -= 4 * 2 * 2
-//                    }
-//                }
-                
-                let textPosition = CGPoint(x: penOffset + line.frame.minX, y: startPosition.y + line.frame.minY + additionY)
-                
-                let glyphRuns = CTLineGetGlyphRuns(line.line) as NSArray
-                if glyphRuns.count != 0 {
-                    for run in glyphRuns {
-                        let run = run as! CTRun
-                        let glyphCount = CTRunGetGlyphCount(run)
-                        _ = CTRunGetStringRange(run)
-
-                        ctx.textPosition = textPosition
-
-                        if let maxGlyphDraw = layout.maxGlyphDrawCount {
-                            if drawnGlyphCount >= maxGlyphDraw {
-                                break
-                            }
-                            let runDrawCount = max(0, min(glyphCount, maxGlyphDraw - drawnGlyphCount))
-                            CTRunDraw(run, ctx, CFRangeMake(0, runDrawCount))
-                            drawnGlyphCount += glyphCount
-                        } else {
-                            CTRunDraw(run, ctx, CFRangeMake(0, glyphCount))
-                        }
-                    }
-                }
-                // Decorations must share the glyphs' x-origin (penOffset + line.frame.minX);
-                // otherwise, on lines inset by a topLeft cutout (e.g. media-with-caption
-                // chat list previews) they render shifted relative to the text.
-                let decorationOffsetX = penOffset + line.frame.minX
-                for strikethrough in line.strikethrough {
-                    ctx.setFillColor(strikethrough.color.cgColor)
-                    ctx.fill(NSMakeRect(decorationOffsetX + strikethrough.frame.minX, line.frame.minY - strikethrough.frame.height / 2, strikethrough.frame.width, .borderSize))
-                }
-                for underline in line.underlines {
-                    ctx.setFillColor(underline.color.cgColor)
-                    // Draw 1pt under the baseline; line.frame.minY is the
-                    // baseline in the flipped coord system used by TextView.
-                    ctx.fill(NSMakeRect(decorationOffsetX + underline.frame.minX, line.frame.minY + 1, underline.frame.width, .borderSize))
-                }
-                
-            }
-//            for spoiler in layout.spoilerRects(!inAnimation) {
-//                ctx.clear(spoiler)
-//            }
-            
+        } else {
+            pendingEmbeddedMask = mask.map(EmbeddedMaskSnapshot.init)
         }
-        self.blockHeaderRects = blockHeaderRects
     }
-    
-    
+
+    public override func draw(_ layer: CALayer, in ctx: CGContext) {
+        guard drawingLayer == layer else {
+            blockHeaderRects = []
+            return
+        }
+        lastDrawnSelectionState = currentSelectionState
+        blockHeaderRects = drawTextViewContent(textLayout, in: ctx, size: frame.size, drawingSize: layer.frame.size, backingScaleFactor: backingScaleFactor, backgroundColor: backgroundColor, disableBackgroundDrawing: disableBackgroundDrawing, hasBackground: hasBackground, isSelectable: isSelectable, isKeyWindow: window?.isKeyWindow == true, clearExceptRevealed: clearExceptRevealed, inAnimation: inAnimation, canDrawBlocks: canDrawBlocks)
+    }
+
+    private func acceptsMenuRequest(_ state: TextViewMenuState, version: UInt64) -> Bool {
+        guard menuDisposable === state, state.isCurrent(version) else { return false }
+        guard state.matches(textLayout) else {
+            state.cancel()
+            return false
+        }
+        return true
+    }
+
+    private func presentTextMenu(_ menu: ContextMenu, event: NSEvent, state: TextViewMenuState, version: UInt64) {
+        guard acceptsMenuRequest(state, version: version) else { return }
+        state.presentedMenu = menu
+        menu.onClose = { [weak state, weak menu] in
+            guard let state = state, let menu = menu, state.isCurrent(version), state.presentedMenu === menu else { return }
+            state.cancel()
+        }
+        AppMenu.show(menu: menu, event: event, for: self)
+    }
+
     public override func rightMouseDown(with event: NSEvent) {
+        let previousState = menuDisposable
+        let cancelledVersion = previousState?.cancel()
+        guard menuDisposable === previousState, previousState?.version == cancelledVersion else { return }
         if let layout = textLayout, userInteractionEnabled, layout.mayItems, mouseInside() {
             let location = convert(event.locationInWindow, from: nil)
             if !layout.selectedRange.hasSelectText && (!layout.alwaysStaticItems || layout.link(at: location) != nil) {
-                layout.selectWord(at : location)
+                layout.selectWord(at: location)
             }
             self.setNeedsDisplayLayer()
             if (layout.selectedRange.hasSelectText && isSelectable) || !layout.alwaysStaticItems {
-                let link = layout.link(at: convert(event.locationInWindow, from: nil))
-                
-                if let menuItems = layout.interactions.menuItems?(link?.1) {
-                    let window = layout.interactions.topWindow?() ?? .single(nil)
-                    menuDisposable.set(combineLatest(queue: .mainQueue(), menuItems, window).start(next:{ [weak self] items, topWindow in
-                        if let strongSelf = self {
-                            let menu = ContextMenu()
-                            for item in items {
-                                menu.addItem(item)
-                            }
-                            menu.topWindow = topWindow
-                            AppMenu.show(menu: menu, event: event, for: strongSelf)
-                        }
-                    }))
+                guard textLayout === layout, menuDisposable === previousState, previousState?.version == cancelledVersion else { return }
+                let state: TextViewMenuState
+                if let current = menuDisposable {
+                    state = current
                 } else {
-                    let window = (layout.interactions.topWindow?() ?? .single(nil)) |> deliverOnMainQueue
-                    menuDisposable.set(window.start(next: { [weak self] topWindow in
-                        let link = layout.link(at: location)
-                        let resolved: String? = link != nil ? layout.interactions.resolveLink(link!.0) : nil
+                    state = TextViewMenuState()
+                    menuDisposable = state
+                }
+                let version = state.begin(layout)
+                guard acceptsMenuRequest(state, version: version) else { return }
+                let link = layout.link(at: convert(event.locationInWindow, from: nil))
+                guard acceptsMenuRequest(state, version: version) else { return }
+                let items = layout.interactions.menuItems?(link?.1)
+                guard acceptsMenuRequest(state, version: version) else { return }
+                let window = layout.interactions.topWindow?() ?? .single(nil)
+                guard acceptsMenuRequest(state, version: version) else { return }
+                let disposable: Disposable
+                if let items = items {
+                    disposable = combineLatest(queue: .mainQueue(), items, window).start(next: { [weak self, weak state] items, topWindow in
+                        guard let self = self, let state = state, self.acceptsMenuRequest(state, version: version) else { return }
                         let menu = ContextMenu()
-                        let copy = ContextMenuItem(link?.1 != nil ? layout.interactions.localizeLinkCopy(link!.1) : localizedString("Text.Copy"), handler: { [weak self] in
-                            guard let `self` = self else {return}
-                            if let resolved = resolved {
+                        for item in items { menu.addItem(item) }
+                        menu.topWindow = topWindow
+                        self.presentTextMenu(menu, event: event, state: state, version: version)
+                    }, completed: { [weak state] in state?.finish(version) })
+                } else {
+                    disposable = (window |> deliverOnMainQueue).start(next: { [weak self, weak state, weak layout] topWindow in
+                        guard let self = self, let state = state, let layout = layout, self.acceptsMenuRequest(state, version: version), let text = state.text else { return }
+                        let link = layout.link(at: location)
+                        let resolved = link.flatMap { layout.interactions.resolveLink($0.0) }
+                        guard self.acceptsMenuRequest(state, version: version) else { return }
+                        let title = link.map { layout.interactions.localizeLinkCopy($0.1) } ?? localizedString("Text.Copy")
+                        guard self.acceptsMenuRequest(state, version: version) else { return }
+                        let copyAction: () -> Void
+                        if let resolved = resolved {
+                            copyAction = { [weak self] in
+                                guard let self = self else { return }
                                 let pb = NSPasteboard.general
                                 pb.clearContents()
                                 pb.declareTypes([.string], owner: self)
                                 pb.setString(resolved, forType: .string)
-                            } else {
-                                self.copy(self)
                             }
-                        }, itemImage: TextView.context_copy_animation)
-                        
+                        } else {
+                            let selection = layout.selectedRange.range
+                            let selectedText: NSAttributedString?
+                            if selection.location != NSNotFound, selection.location >= 0, selection.length >= 0,
+                               selection.location <= text.length, selection.length <= text.length - selection.location {
+                                selectedText = text.attributedSubstring(from: selection)
+                            } else {
+                                selectedText = nil
+                            }
+                            let copySelection = layout.interactions.copy
+                            let copyAttributedString = layout.interactions.copyAttributedString
+                            copyAction = { [weak self] in
+                                guard let self = self else { return }
+                                if copySelection?() != true, let selectedText = selectedText, !copyAttributedString(selectedText) {
+                                    let pb = NSPasteboard.general
+                                    pb.clearContents()
+                                    pb.declareTypes([.string], owner: self)
+                                    pb.setString(selectedText.string, forType: .string)
+                                }
+                            }
+                        }
+                        let menu = ContextMenu()
+                        let copy = ContextMenuItem(title, handler: copyAction, itemImage: TextView.context_copy_animation)
                         menu.addItem(copy)
-                        
-                        if resolved == nil, let window = self?._window {
-                            if let text = self?.effectiveText, let translate = layout.interactions.translate?(text, window) {
+                        if resolved == nil, let window = self._window {
+                            if let text = self.effectiveText, let translate = layout.interactions.translate?(text, window) {
                                 menu.addItem(translate)
                             }
                         }
                         menu.topWindow = topWindow
-                        if let strongSelf = self {
-                            AppMenu.show(menu: menu, event: event, for: strongSelf)
-                        }
-                    }))
+                        self.presentTextMenu(menu, event: event, state: state, version: version)
+                    }, completed: { [weak state] in state?.finish(version) })
                 }
+                state.install(disposable, version: version)
             } else {
                 layout.selectedRange.range = NSMakeRange(NSNotFound, 0)
                 setNeedsDisplayLayer()
@@ -2952,7 +3242,7 @@ open class TextView: Control, NSViewToolTipOwner, ViewDisplayDelegate {
             super.rightMouseDown(with: event)
         }
     }
-    
+
     public static var context_copy_animation: ((NSColor, ContextMenuItem)->AppMenuItemImageDrawable)?
     
     
@@ -2975,7 +3265,8 @@ open class TextView: Control, NSViewToolTipOwner, ViewDisplayDelegate {
     }
     
     deinit {
-        menuDisposable.dispose()
+        menuDisposable?.dispose()
+        cancelLongHoverTimer()
     }
     
     public func isEqual(to layout:TextViewLayout) -> Bool {
@@ -2984,16 +3275,16 @@ open class TextView: Control, NSViewToolTipOwner, ViewDisplayDelegate {
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         self.drawLayer.contentsScale = backingScaleFactor
-        self.embeddedContainer.contentsScale = backingScaleFactor
+        self.currentEmbeddedContainer?.contentsScale = backingScaleFactor
         setNeedsDisplayLayer()
     }
 
     //
     
     private func updateInks(_ layout: TextViewLayout?, animated: Bool = false) {
+        let rects = layout?.spoilerRectFrames() ?? []
         if let layout = layout {
             let spoilers = layout.spoilers
-            let rects = layout.spoilerRects().map { $0.0 }
             while rects.count > self.inkViews.count {
                 let inkView = InvisibleInkDustView()
                 self.inkViews.append(inkView)
@@ -3029,10 +3320,38 @@ open class TextView: Control, NSViewToolTipOwner, ViewDisplayDelegate {
                 performSubviewRemoval(inkViews.removeLast(), animated: animated)
             }
         }
-        self.checkEmbeddedUnderSpoiler()
+        if layout != nil {
+            self.updateEmbeddedVisibility(spoilerRects: rects)
+        }
         self.selectionWasCleared = false
     }
     
+    public var canReuseForContentChange: Bool {
+        return locationInWindow == nil && controlState != .Highlight && canBeResponder
+            && !inAnimation && shimmerEffect == nil && contextMenu == nil
+            && layer?.animationKeys()?.isEmpty != false
+    }
+
+    @discardableResult public func resetForContentChange() -> Bool {
+        guard canReuseForContentChange else { return false }
+        let previous = textLayout
+        textLayout = nil
+        guard textLayout == nil else { return false }
+        animatedView?.removeFromSuperlayer()
+        animatedView = nil
+        blockHeaderRects.removeAll(keepingCapacity: true)
+        lastDrawnSelectionState = nil
+        beginSelect = NSPoint(x: -1, y: -1)
+        endSelect = NSPoint(x: -1, y: -1)
+        selectionWasCleared = false
+        moveNextEventDeep = false
+        clearExceptRevealed = false
+        if window?.firstResponder === self { window?.makeFirstResponder(nil) }
+        setNeedsDisplayLayer()
+        previous?.interactions.hoverOnLink(.exited)
+        return true
+    }
+
     public func update(_ layout:TextViewLayout?, origin:NSPoint? = nil, transition: ContainedViewLayoutTransition = .immediate) -> Void {
         
         if let current = self.textLayout, current.attributedString.string == layout?.attributedString.string {
@@ -3045,7 +3364,8 @@ open class TextView: Control, NSViewToolTipOwner, ViewDisplayDelegate {
         }
         
         self.textLayout = layout
-                
+        guard self.textLayout === layout else { return }
+
         self.updateInks(layout)
         
         
@@ -3060,9 +3380,12 @@ open class TextView: Control, NSViewToolTipOwner, ViewDisplayDelegate {
             let rect = NSMakeRect(point.x, point.y, layout.layoutSize.width + layout.insets.width, layout.layoutSize.height + layout.insets.height)
             transition.updateFrame(view: self, frame: rect)
             
-            removeAllToolTips()
-            for rect in layout.toolTipRects {
-                addToolTip(rect, owner: self, userData: nil)
+            if installedToolTipRects != layout.toolTipRects {
+                removeAllToolTips()
+                for rect in layout.toolTipRects {
+                    addToolTip(rect, owner: self, userData: nil)
+                }
+                installedToolTipRects = layout.toolTipRects
             }
             
         } else {
@@ -3121,7 +3444,7 @@ open class TextView: Control, NSViewToolTipOwner, ViewDisplayDelegate {
         if let layout = textLayout, userInteractionEnabled {
             let point = self.convert(event.locationInWindow, from: nil)
             let index = layout.findIndex(location: point)
-            if point.x > layout.lines[index].frame.maxX, isSelectable {
+            if index == -1 || (point.x > layout.lines[index].frame.maxX && isSelectable) {
                 superview?.mouseDown(with: event)
                 if sendDownAnyway {
                     super.mouseDown(with: event)
@@ -3271,26 +3594,16 @@ open class TextView: Control, NSViewToolTipOwner, ViewDisplayDelegate {
             let point = self.convert(event.locationInWindow, from: nil)
             if let _ = layout.spoiler(at: point) {
                 layout.revealSpoiler()
+                guard textLayout === layout else { return }
                 setNeedsDisplayLayer()
                 self.updateInks(layout, animated: true)
                 return
             }
             if let blockHeader = blockHeaderRects.first(where: { $0.0.contains(point) }) {
-                var quoteRange = blockHeader.1
-                
-                for i in blockHeader.1.max ..< layout.attributedString.length {
-                    let value = layout.attributedString.attribute(TextInputAttributes.quote, at: i, effectiveRange: nil)
-                    if value != nil {
-                        quoteRange.length += 1
-                    } else {
-                        break
-                    }
+                if let string = layout.blockQuoteText(startingWith: blockHeader.1) {
+                    _ = layout.interactions.copyToClipboard?(string)
+                    showModalText(for: window, text: localizedString("Share.Link.Copied"))
                 }
-                
-                
-                let string = layout.attributedString.attributedSubstring(from: quoteRange)
-                _ = layout.interactions.copyToClipboard?(string.string)
-                showModalText(for: window, text: localizedString("Share.Link.Copied"))
             } else if event.clickCount == 3, isSelectable {
                 layout.selectAll(at: point)
                 layout.selectedRange.cursorAlignment = .max(layout.selectedRange.range.min)
@@ -3360,19 +3673,25 @@ open class TextView: Control, NSViewToolTipOwner, ViewDisplayDelegate {
         if self.isMousePoint(location , in: self.visibleRect) && mouseInside() && userInteractionEnabled {
             let inBlockHeader = blockHeaderRects.contains(where: { $0.0.contains(location) })
             if inBlockHeader {
+                cancelLongHoverTimer()
                 NSCursor.pointingHand.set()
             } else if textLayout?.spoiler(at: location) != nil {
+                cancelLongHoverTimer()
                 NSCursor.pointingHand.set()
             }  else if textLayout?.color(at: location) != nil {
+                cancelLongHoverTimer()
                 NSCursor.pointingHand.set()
                 textLayout?.interactions.hoverOnLink(.exited)
             } else if textLayout?.formattedDate(at: location) != nil {
+                cancelLongHoverTimer()
                 NSCursor.pointingHand.set()
-            } else if let layout = textLayout, let (value, _, _, _) = layout.link(at: location) {
+            } else if let layout = textLayout, let (value, _, range, _) = layout.link(at: location) {
                 NSCursor.pointingHand.set()
                 layout.interactions.hoverOnLink(.entered(value))
                 if layout.interactions.longHoverOnLink != nil {
-                    startLongHoverTimer(for: value, layout: layout)
+                    startLongHoverTimer(for: value, range: range, layout: layout)
+                } else {
+                    cancelLongHoverTimer()
                 }
             } else if isSelectable {
                 NSCursor.iBeam.set()
@@ -3390,36 +3709,75 @@ open class TextView: Control, NSViewToolTipOwner, ViewDisplayDelegate {
         }
     }
 
-    private func startLongHoverTimer(for link: Any, layout: TextViewLayout) {
-        if let existingLink = longHoverLink {
-            if let existingStr = existingLink as? String, let newStr = link as? String, existingStr == newStr {
+    private func startLongHoverTimer(for link: Any, range: NSRange, layout: TextViewLayout) {
+        guard textLayout === layout else { return }
+        if longHoverText === layout.attributedString, longHoverRange == range {
+            return
+        }
+        if let text = longHoverText, longHoverRange.location != NSNotFound, longHoverRange.location < text.length,
+           let existingLink = text.attribute(.link, at: longHoverRange.location, effectiveRange: nil) {
+            if let existing = existingLink as? String, let next = link as? String, existing == next {
                 return
             }
-            if let existingRef = existingLink as AnyObject?, let newRef = link as AnyObject?, existingRef === newRef {
+            if (existingLink as AnyObject) === (link as AnyObject) {
                 return
             }
         }
         cancelLongHoverTimer()
-        longHoverLink = link
-        longHoverTimer = SwiftSignalKit.Timer(timeout: 1.0, repeat: false, completion: { [weak self, weak layout] in
-            guard let self = self, let layout = layout else { return }
-            if let link = self.longHoverLink, !contextMenuOnScreen() {
-                self.longHoverDisposable = layout.interactions.longHoverOnLink?(link, self)
+        guard textLayout === layout, longHoverRange.location == NSNotFound else { return }
+        longHoverRange = range
+        longHoverText = layout.attributedString.copy() as? NSAttributedString
+        let timer = SwiftSignalKit.Timer(timeout: 1.0, repeat: false, completion: { [weak self, weak layout] timer in
+            guard let self = self, let layout = layout, self.textLayout === layout, self.longHoverTimer === timer else { return }
+            guard self.matchesLongHoverText(layout) else {
+                self.cancelLongHoverTimer()
+                return
             }
-            self.longHoverLink = nil
-            self.longHoverTimer = nil
+            if !contextMenuOnScreen() {
+                let disposable = layout.interactions.longHoverOnLink?(link, self)
+                guard self.textLayout === layout, self.longHoverTimer === timer, self.matchesLongHoverText(layout) else {
+                    if self.longHoverTimer === timer { self.cancelLongHoverTimer() }
+                    disposable?.dispose()
+                    return
+                }
+                self.longHoverDisposable = disposable
+                self.longHoverTimer = nil
+            } else {
+                self.cancelLongHoverTimer()
+            }
         }, queue: .mainQueue())
-        longHoverTimer?.start()
+        longHoverTimer = timer
+        timer.start()
+    }
+
+    private func matchesLongHoverText(_ layout: TextViewLayout?) -> Bool {
+        guard let text = longHoverText, let layout = layout else { return false }
+        return text === layout.attributedString || text.isEqual(to: layout.attributedString)
     }
 
     private func cancelLongHoverTimer() {
-        longHoverTimer?.invalidate()
+        guard longHoverRange.location != NSNotFound else { return }
+        let timer = longHoverTimer
+        let disposable = longHoverDisposable
+        let text = longHoverText
         longHoverTimer = nil
-        longHoverLink = nil
-        longHoverDisposable?.dispose()
+        longHoverRange = NSRange(location: NSNotFound, length: 0)
         longHoverDisposable = nil
+        longHoverText = nil
+        timer?.invalidate()
+        disposable?.dispose()
+        withExtendedLifetime(text) {}
     }
 
+    open override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            cancelLongHoverTimer()
+        }
+        if window == nil {
+            menuDisposable?.cancel()
+        }
+    }
 
     private func updateBackgroundBlur() {
         
@@ -3427,7 +3785,9 @@ open class TextView: Control, NSViewToolTipOwner, ViewDisplayDelegate {
             return
         }
         
-        self.layer?.masksToBounds = blurBackground != nil
+        if self.layer?.masksToBounds != (blurBackground != nil) {
+            self.layer?.masksToBounds = blurBackground != nil
+        }
         if let blurBackground = blurBackground {
 
             if self.visualEffect == nil {
@@ -3438,7 +3798,8 @@ open class TextView: Control, NSViewToolTipOwner, ViewDisplayDelegate {
                 } else {
                     self.visualEffect?.layer?.addSublayer(drawLayer)
                 }
-                self.visualEffect?.layer?.addSublayer(embeddedContainer)
+                if let currentEmbeddedContainer { self.visualEffect?.layer?.addSublayer(currentEmbeddedContainer) }
+                embeddedContainerBelowText = false
             }
             self.visualEffect?.bgColor = blurBackground
             
@@ -3464,24 +3825,38 @@ open class TextView: Control, NSViewToolTipOwner, ViewDisplayDelegate {
         }  else {
             if let textView = textView {
                 self.addSubview(textView, positioned: .below, relativeTo: nil)
-            } else {
-                if let animatedView = animatedView, animatedView.superlayer != nil {
-                    self.layer?.insertSublayer(drawLayer, at: 1)
-                } else {
-                    self.layer?.insertSublayer(drawLayer, at: 0)
+            } else if let layer = self.layer {
+                let hasAnimatedLayer = animatedView?.superlayer != nil
+                embeddedContainerBelowText = hasAnimatedLayer
+                let container = currentEmbeddedContainer
+                let drawIndex = hasAnimatedLayer ? (container == nil ? 1 : 2) : 0
+                let sublayers = layer.sublayers ?? []
+                let containerIsMisplaced = container.map { sublayers.count < 2 || sublayers[1] !== $0 } ?? false
+                if sublayers.count <= drawIndex || sublayers[drawIndex] !== drawLayer || containerIsMisplaced {
+                    layer.insertSublayer(drawLayer, at: hasAnimatedLayer ? 1 : 0)
+                    if let container { layer.insertSublayer(container, at: 1) }
                 }
             }
-            self.layer?.insertSublayer(embeddedContainer, at: 1)
+            if textView != nil, let currentEmbeddedContainer {
+                self.layer?.insertSublayer(currentEmbeddedContainer, at: 1)
+            }
             self.visualEffect?.removeFromSuperview()
             self.visualEffect = nil
             
             self.blockMask?.removeFromSuperlayer()
             self.blockMask = nil
-            self.layer?.mask = nil
+            if self.layer?.mask != nil {
+                self.layer?.mask = nil
+            }
         }
         
 
-        needsLayout = true
+        let drawingBounds = bounds.insetBy(dx: -2, dy: -3)
+        if type(of: self) != TextView.self || _customHandler?.layout != nil || visualEffect != nil
+            || drawLayer.frame != drawingBounds || drawLayer.bounds != drawingBounds
+            || (currentEmbeddedContainer.map { $0.frame != bounds } ?? false) {
+            needsLayout = true
+        }
     }
     
     public override var needsDisplay: Bool {
@@ -3499,7 +3874,7 @@ open class TextView: Control, NSViewToolTipOwner, ViewDisplayDelegate {
         super.layout()
         self.visualEffect?.frame = bounds
         self.textView?.frame = bounds
-        self.embeddedContainer.frame = bounds
+        self.currentEmbeddedContainer?.frame = bounds
         self.drawLayer.frame = bounds
         self.drawLayer.bounds = bounds.insetBy(dx: -2, dy: -3)
         self.updateInks(self.textLayout)
@@ -3524,8 +3899,35 @@ open class TextView: Control, NSViewToolTipOwner, ViewDisplayDelegate {
         return false        
     }
     
+    public var isAccessibilitySensitive: Bool = false
+
+    private var accessibilityText: String? {
+        guard let text = textLayout?.attributedString.string, !text.isEmpty else {
+            return nil
+        }
+        if isAccessibilitySensitive, !NSWorkspace.shared.isVoiceOverEnabled {
+            return nil
+        }
+        return text
+    }
+
+    public override func isAccessibilityElement() -> Bool {
+        guard TGUIKitAccessibility.isEnabled, !isAccessibilityDecorative, !isHidden else {
+            return false
+        }
+        return accessibilityText != nil
+    }
+
+    public override func accessibilityRole() -> NSAccessibility.Role? {
+        return TGUIKitAccessibility.isEnabled ? .staticText : super.accessibilityRole()
+    }
+
     public override func accessibilityLabel() -> String? {
-        return self.textLayout?.attributedString.string
+        return nil
+    }
+
+    public override func accessibilityValue() -> Any? {
+        return accessibilityText
     }
 
 //    public override var isOpaque: Bool {
@@ -3542,7 +3944,9 @@ open class TextView: Control, NSViewToolTipOwner, ViewDisplayDelegate {
     }
     
     public override func responds(to aSelector: Selector!) -> Bool {
-        
+        guard let aSelector = aSelector else {
+            return false
+        }
         if NSStringFromSelector(aSelector) == "copy:" {
             return self.textLayout?.selectedRange.range.location != NSNotFound
         }
@@ -3586,21 +3990,20 @@ open class TextView: Control, NSViewToolTipOwner, ViewDisplayDelegate {
     
     public func checkEmbeddedUnderSpoiler() {
         if let layout = self.textLayout {
-            let rects = layout.spoilerRects().map { $0.0 }
-            let sublayers = embeddedContainer.sublayers ?? []
-            for subview in sublayers {
-                var isHidden = false
-                loop: for rect in rects {
-                    if NSIntersectsRect(NSMakeRect(subview.frame.midX, subview.frame.midY, 1, 1), rect) {
-                        isHidden = true
-                        break loop
-                    }
-                }
-                subview.opacity = isHidden ? 0 : 1
+            updateEmbeddedVisibility(spoilerRects: layout.spoilerRectFrames())
+        }
+    }
+
+    private func updateEmbeddedVisibility(spoilerRects: [CGRect]) {
+        for sublayer in currentEmbeddedContainer?.sublayers ?? [] {
+            let center = NSMakeRect(sublayer.frame.midX, sublayer.frame.midY, 1, 1)
+            let opacity: Float = spoilerRects.contains(where: { NSIntersectsRect(center, $0) }) ? 0 : 1
+            if sublayer.opacity != opacity {
+                sublayer.opacity = opacity
             }
         }
     }
-    
+
     @objc func paste(_ sender:Any) {
         
     }
@@ -3640,20 +4043,21 @@ open class TextView: Control, NSViewToolTipOwner, ViewDisplayDelegate {
         }
         if effectiveRange.location != NSNotFound {
             let image = textLayout.generateBlock(for: effectiveRange, backgroundColor: color)
-            
-            let imageView = SimpleLayer(frame: CGRect(origin: image.0, size: image.1!.backingSize))
-            imageView.contents = image.1
+            guard let blockImage = image.1 else {
+                return
+            }
+            let imageView = SimpleLayer(frame: CGRect(origin: image.0, size: blockImage.backingSize))
+            imageView.contents = blockImage
             imageView.opacity = 0.5
             
             self.layer?.insertSublayer(imageView, at: 0)
             
             self.animatedView = imageView
             
-            _ = delaySignal(3.0).start(completed: { [weak self] in
-                if let view = self?.animatedView {
-                    performSublayerRemoval(view, animated: true)
-                    self?.animatedView = nil
-                }
+            _ = delaySignal(3.0).start(completed: { [weak self, weak imageView] in
+                guard let self, let imageView, self.animatedView === imageView else { return }
+                performSublayerRemoval(imageView, animated: true)
+                self.animatedView = nil
             })
             
         }

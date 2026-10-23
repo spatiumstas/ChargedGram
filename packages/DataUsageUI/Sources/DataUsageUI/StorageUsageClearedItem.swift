@@ -28,6 +28,14 @@ public final class StorageUsageClearedItem: GeneralRowItem {
     public override var height: CGFloat {
         return 100
     }
+
+    public override var accessibilityLabel: String? {
+        return strings().storageUsageCleared
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 private final class StorageUsageClearedView : TableRowView {
@@ -79,6 +87,7 @@ private final class StorageUsageClearedView : TableRowView {
             current_circle = view
         } else {
             current_circle = ImageView()
+            current_circle.isAccessibilityDecorative = true
             self.circle = current_circle
             addSubview(current_circle)
             current_circle.image = circle
@@ -96,6 +105,7 @@ private final class StorageUsageClearedView : TableRowView {
             current_check = view
         } else {
             current_check = ImageView()
+            current_check.isAccessibilityDecorative = true
             self.check = current_check
             addSubview(current_check)
             current_check.image = check

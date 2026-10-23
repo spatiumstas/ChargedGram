@@ -196,14 +196,41 @@ private func walletCardFbm(_ x: CGFloat, _ y: CGFloat) -> CGFloat {
     return value
 }
 
-public func walletCardTextureImage(size: NSSize, backingScale: CGFloat, baseColor: NSColor) -> CGImage? {
+struct WalletCardTextureField {
+    let width: Int
+    let height: Int
+    let steps: [UInt16]
+    let range: ClosedRange<Int>
+}
+
+private let walletCardTextureSteps = 1024
+
+func walletCardTextureField(size: NSSize, backingScale: CGFloat) -> WalletCardTextureField {
     let renderScale = min(2.0, backingScale)
     let width = max(1, Int(ceil(size.width * renderScale)))
     let height = max(1, Int(ceil(size.height * renderScale)))
-    let bytesPerRow = width * 4
-    var pixels = [UInt8](repeating: 0, count: bytesPerRow * height)
     let heightPx = CGFloat(height)
+    var steps = [UInt16](repeating: 0, count: width * height)
+    var lowest = walletCardTextureSteps
+    var highest = 0
+    for py in 0 ..< height {
+        let flippedY = CGFloat(height - 1 - py)
+        let uvY = flippedY / heightPx
+        for px in 0 ..< width {
+            let uvX = CGFloat(px) / heightPx
+            let mottle = walletCardFbm(uvX * 244.5, uvY * 129.0) - 0.5
+            let grain = walletCardValueNoise(CGFloat(px) * 1.7, flippedY * 1.7) - 0.5
+            let value = min(1.0, max(0.0, 0.5 + mottle * 0.06 + grain * 0.03))
+            let step = Int((value * CGFloat(walletCardTextureSteps)).rounded())
+            lowest = min(lowest, step)
+            highest = max(highest, step)
+            steps[py * width + px] = UInt16(step)
+        }
+    }
+    return WalletCardTextureField(width: width, height: height, steps: steps, range: lowest ... max(lowest, highest))
+}
 
+func walletCardTextureImage(field: WalletCardTextureField, baseColor: NSColor, map: ((WalletRGB) -> WalletRGB)?) -> CGImage? {
     let base = baseColor.usingColorSpace(.deviceRGB) ?? baseColor
     let baseChannels: [CGFloat] = [base.redComponent, base.greenComponent, base.blueComponent]
 
@@ -214,25 +241,32 @@ public func walletCardTextureImage(size: NSSize, backingScale: CGFloat, baseColo
         return 1.0 - 2.0 * (1.0 - baseValue) * (1.0 - blendValue)
     }
 
-    for py in 0 ..< height {
-        let flippedY = CGFloat(height - 1 - py)
-        let uvY = flippedY / heightPx
-        for px in 0 ..< width {
-            let uvX = CGFloat(px) / heightPx
-            let mottle = walletCardFbm(uvX * 244.5, uvY * 129.0) - 0.5
-            let grain = walletCardValueNoise(CGFloat(px) * 1.7, flippedY * 1.7) - 0.5
-            let value = min(1.0, max(0.0, 0.5 + mottle * 0.06 + grain * 0.03))
-            let offset = py * bytesPerRow + px * 4
-            pixels[offset] = 255
-            pixels[offset + 1] = UInt8(min(1.0, max(0.0, overlayBlend(baseChannels[0], value))) * 255.0)
-            pixels[offset + 2] = UInt8(min(1.0, max(0.0, overlayBlend(baseChannels[1], value))) * 255.0)
-            pixels[offset + 3] = UInt8(min(1.0, max(0.0, overlayBlend(baseChannels[2], value))) * 255.0)
+    var table = [UInt32](repeating: 0, count: walletCardTextureSteps + 1)
+    for step in field.range {
+        let value = CGFloat(step) / CGFloat(walletCardTextureSteps)
+        var color = WalletRGB(overlayBlend(baseChannels[0], value), overlayBlend(baseChannels[1], value), overlayBlend(baseChannels[2], value)).clamped()
+        if let map {
+            color = map(color).clamped()
+        }
+        table[step] = UInt32(UInt8(color.r * 255.0)) << 16 | UInt32(UInt8(color.g * 255.0)) << 8 | UInt32(UInt8(color.b * 255.0)) | 0xff000000
+    }
+
+    var pixels = [UInt32](repeating: 0, count: field.width * field.height)
+    pixels.withUnsafeMutableBufferPointer { output in
+        table.withUnsafeBufferPointer { table in
+            field.steps.withUnsafeBufferPointer { steps in
+                for index in 0 ..< steps.count {
+                    output[index] = table[Int(steps[index])]
+                }
+            }
         }
     }
-    guard let context = CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: bytesPerRow, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else {
-        return nil
+    return pixels.withUnsafeMutableBytes { bytes -> CGImage? in
+        guard let context = CGContext(data: bytes.baseAddress, width: field.width, height: field.height, bitsPerComponent: 8, bytesPerRow: field.width * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue) else {
+            return nil
+        }
+        return context.makeImage()
     }
-    return context.makeImage()
 }
 
 private final class WalletCardTextureRequest {
@@ -258,7 +292,7 @@ private final class WalletCardTextureCache {
     let queue = DispatchQueue(label: "WalletCardTextureCache", qos: .userInitiated)
     private let images: NSCache<NSString, CGImage> = {
         let cache = NSCache<NSString, CGImage>()
-        cache.countLimit = 4
+        cache.countLimit = 8
         return cache
     }()
     
@@ -268,6 +302,21 @@ private final class WalletCardTextureCache {
     
     func store(_ image: CGImage, key: String) {
         images.setObject(image, forKey: key as NSString)
+    }
+
+    private let fieldLock = NSLock()
+    private var fields: [String: WalletCardTextureField] = [:]
+
+    func field(_ key: String) -> WalletCardTextureField? {
+        fieldLock.lock()
+        defer { fieldLock.unlock() }
+        return fields[key]
+    }
+
+    func store(_ field: WalletCardTextureField, key: String) {
+        fieldLock.lock()
+        fields = [key: field]
+        fieldLock.unlock()
     }
 }
 
@@ -306,33 +355,66 @@ private struct WalletCardEffectsGeometry: Equatable {
     public let backingScale: CGFloat
 }
 
+
+struct WalletCardSurfacePalette {
+    let key: String
+    let map: ((WalletRGB) -> WalletRGB)?
+
+    static let stock = WalletCardSurfacePalette(key: "stock", map: nil)
+
+    func color(_ color: CGColor) -> CGColor {
+        guard let map else {
+            return color
+        }
+        let components = color.components ?? [0, 0, 0, 1]
+        let rgb = components.count >= 3 ? WalletRGB(components[0], components[1], components[2]) : WalletRGB(components[0], components[0], components[0])
+        return map(rgb).cgColor
+    }
+}
+
+private final class WalletCardSurfaceStack {
+    let container = SimpleLayer()
+    let textureLayer = SimpleLayer()
+    let shineLayer = SimpleLayer()
+    let shineMaskLayer = SimpleLayer()
+    let palette: WalletCardSurfacePalette
+    let shineColors: [CGColor]
+    var appliedColorIndex: Int = -1
+    var textureKey: String = ""
+    var pendingTextureRenderKey: Int = 0
+    let latestTextureRequest = WalletCardTextureRequest()
+
+    init(palette: WalletCardSurfacePalette) {
+        self.palette = palette
+        self.shineColors = palette.map == nil ? walletCardShineColorLUT : walletCardShineColorLUT.map(palette.color)
+        shineLayer.opacity = 0.75
+        shineLayer.mask = shineMaskLayer
+        shineMaskLayer.contentsGravity = .resize
+        textureLayer.contentsGravity = .resize
+        container.addSublayer(textureLayer)
+        container.addSublayer(shineLayer)
+    }
+}
+
 public final class WalletCardEffectsLayers {
-    private let shineLayer = SimpleLayer()
-    private let shineMaskLayer = SimpleLayer()
-    private let textureLayer = SimpleLayer()
+    private var current: WalletCardSurfaceStack
+    private var previous: WalletCardSurfaceStack?
     private let starsLayer = SimpleLayer()
     private let starsMaskLayer = SimpleLayer()
     private var starShapeLayers: [CAShapeLayer] = []
     private let rimShadowLayer = CAShapeLayer()
-    private let chipBaseLayer = CAGradientLayer()
-    private let chipHighlightLayer = CAGradientLayer()
+    private let waveMaskLayer = CAGradientLayer()
+    private weak var host: CALayer?
 
     private var appliedTilt = WalletCardTilt(tx: .greatestFiniteMagnitude, ty: .greatestFiniteMagnitude)
-    private var appliedColorIndex: Int = -1
-    private var textureKey: String = ""
     private var maskKey: WalletCardMaskCacheKey?
+    private var maskImages: WalletCardMaskImages?
     private var geometry: WalletCardEffectsGeometry?
     private var unit: CGFloat = 1
     private var twinkleInstalled = true
-    private var pendingTextureRenderKey: Int = 0
-    private let latestTextureRequest = WalletCardTextureRequest()
 
     public init() {
-        shineLayer.opacity = 0.75
-        shineLayer.mask = shineMaskLayer
-        shineMaskLayer.contentsGravity = .resize
-
-        textureLayer.contentsGravity = .resize
+        current = WalletCardSurfaceStack(palette: .stock)
 
         starsLayer.mask = starsMaskLayer
         starsMaskLayer.contentsGravity = .resize
@@ -342,17 +424,12 @@ public final class WalletCardEffectsLayers {
         rimShadowLayer.shadowColor = NSColor.black.cgColor
         rimShadowLayer.shadowOpacity = 0.16
 
-        chipBaseLayer.colors = [NSColor(rgb: 0xe8e9ea).withAlphaComponent(0.88).cgColor, NSColor(rgb: 0xbbbdc0).withAlphaComponent(0.88).cgColor]
-        setGradientAngle(chipBaseLayer, degrees: 127.28)
-        chipHighlightLayer.colors = [
-            NSColor.black.withAlphaComponent(0.08).cgColor,
-            NSColor.white.withAlphaComponent(0.16).cgColor,
-            NSColor.white.withAlphaComponent(0.48).cgColor,
-            NSColor.white.withAlphaComponent(0.16).cgColor,
-            NSColor.black.withAlphaComponent(0.08).cgColor
-        ]
-        setGradientAngle(chipHighlightLayer, degrees: 115)
-        chipBaseLayer.borderColor = NSColor.black.withAlphaComponent(0.16).cgColor
+        if #available(macOS 10.14, *) {
+            waveMaskLayer.type = .radial
+        }
+        waveMaskLayer.startPoint = CGPoint(x: 0.5, y: 0.5)
+        waveMaskLayer.endPoint = CGPoint(x: 1.0, y: 1.0)
+        waveMaskLayer.colors = [NSColor.black.cgColor, NSColor.black.cgColor, NSColor.black.withAlphaComponent(0).cgColor]
 
         for position in walletCardStarPositions {
             let star = CAShapeLayer()
@@ -363,19 +440,110 @@ public final class WalletCardEffectsLayers {
         }
     }
 
-    private func setGradientAngle(_ layer: CAGradientLayer, degrees: CGFloat) {
-        let radians = degrees * .pi / 180.0
-        let dx = cos(radians) / 2.0
-        let dy = sin(radians) / 2.0
-        layer.startPoint = CGPoint(x: 0.5 - dx, y: 0.5 + dy)
-        layer.endPoint = CGPoint(x: 0.5 + dx, y: 0.5 - dy)
-    }
-
     public func install(into container: CALayer) {
-        container.addSublayer(textureLayer)
-        container.addSublayer(shineLayer)
+        host = container
+        container.addSublayer(current.container)
         container.addSublayer(starsLayer)
         container.addSublayer(rimShadowLayer)
+    }
+
+    var paletteKey: String {
+        return current.palette.key
+    }
+
+    func setPalette(_ palette: WalletCardSurfacePalette, animated: Bool) {
+        guard palette.key != current.palette.key else {
+            return
+        }
+        let stack = WalletCardSurfaceStack(palette: palette)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        previous?.container.removeFromSuperlayer()
+        if animated {
+            previous = current
+            host?.insertSublayer(stack.container, above: current.container)
+        } else {
+            previous = nil
+            host?.insertSublayer(stack.container, above: current.container)
+            current.container.removeFromSuperlayer()
+        }
+        current = stack
+        if let geometry {
+            layoutStack(stack, geometry: geometry)
+        }
+        let tilt = appliedTilt
+        appliedTilt = WalletCardTilt(tx: .greatestFiniteMagnitude, ty: .greatestFiniteMagnitude)
+        if tilt.tx != .greatestFiniteMagnitude {
+            apply(tilt: tilt)
+        }
+        CATransaction.commit()
+    }
+
+    func updatePaletteTransition(origin: CGPoint, radius: CGFloat, progress: CGFloat, fade: Bool, receding: Bool = false) {
+        guard previous != nil else {
+            return
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let canWave: Bool
+        if #available(macOS 10.14, *) {
+            canWave = true
+        } else {
+            canWave = false
+        }
+        if receding, let previous {
+            host?.insertSublayer(previous.container, above: current.container)
+            let outer = max(radius, 1)
+            waveMaskLayer.frame = CGRect(x: origin.x - outer, y: origin.y - outer, width: outer * 2, height: outer * 2)
+            waveMaskLayer.locations = [0, NSNumber(value: Double(max(0, (outer - 18) / outer))), 1]
+            previous.container.mask = waveMaskLayer
+            current.container.mask = nil
+            current.container.opacity = 1
+        } else if fade || !canWave {
+            current.container.mask = nil
+            current.container.opacity = Float(progress)
+        } else {
+            let outer = max(radius, 1)
+            waveMaskLayer.frame = CGRect(x: origin.x - outer, y: origin.y - outer, width: outer * 2, height: outer * 2)
+            let soft = max(0, (outer - 18) / outer)
+            waveMaskLayer.locations = [0, NSNumber(value: Double(soft)), 1]
+            current.container.opacity = 1
+            current.container.mask = waveMaskLayer
+        }
+        CATransaction.commit()
+    }
+
+    func finishPaletteTransition() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        previous?.container.removeFromSuperlayer()
+        previous = nil
+        current.container.mask = nil
+        current.container.opacity = 1
+        CATransaction.commit()
+    }
+
+    private var stacks: [WalletCardSurfaceStack] {
+        if let previous {
+            return [previous, current]
+        }
+        return [current]
+    }
+
+    private func layoutStack(_ stack: WalletCardSurfaceStack, geometry: WalletCardEffectsGeometry) {
+        let bounds = geometry.bounds
+        let shineSide = 349.5 * geometry.unit
+        let shineSize = CGSize(width: shineSide, height: shineSide)
+        stack.container.frame = bounds
+        stack.textureLayer.frame = bounds
+        stack.shineLayer.bounds = CGRect(origin: .zero, size: shineSize)
+        stack.shineLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        stack.shineMaskLayer.frame = CGRect(origin: .zero, size: shineSize)
+        stack.shineMaskLayer.contentsScale = geometry.backingScale
+        if let maskImages {
+            stack.shineMaskLayer.contents = maskImages.shine
+        }
+        renderTextureIfNeeded(stack, bounds: bounds, backingScale: geometry.backingScale)
     }
 
     public func layout(bounds: CGRect, unit: CGFloat, safeZones: [CGRect], backingScale: CGFloat) {
@@ -393,14 +561,8 @@ public final class WalletCardEffectsLayers {
         CATransaction.setDisableActions(true)
 
         if geometryChanged {
-            textureLayer.frame = bounds
-
             let shineSide = 349.5 * unit
             let shineSize = CGSize(width: shineSide, height: shineSide)
-            shineLayer.bounds = CGRect(origin: .zero, size: shineSize)
-            shineLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
-            shineMaskLayer.frame = CGRect(origin: .zero, size: shineSize)
-            shineMaskLayer.contentsScale = backingScale
 
             starsLayer.frame = bounds
             starsMaskLayer.bounds = CGRect(origin: .zero, size: shineSize)
@@ -408,6 +570,10 @@ public final class WalletCardEffectsLayers {
             starsMaskLayer.contentsScale = backingScale
 
             installMasksIfNeeded(shineSide: shineSide, backingScale: backingScale)
+
+            for stack in stacks {
+                layoutStack(stack, geometry: geometry)
+            }
 
             let rimPath = CGMutablePath()
             rimPath.addRect(bounds.insetBy(dx: -8.0 * unit, dy: -8.0 * unit))
@@ -446,7 +612,6 @@ public final class WalletCardEffectsLayers {
         CATransaction.commit()
 
         if geometryChanged {
-            renderTextureIfNeeded(bounds: bounds, backingScale: backingScale)
             appliedTilt = WalletCardTilt(tx: .greatestFiniteMagnitude, ty: .greatestFiniteMagnitude)
         }
     }
@@ -466,53 +631,65 @@ public final class WalletCardEffectsLayers {
         guard let images = WalletCardMaskRenderer.shared.images(diameter: shineSide, unit: unit, backingScale: backingScale) else {
             return
         }
-        shineMaskLayer.contents = images.shine
+        maskImages = images
+        for stack in stacks {
+            stack.shineMaskLayer.contents = images.shine
+        }
         starsMaskLayer.contents = images.stars
         maskKey = key
     }
 
-    private func renderTextureIfNeeded(bounds: CGRect, backingScale: CGFloat) {
+    private func renderTextureIfNeeded(_ stack: WalletCardSurfaceStack, bounds: CGRect, backingScale: CGFloat) {
         let key = "\(Int(bounds.width))x\(Int(bounds.height))@\(backingScale)"
-        guard key != textureKey else {
+        guard key != stack.textureKey else {
             return
         }
-        textureKey = key
-        pendingTextureRenderKey += 1
-        let renderKey = pendingTextureRenderKey
+        stack.textureKey = key
+        stack.pendingTextureRenderKey += 1
+        let renderKey = stack.pendingTextureRenderKey
         let textureSize = bounds.size
+        let palette = stack.palette
 
         let cache = WalletCardTextureCache.shared
         let renderScale = min(2.0, backingScale)
-        let cacheKey = "\(max(1, Int(ceil(textureSize.width * renderScale))))x\(max(1, Int(ceil(textureSize.height * renderScale))))"
-        let latestTextureRequest = self.latestTextureRequest
+        let fieldKey = "\(max(1, Int(ceil(textureSize.width * renderScale))))x\(max(1, Int(ceil(textureSize.height * renderScale))))"
+        let cacheKey = "\(fieldKey)_\(palette.key)"
+        let latestTextureRequest = stack.latestTextureRequest
         latestTextureRequest.set(renderKey)
-        if let texture = cache.cached(cacheKey) {
+        var texture = cache.cached(cacheKey)
+        if texture == nil, let field = cache.field(fieldKey), let colored = walletCardTextureImage(field: field, baseColor: NSColor(rgb: 0x0088ff), map: palette.map) {
+            cache.store(colored, key: cacheKey)
+            texture = colored
+        }
+        if let texture {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            self.textureLayer.contents = texture
+            stack.textureLayer.contents = texture
             CATransaction.commit()
             return
         }
 
-        cache.queue.async { [weak self] in
+        cache.queue.async { [weak stack] in
             let texture: CGImage?
             if let cached = cache.cached(cacheKey) {
                 texture = cached
             } else if latestTextureRequest.get() != renderKey {
                 return
             } else {
-                texture = walletCardTextureImage(size: textureSize, backingScale: backingScale, baseColor: NSColor(rgb: 0x0088ff))
+                let field = cache.field(fieldKey) ?? walletCardTextureField(size: textureSize, backingScale: backingScale)
+                cache.store(field, key: fieldKey)
+                texture = walletCardTextureImage(field: field, baseColor: NSColor(rgb: 0x0088ff), map: palette.map)
                 if let texture {
                     cache.store(texture, key: cacheKey)
                 }
             }
             DispatchQueue.main.async {
-                guard let self, self.pendingTextureRenderKey == renderKey else {
+                guard let stack, stack.pendingTextureRenderKey == renderKey else {
                     return
                 }
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
-                self.textureLayer.contents = texture
+                stack.textureLayer.contents = texture
                 CATransaction.commit()
             }
         }
@@ -564,10 +741,12 @@ public final class WalletCardEffectsLayers {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
 
-        shineLayer.transform = shineTransform
-        if clampedColorIndex != appliedColorIndex {
-            shineLayer.backgroundColor = walletCardShineColorLUT[clampedColorIndex]
-            appliedColorIndex = clampedColorIndex
+        for stack in stacks {
+            stack.shineLayer.transform = shineTransform
+            if clampedColorIndex != stack.appliedColorIndex {
+                stack.shineLayer.backgroundColor = stack.shineColors[clampedColorIndex]
+                stack.appliedColorIndex = clampedColorIndex
+            }
         }
 
         starsMaskLayer.transform = CATransform3DMakeRotation(angle, 0, 0, 1)

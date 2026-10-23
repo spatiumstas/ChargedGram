@@ -244,6 +244,15 @@ private final class DiceRollHeaderItem: GeneralRowItem {
         return DiceRollHeaderView.self
     }
 
+    override var accessibilityLabel: String? {
+        return headerLayout.attributedString.string
+    }
+
+    override var accessibilityValue: String? {
+        let text = infoLayout.attributedString.string
+        return text.isEmpty ? nil : text
+    }
+
     override var height: CGFloat {
         var height: CGFloat = 10 + stickerSize.height + 10 + headerLayout.layoutSize.height
         height += 10 + infoLayout.layoutSize.height
@@ -329,6 +338,7 @@ private final class DiceRollHeaderView: GeneralRowView {
                 current = view
             } else {
                 current = ImageView()
+                current.isAccessibilityDecorative = true
                 self.badgeView = current
                 addSubview(current)
             }
@@ -348,6 +358,7 @@ private final class DiceRollHeaderView: GeneralRowView {
             current = ImageButton()
             current.scaleOnClick = true
             current.autohighlight = false
+            current.setAccessibilityLabel(strings().voiceOverCommonClose)
             self.dismissButton = current
             addSubview(current)
         }
@@ -635,6 +646,15 @@ private final class DiceResultsRowItem: GeneralRowItem {
         return DiceResultsRowView.self
     }
 
+    override var accessibilityLabel: String? {
+        let texts = cellOptions.map { $0.textLayout.attributedString.string }.filter { !$0.isEmpty }
+        return texts.isEmpty ? nil : texts.joined(separator: ", ")
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
     override var height: CGFloat {
         // Two rows of cells
         return cellHeight * 2
@@ -798,6 +818,7 @@ private final class DiceCellView: View {
         // Create image views from pre-calculated images
         for image in option.images {
             let imageView = ImageView()
+            imageView.isAccessibilityDecorative = true
             imageView.image = image
             imageView.setFrameSize(NSSize(width: option.imageSize, height: option.imageSize))
             addSubview(imageView)
@@ -863,6 +884,14 @@ private final class StakeInputRowItem: GeneralRowItem {
 
     override func viewClass() -> AnyClass {
         return StakeInputRowView.self
+    }
+
+    override var accessibilityLabel: String? {
+        return strings().diceRollEnterStakePlaceholder
+    }
+
+    override var accessibilityValue: String? {
+        return usdLayout.attributedString.string
     }
 
     override var height: CGFloat {
@@ -1026,6 +1055,10 @@ private final class StakeKeyboardRowItem: GeneralRowItem {
         return StakeKeyboardRowView.self
     }
 
+    override var accessibilityLabel: String? {
+        return strings().voiceOverChatStakeAmounts
+    }
+
     override var height: CGFloat {
         let rowCount = CGFloat(stakes.count)
         let buttonHeight: CGFloat = 30
@@ -1062,6 +1095,7 @@ private final class StakeKeyboardRowView: GeneralRowView {
             self.layer?.cornerRadius = 4
 
             let formattedStake = formatCurrencyAmount(stake, currency: TON).prettyCurrencyNumberUsd
+            self.setAccessibilityLabel("\(formattedStake) \(TON)")
 
             let attr = NSMutableAttributedString()
             attr.append(string: "\(formattedStake) \(clown)", color: theme.colors.accent, font: .medium(.text))

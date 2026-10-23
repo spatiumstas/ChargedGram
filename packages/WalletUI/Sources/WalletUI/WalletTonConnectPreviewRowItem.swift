@@ -2,6 +2,7 @@ import Cocoa
 import TGUIKit
 import TelegramTheme
 import GeneralRows
+import CurrencyFormat
 
 private let walletTonConnectPreviewAvatarSize: CGFloat = 40
 private let walletTonConnectPreviewAvatarSpacing: CGFloat = 12
@@ -79,6 +80,25 @@ final class WalletTonConnectPreviewRowItem: GeneralRowItem {
     override func viewClass() -> AnyClass {
         return WalletTonConnectPreviewRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        let title = titleLayout.attributedString.string
+        return title.isEmpty ? nil : title
+    }
+
+    override var accessibilityValue: String? {
+        let amount = amountLayout.map { walletTonAccessibilityText($0.attributedString.string) }
+        let parts = [subtitleLayout?.attributedString.string, amount, commentLayout?.attributedString.string].compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .staticText
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 private final class WalletTonConnectPreviewRowView: GeneralContainableRowView {
@@ -94,6 +114,8 @@ private final class WalletTonConnectPreviewRowView: GeneralContainableRowView {
         super.init(frame: frameRect)
 
         amountIconView.contentGravity = .resizeAspect
+        amountIconView.isAccessibilityDecorative = true
+        avatarView.isAccessibilityDecorative = true
         for textView in [titleView, subtitleView, amountView, commentView] {
             textView.userInteractionEnabled = false
             textView.isSelectable = false

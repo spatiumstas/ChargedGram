@@ -100,6 +100,7 @@ public final class WallpaperAdditionColorView : View, TGModernGrowingDelegate {
         textView.cursorColor = theme.colors.indicatorColor
         resetButton.set(image: theme.icons.wallpaper_color_close, for: .Normal)
         _ = resetButton.sizeToFit()
+        resetButton.setAccessibilityLabel(strings().voiceOverCommonRemove)
         addSubview(resetButton)
         
         textView.setBackgroundColor(theme.colors.background)

@@ -83,6 +83,15 @@ private final class HeaderItem : GeneralRowItem {
         super.init(initialSize, height: 26, stableId: stableId)
     }
     
+    override var accessibilityLabel: String? {
+        switch buyForSelected {
+        case .stars:
+            return buyForStars.attributedString.string
+        case .ton:
+            return buyForTon.attributedString.string
+        }
+    }
+    
     public override func viewClass() -> AnyClass {
         return HeaderItemView.self
     }
@@ -230,6 +239,15 @@ private final class StarNftOfferInputItem : GeneralRowItem {
     
     public override var height: CGFloat {
         return 40
+    }
+    
+    override var accessibilityLabel: String? {
+        return currency == .stars ? strings().fragmentStarAmountPlaceholder : strings().voiceOverCommonTonAmount
+    }
+    
+    override var accessibilityValue: String? {
+        let value = usdLayout.attributedString.string
+        return value.isEmpty ? nil : value
     }
     
     public override func viewClass() -> AnyClass {
@@ -734,8 +752,10 @@ public func StarNftOfferController(context: (any AccountContextProtocol), peer: 
                 }
                 if fullAmount.currency == .ton {
                     control.image = TelegramThemeHooks.shared.image(.iconTonCurrency).precomposed()
+                    control.setAccessibilityLabel("TON")
                 } else {
                     control.image = TelegramThemeHooks.shared.image(.iconStarCurrency).precomposed()
+                    control.setAccessibilityLabel(strings().voiceOverCommonStars)
                 }
                 return control
             })))
@@ -750,6 +770,7 @@ public func StarNftOfferController(context: (any AccountContextProtocol), peer: 
                         control = ImageView(frame: NSMakeRect(0, 0, 20, 20))
                     }
                     control.image = TelegramThemeHooks.shared.image(.iconStarCurrency).precomposed()
+                    control.setAccessibilityLabel(strings().voiceOverCommonStars)
                     return control
                 })))
             }

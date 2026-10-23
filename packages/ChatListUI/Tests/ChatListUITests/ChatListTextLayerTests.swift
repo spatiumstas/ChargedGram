@@ -104,4 +104,20 @@ final class ChatListTextLayerTests: XCTestCase {
         XCTAssertEqual(legacyAnimation?.timingFunction, currentAnimation?.timingFunction)
         XCTAssertEqual(legacyAnimation?.toValue as? NSNumber, currentAnimation?.toValue as? NSNumber)
     }
+
+    func testSameLayoutDoesNotRedraw() {
+        let sample = samples[5]
+        let first = layout(sample)
+        let layer = ChatListTextLayer()
+        layer.update(first)
+        XCTAssertTrue(layer.hasPendingDisplay)
+        layer.sublayers?.forEach { $0.displayIfNeeded() }
+        XCTAssertFalse(layer.hasPendingDisplay)
+
+        layer.update(first)
+        XCTAssertFalse(layer.hasPendingDisplay)
+
+        layer.update(layout(sample))
+        XCTAssertTrue(layer.hasPendingDisplay)
+    }
 }

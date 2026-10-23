@@ -37,6 +37,10 @@ class ProxyQRCodeRowItem: GeneralRowItem {
     override func viewClass() -> AnyClass {
         return ProxyQRCodeRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return textLayout.attributedString.string
+    }
 }
 
 
@@ -48,6 +52,7 @@ private final class ProxyQRCodeRowView : TableRowView {
         super.init(frame: frameRect)
         addSubview(imageView)
         addSubview(textView)
+        imageView.setAccessibilityLabel(strings().voiceOverCommonQRCode)
         textView.userInteractionEnabled = false
         textView.isSelectable = false
     }

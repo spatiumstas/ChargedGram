@@ -1,3 +1,4 @@
+#if DEBUG
 import Cocoa
 import TGUIKit
 import SwiftSignalKit
@@ -247,3 +248,4 @@ private final class GifPanelLabSession<Context: AccountContextProtocol> {
         }
     }
 }
+#endif

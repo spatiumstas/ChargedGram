@@ -16,7 +16,10 @@ import SelectPeersUI
 public func createGroup<Context: AccountContextProtocol>(with context: Context, selectedPeers:Set<PeerId> = Set()) {
     
     let select = { SelectPeersController(titles: ComposeTitles(strings().composeSelectUsers, strings().composeNext), context: context, settings: [.contacts, .remote], isNewGroup: true, selectedPeers: selectedPeers) }
-    let chooseName = { CreateGroupViewController(titles: ComposeTitles(strings().groupNewGroup, strings().composeCreate), context: context) }
+    let chooseName = { () -> CreateGroupViewController<Context> in
+        let controller = CreateGroupViewController(titles: ComposeTitles(strings().groupNewGroup, strings().composeCreate), context: context)
+        return controller
+    }
     let signal = execute(context: context, select, chooseName) |> castError(CreateGroupError.self) |> mapToSignal { (_, result) -> Signal<(CreateGroupResult?, String?), CreateGroupError> in
         let signal = showModalProgress(signal: context.engine.peers.createGroup(title: result.title, peerIds: result.peerIds, ttlPeriod: result.autoremoveTimeout) |> map { return ($0, result.picture) }, for: context.window, disposeAfterComplete: false)
         return signal

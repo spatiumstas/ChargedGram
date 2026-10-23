@@ -52,6 +52,10 @@ private final class WalletAuthorizeView: View {
         addSubview(inputContainer)
         addSubview(nextButton)
 
+        closeButton.setAccessibilityLabel(strings().voiceOverCommonClose)
+        nextButton.setAccessibilityLabel(strings().voiceOverCommonNext)
+        touchIdButton.setAccessibilityLabel(strings().passcodeUseTouchId)
+
         titleView.userInteractionEnabled = false
         titleView.isSelectable = false
         descView.userInteractionEnabled = false

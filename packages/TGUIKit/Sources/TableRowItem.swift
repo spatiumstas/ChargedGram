@@ -29,6 +29,10 @@ open class TableRowItem: NSObject, Comparable, Identifiable {
     open var canBeAnchor: Bool {
         return true
     }
+
+    open func resizeAnchor(previous: TableRowItem) -> TableRowResizeAnchor? {
+        return nil
+    }
     
     open var isUniqueView: Bool {
         return false
@@ -182,6 +186,53 @@ open class TableRowItem: NSObject, Comparable, Identifiable {
         return NSStringFromClass(viewClass())
     }
     
+    open var accessibilityLabel: String? {
+        return nil
+    }
+
+    open var accessibilityValue: String? {
+        return nil
+    }
+
+    open var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        return nil
+    }
+
+    open var accessibilityRole: NSAccessibility.Role? {
+        return nil
+    }
+
+    open var accessibilityHelp: String? {
+        return nil
+    }
+
+    open var accessibilityIsEnabled: Bool {
+        return true
+    }
+
+    open var accessibilityIncludesChildren: Bool {
+        return true
+    }
+
+    open var accessibilityToggleState: Bool? {
+        return nil
+    }
+
+    open var accessibilityIsSpacer: Bool {
+        return false
+    }
+
+    open var accessibilityHasContent: Bool {
+        return accessibilityLabel != nil
+    }
+
+    open func accessibilityPerformPress() -> Bool {
+        if let table = table, table.select(item: self, notify: true, byClick: true) {
+            return true
+        }
+        return (view as? TableRowView)?.accessibilityPressPrimaryControl() ?? false
+    }
+
     open func viewClass() ->AnyClass {
         return TableRowView.self;
     }

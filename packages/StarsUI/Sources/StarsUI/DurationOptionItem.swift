@@ -74,6 +74,31 @@ public final class DurationOptionItem : GeneralRowItem {
         return 42
     }
 
+    public override var accessibilityLabel: String? {
+        return title.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return [discount?.attributedString.string, desc.attributedString.string, total.attributedString.string].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ")
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .radioButton
+    }
+
+    public override var accessibilityToggleState: Bool? {
+        return selected
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        toggleOption(option)
+        return true
+    }
+
     public override func viewClass() -> AnyClass {
         return DurationOptionItemView.self
     }

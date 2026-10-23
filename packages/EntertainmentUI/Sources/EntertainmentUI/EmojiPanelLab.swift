@@ -1,3 +1,4 @@
+#if DEBUG
 import Cocoa
 import TGUIKit
 import TelegramCore
@@ -437,3 +438,4 @@ private final class EmojiPanelLabSession<Context: AccountContextProtocol> {
         }
     }
 }
+#endif

@@ -675,7 +675,6 @@ public func NewTodoController(chatInteraction: any NewPollChatInteraction, sourc
         
         return .default
     })
-    
     getController = { [weak controller] in
         return controller
     }

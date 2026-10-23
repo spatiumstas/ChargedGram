@@ -14,6 +14,7 @@ import TelegramMediaUtils
 import TelegramTheme
 import TelegramUtils
 import InlineStickerLayer
+import StarsUI
 
 
 public struct WPLayoutPresentation {
@@ -463,7 +464,28 @@ public class WPLayout: Equatable {
         return content.type == "telegram_ad" && content.isMediaLargeByDefault == true
     }
     
-    public func invokeAction() {
+    public func openUniqueGift(morphSource: (() -> NSView?)?) -> Bool {
+        guard let uniqueGift = self.uniqueGift else {
+            return false
+        }
+        let context = self.context
+        _ = showModalProgress(signal: context.engine.payments.getUniqueStarGift(slug: uniqueGift.slug), for: context.window).start(next: { gift in
+            showModal(with: StarGift_Nft_Controller(context: context, gift: .unique(gift), source: .quickLook(nil, gift), transaction: nil), for: context.window, morphSource: morphSource)
+        }, error: { error in
+            switch error {
+            case .alreadyBurned:
+                showModalText(for: context.window, text: strings().chatServiceGiftUsedForCrafting)
+            default:
+                showModalText(for: context.window, text: strings().unknownError)
+            }
+        })
+        return true
+    }
+
+    public func invokeAction(morphSource: (() -> NSView?)? = nil) {
+        if openUniqueGift(morphSource: morphSource) {
+            return
+        }
         if self.hasInstantPage {
             ChatNavigationHooks.shared.openBrowserTab(context, .instantView(url: self.content.url, webPage: parent.media[0] as! TelegramMediaWebpage, anchor: nil))
            // showInstantPage(InstantPageViewController(context, webPage: , message: parent.text))

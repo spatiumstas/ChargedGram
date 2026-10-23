@@ -41,6 +41,7 @@ private final class StoryStealthModeView : Control {
         public required init(frame frameRect: NSRect) {
             super.init(frame: frameRect)
             addSubview(imageView)
+            imageView.isAccessibilityDecorative = true
             titleView.userInteractionEnabled = false
             titleView.isSelectable = false
             
@@ -114,8 +115,10 @@ private final class StoryStealthModeView : Control {
 
         close.scaleOnClick = true
         close.autohighlight = false
+        close.setAccessibilityLabel(strings().voiceOverCommonClose)
         headerImage.image = TelegramThemeHooks.shared.image(.iconStoryStealthMode).precomposed()
         headerImage.sizeToFit()
+        headerImage.isAccessibilityDecorative = true
         
         button.scaleOnClick = true
         button.autohighlight = false

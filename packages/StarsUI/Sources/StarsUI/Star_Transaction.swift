@@ -81,12 +81,14 @@ private final class HeaderItem : GeneralRowItem {
     fileprivate let arguments: Arguments
     fileprivate let isGift: Bool
     fileprivate let uniqueGift: StarGift.UniqueGift?
+    fileprivate let canDeleteGift: Bool
     
     fileprivate private(set) var authorLayout: TextViewLayout?
     fileprivate private(set) var authorPeer: Peer?
     
-    public init(_ initialSize: NSSize, stableId: AnyHashable, context: (any AccountContextProtocol), transaction: StarsContext.State.Transaction, currency: CurrencyAmount.Currency, peer: EnginePeer?, purpose: Star_TransactionPurpose, arguments: Arguments, author: Peer?) {
+    public init(_ initialSize: NSSize, stableId: AnyHashable, context: (any AccountContextProtocol), transaction: StarsContext.State.Transaction, currency: CurrencyAmount.Currency, peer: EnginePeer?, purpose: Star_TransactionPurpose, arguments: Arguments, author: Peer?, canDeleteGift: Bool) {
         self.context = context
+        self.canDeleteGift = canDeleteGift
         self.transaction = transaction
         self.currency = currency
         self.peer = peer
@@ -439,6 +441,16 @@ private final class HeaderItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return HeaderView.self
     }
+    
+    override var accessibilityLabel: String? {
+        return headerLayout.attributedString.string
+    }
+    
+    override var accessibilityValue: String? {
+        let parts = [infoLayout.attributedString.string, descLayout?.attributedString.string, refund?.attributedString.string].compactMap { $0?.replacingOccurrences(of: clown, with: "").trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+    
     public override var height: CGFloat {
         var height = 10 + 10 + headerLayout.layoutSize.height + 5 + infoLayout.layoutSize.height + 10
         
@@ -526,6 +538,7 @@ private final class HeaderView : GeneralContainableRowView {
         sceneView.hideStar()
         
         control.scaleOnClick = true
+        control.setAccessibilityLabel(strings().voiceOverCommonOpen)
         
         control.set(handler: { [weak self] _ in
             if let item = self?.item as? HeaderItem {
@@ -584,6 +597,7 @@ private final class HeaderView : GeneralContainableRowView {
                     self.actions = current
                     current.autohighlight = false
                     current.scaleOnClick = true
+                    current.setAccessibilityLabel(strings().voiceOverCommonMore)
                 }
                 current.set(image: TelegramThemeHooks.shared.image(.iconChatActions).precomposed(.white), for: .Normal)
                 current.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
@@ -613,6 +627,32 @@ private final class HeaderView : GeneralContainableRowView {
                 performSubviewRemoval(view, animated: animated)
                 self.uniqueBackground = nil
                 self.uniqueBackgroundContent = nil
+            }
+            if item.canDeleteGift {
+                let current: ImageButton
+                if let view = self.actions {
+                    current = view
+                } else {
+                    current = ImageButton()
+                    addSubview(current)
+                    self.actions = current
+                    current.autohighlight = false
+                    current.scaleOnClick = true
+                    current.setAccessibilityLabel(strings().voiceOverCommonMore)
+                }
+                current.set(image: TelegramThemeHooks.shared.image(.iconChatActions).precomposed(theme.colors.text), for: .Normal)
+                current.setGlassEffect(size: NSMakeSize(36, 36))
+                current.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
+                current.contextMenu = {
+                    let menu = ContextMenu()
+                    menu.addItem(ContextMenuItem(strings().giftViewContextDelete, handler: {
+                        item.arguments.deleteGift()
+                    }, itemMode: .destruct, itemImage: MenuAnimation.menu_delete.value))
+                    return menu
+                }
+            } else if let view = self.actions {
+                performSubviewRemoval(view, animated: animated)
+                self.actions = nil
             }
         }
         
@@ -751,6 +791,7 @@ private final class HeaderView : GeneralContainableRowView {
                     starBadgeView = view
                 } else {
                     starBadgeView = ImageView()
+                    starBadgeView.isAccessibilityDecorative = true
                     self.starBadgeView = starBadgeView
                     control.addSubview(starBadgeView)
                 }
@@ -863,6 +904,7 @@ private final class HeaderView : GeneralContainableRowView {
         self.dismiss.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
         self.dismiss.scaleOnClick = true
         self.dismiss.autohighlight = false
+        self.dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
         
         
         dismiss.setSingle(handler: { [weak item] _ in
@@ -875,6 +917,7 @@ private final class HeaderView : GeneralContainableRowView {
                 current = view
             } else {
                 current = ImageView()
+                current.isAccessibilityDecorative = true
                 control.addSubview(current)
                 self.outgoingView = current
             }
@@ -1005,7 +1048,8 @@ private final class Arguments {
     public let startWearing:(StarGift.UniqueGift)->Void
     public let changeFee:()->Void
     public let giftUpgrade:(String)->Void
-    public init(context: (any AccountContextProtocol), openPeer:@escaping(PeerId)->Void, copyTransaction:@escaping(String)->Void, openLink:@escaping(String)->Void, previewMedia:@escaping()->Void, openApps: @escaping()->Void, close: @escaping()->Void, openStars:@escaping()->Void, convertStars:@escaping()->Void, displayOnMyPage:@escaping()->Void, seeInProfile: @escaping() ->Void, sendGift:@escaping(PeerId)->Void, openAffiliate:@escaping()->Void, upgrade:@escaping()->Void, transferUnqiue:@escaping(StarGift.UniqueGift)->Void, copyNftLink:@escaping(StarGift.UniqueGift)->Void, shareNft:@escaping(StarGift.UniqueGift)->Void, startWearing:@escaping(StarGift.UniqueGift)->Void, changeFee:@escaping()->Void, giftUpgrade:@escaping(String)->Void) {
+    public let deleteGift:()->Void
+    public init(context: (any AccountContextProtocol), openPeer:@escaping(PeerId)->Void, copyTransaction:@escaping(String)->Void, openLink:@escaping(String)->Void, previewMedia:@escaping()->Void, openApps: @escaping()->Void, close: @escaping()->Void, openStars:@escaping()->Void, convertStars:@escaping()->Void, displayOnMyPage:@escaping()->Void, seeInProfile: @escaping() ->Void, sendGift:@escaping(PeerId)->Void, openAffiliate:@escaping()->Void, upgrade:@escaping()->Void, transferUnqiue:@escaping(StarGift.UniqueGift)->Void, copyNftLink:@escaping(StarGift.UniqueGift)->Void, shareNft:@escaping(StarGift.UniqueGift)->Void, startWearing:@escaping(StarGift.UniqueGift)->Void, changeFee:@escaping()->Void, giftUpgrade:@escaping(String)->Void, deleteGift:@escaping()->Void) {
         self.context = context
         self.openPeer = openPeer
         self.copyTransaction = copyTransaction
@@ -1026,6 +1070,7 @@ private final class Arguments {
         self.startWearing = startWearing
         self.changeFee = changeFee
         self.giftUpgrade = giftUpgrade
+        self.deleteGift = deleteGift
     }
 }
 
@@ -1039,6 +1084,7 @@ private struct State : Equatable {
     public var ownerPeer: EnginePeer?
     public var starsState: StarsContext.State?
     public var author: EnginePeer?
+    public var canDeleteGift: Bool = false
 }
 
 private let _id_header = InputDataIdentifier("_id_header")
@@ -1055,7 +1101,7 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
    // sectionId += 1
     
     entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: _id_header, equatable: .init(state), comparable: nil, item: { initialSize, stableId in
-        return HeaderItem(initialSize, stableId: stableId, context: arguments.context, transaction: state.transaction, currency: state.currency, peer: state.peer, purpose: state.purpose, arguments: arguments, author: state.author?._asPeer())
+        return HeaderItem(initialSize, stableId: stableId, context: arguments.context, transaction: state.transaction, currency: state.currency, peer: state.peer, purpose: state.purpose, arguments: arguments, author: state.author?._asPeer(), canDeleteGift: state.canDeleteGift)
     }))
     
     entries.append(.sectionId(sectionId, type: .customModern(10)))
@@ -1223,6 +1269,7 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
                     control = ImageView(frame: NSMakeRect(0, 0, 20, 20))
                 }
                 control.image = TelegramThemeHooks.shared.image(.iconStarTransactionAnonymous).precomposed()
+                control.isAccessibilityDecorative = true
                 return control
             } else {
                 let control: AvatarControl
@@ -1297,6 +1344,7 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
                                 control = ImageView(frame: NSMakeRect(0, 0, 20, 20))
                             }
                             control.image = TelegramThemeHooks.shared.image(.iconStarTransactionAnonymous).precomposed()
+                            control.isAccessibilityDecorative = true
                             return control
                         } else {
                             let control: AvatarControl
@@ -1365,6 +1413,7 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
                     control = ImageView(frame: NSMakeRect(0, 0, 20, 20))
                 }
                 control.image = TelegramThemeHooks.shared.image(.iconStarTransactionAnonymous).precomposed()
+                control.isAccessibilityDecorative = true
                 return control
             })))
         }
@@ -1708,6 +1757,25 @@ public enum Star_TransactionPurpose : Equatable {
     }
 }
 
+private func starTransactionCanDeleteGift(context: any AccountContextProtocol, transaction: StarsContext.State.Transaction, purpose: Star_TransactionPurpose, reference: StarGiftReference?) -> Bool {
+    guard let reference, case let .starGift(gift, _, _, _, _, _, converted, fromProfile, upgraded, _, _, _, _, _, _, _, _, _, _, _, isRefunded, _, _, _) = purpose, case let .generic(generic) = gift, generic.availability == nil else {
+        return false
+    }
+    if upgraded || isRefunded || (converted && !fromProfile) {
+        return false
+    }
+    guard case let .peer(owner) = transaction.peer else {
+        return false
+    }
+    if case let .peer(peerId, _) = reference, peerId.namespace == Namespaces.Peer.CloudChannel {
+        if owner.id == peerId, case let .channel(channel) = owner {
+            return channel.flags.contains(.isCreator)
+        }
+        return false
+    }
+    return owner.id == context.peerId
+}
+
 public func Star_TransactionScreen(context: (any AccountContextProtocol), fromPeerId: PeerId, peer: EnginePeer?, transaction: StarsContext.State.Transaction, purpose: Star_TransactionPurpose = .payment, reference: StarGiftReference? = nil, profileContext: ProfileGiftsContext? = nil, currency: CurrencyAmount.Currency = .stars) -> InputDataModalController {
 
     let actionsDisposable = DisposableSet()
@@ -1717,7 +1785,8 @@ public func Star_TransactionScreen(context: (any AccountContextProtocol), fromPe
     var getTableView:(()->TableView?)? = nil
 
     
-    let initialState = State(transaction: transaction, currency: currency, purpose: purpose, peer: peer)
+    var initialState = State(transaction: transaction, currency: currency, purpose: purpose, peer: peer)
+    initialState.canDeleteGift = starTransactionCanDeleteGift(context: context, transaction: transaction, purpose: purpose, reference: reference)
     
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
@@ -1919,43 +1988,15 @@ public func Star_TransactionScreen(context: (any AccountContextProtocol), fromPe
         if let reference, case let .starGift(_, _, _, _, _, _, _, _, _, _, transferStars, canExportDate, _, _, _, _, _, _, _, _, _, _, _, _) = purpose {
             
             
-            _ = StarsHooks.shared.selectPeerToTransfer(context, window, strings().giftTransferTitle, gift, reference, canExportDate).start(next: { peerIds in
-                if let peerId = peerIds.first {
-                    let peer = context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: peerId)) |> deliverOnMainQueue
-                    
-                    _ = peer.startStandalone(next: { peer in
-                        if let peer {
-                                                    
-                            let info: String
-                            let ok: String
-                        
-            
-                            
-                            if let convertStars = transferStars, let starsState = state.starsState, starsState.balance.value < convertStars {
-                                showModal(with: Star_ListScreen(context: context, source: .buy(suffix: nil, amount: convertStars)), for: window)
-                                return
-                            }
-                            
-                            if let stars = transferStars, stars > 0 {
-                                info = strings().giftTransferConfirmationText("\(gift.title) #\(gift.number)", peer._asPeer().displayTitle, strings().starListItemCountOther(Int(stars)))
-                                ok = strings().giftTransferConfirmationTransfer + " " + strings().starListItemCountOther(Int(stars))
-                            } else {
-                                info = strings().giftTransferConfirmationTextFree("\(gift.title) #\(gift.number)", peer._asPeer().displayTitle)
-                                ok = strings().giftTransferConfirmationTransferFree
-                            }
-                    
-                            let data = ModalAlertData(title: nil, info: info, description: nil, ok: ok, options: [], mode: .confirm(text: strings().modalCancel, isThird: false), header: .init(id: "header", value: { initialSize, stableId, presentation in
-                                return TransferUniqueGiftHeaderItem(initialSize, stableId: stableId, gift: gift, toPeer: peer, context: context)
-                            }))
-                            
-                            showModalAlert(for: window, data: data, completion: { result in
-                                _ = context.engine.payments.transferStarGift(prepaid: true, reference: reference, peerId: peerId).startStandalone()
-                                _ = showModalSuccess(for: context.window, icon: theme.icons.successModalProgress, delay: 1.5).start()
-                                close?()
-                            })
-                        }
-                    })
+            showGiftTransfer(context: context, window: window, gift: gift, reference: reference, giftsContext: profileContext ?? ProfileGiftsContext(account: context.account, peerId: context.peerId), canExportDate: canExportDate, transferStars: transferStars, transfer: { peer, dismiss in
+                if let convertStars = transferStars, let starsState = state.starsState, starsState.balance.value < convertStars {
+                    FeatureNavigationHooks.shared.showStarsPurchaseWithContext(context, window, .stars, nil, convertStars)
+                    return
                 }
+                dismiss()
+                _ = (context.engine.payments.transferStarGift(prepaid: true, reference: reference, peerId: peer.id)).startStandalone()
+                _ = (showModalSuccess(for: context.window, icon: theme.icons.successModalProgress, delay: 1.5)).start()
+                close?()
             })
         }
         
@@ -1994,6 +2035,19 @@ public func Star_TransactionScreen(context: (any AccountContextProtocol), fromPe
                 break
             }
         }
+    }, deleteGift: { [weak profileContext] in
+        guard let reference else {
+            return
+        }
+        verifyAlert(for: window, header: strings().giftDeleteTitle, information: strings().giftDeleteText, ok: strings().modalDelete, successHandler: { _ in
+            if let profileContext {
+                profileContext.deleteStarGift(reference: reference)
+            } else {
+                _ = context.engine.payments.deleteStarGift(reference: reference).startStandalone()
+            }
+            close?()
+            showModalText(for: window, text: strings().giftDeleteSuccess)
+        })
     })
     
     let signal = statePromise.get() |> deliverOnPrepareQueue |> map { state in
@@ -2001,7 +2055,6 @@ public func Star_TransactionScreen(context: (any AccountContextProtocol), fromPe
     }
     
     let controller = InputDataController(dataSignal: signal, title: "")
-    
     getController = { [weak controller] in
         return controller
     }

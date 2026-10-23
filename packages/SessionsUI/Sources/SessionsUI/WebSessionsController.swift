@@ -233,7 +233,7 @@ private func webAuthorizationEntries(webSessions: WebSessionsContextState, state
         index += 1
     }
     
-    for auth in webSessions.sessions {
+    for auth in authorizations {
         if let peer = webSessions.peers[auth.botId] {
             entries.append(.session(sectionId: sectionId, index: index, authorization: auth, peer: peer._asPeer(), viewType: bestGeneralViewType(authorizations, for: auth)))
             index += 1
@@ -276,17 +276,27 @@ open class WebSessionsController<Context: AccountContextProtocol>: TableViewCont
                     return state.withUpdatedRemovingSessionId(session.hash)
                 }
                 
-                _ = showModalProgress(signal: context.webSessions.remove(hash: session.hash), for: context.window).start(next: { value in
+                _ = showModalProgress(signal: context.webSessions.remove(hash: session.hash), for: context.window).start(next: { removed in
                     updateState { state in
-                        return state.withUpdatedRemovedSessionId(session.hash).withUpdatedRemovingSessionId(nil)
+                        if removed {
+                            return state.withUpdatedRemovedSessionId(session.hash).withUpdatedRemovingSessionId(nil)
+                        } else {
+                            return state.withUpdatedRemovingSessionId(nil)
+                        }
+                    }
+                    if !removed {
+                        alert(for: context.window, info: strings().unknownError)
                     }
                 })
             })
             
-        }, logoutAll: { [weak self] in
+        }, logoutAll: {
             verifyAlert_button(for: context.window, information: strings().webAuthorizationsConfirmRevokeAll, successHandler: { result in
-                self?.navigationController?.back()
-                _ = showModalProgress(signal: context.webSessions.removeAll(), for: context.window).start()
+                _ = showModalProgress(signal: context.webSessions.removeAll(), for: context.window).start(next: { removed in
+                    if !removed {
+                        alert(for: context.window, info: strings().unknownError)
+                    }
+                })
             })
            
         })
@@ -309,8 +319,8 @@ open class WebSessionsController<Context: AccountContextProtocol>: TableViewCont
             self?.genericView.merge(with: transition)
             self?.readyOnce()
                     
-            if state.sessions.isEmpty {
-                self?.navigationController?.back()
+            if !state.isLoadingMore, state.sessions.isEmpty, let strongSelf = self, let navigation = strongSelf.navigationController, navigation.controller === strongSelf {
+                navigation.back()
             }
         }))
         

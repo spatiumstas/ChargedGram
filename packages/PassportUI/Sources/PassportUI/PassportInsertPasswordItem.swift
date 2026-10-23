@@ -77,6 +77,10 @@ class PassportInsertPasswordItem: GeneralRowItem {
     override var height: CGFloat {
         return 32 + 36 + 20 + 30 + 25
     }
+
+    override var accessibilityLabel: String? {
+        return descLayout.attributedString.string
+    }
 }
 
 
@@ -119,6 +123,7 @@ final class PassportInsertPasswordRowView : GeneralRowView, NSTextFieldDelegate 
         addSubview(descTextView)
         addSubview(nextButton)
         inputContainer.addSubview(forgotPassword)
+        forgotPassword.setAccessibilityLabel(strings().loginPasswordForgot)
         
         nextButton.set(handler: { [weak self] _ in
             self?.checkPasscode()

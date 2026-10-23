@@ -207,6 +207,129 @@ public class SplitView : View {
     fileprivate var _controllers:[WeakReference<ViewController>] = []
     private var _layoutProportions:[SplitViewState:SplitProportion] = [:]
     private var _fixedControllerIds: Set<Int> = []
+    private weak var trailingController: ViewController?
+    private var trailingWidth: CGFloat = 0
+    private var trailingMinimumLeadingWidth: CGFloat = 0
+    private weak var trailingHiding: ViewController?
+    private var lastPaneAvailableWidth: CGFloat = 0
+    private var trailingTarget: CGFloat = 0
+    private var trailingShown: CGFloat = 0
+    private var trailingAnimator: DisplayLinkAnimator?
+    private var trailingAnimatesChange = false
+
+    public func setTrailing(controller: ViewController?, width: CGFloat, minimumLeadingWidth: CGFloat, animated: Bool = false) {
+        if let current = trailingController, current !== controller {
+            if controller == nil, current.isLoaded(), current.view.superview === container {
+                if let hiding = trailingHiding, hiding !== current {
+                    removeTrailing(hiding)
+                }
+                trailingHiding = current
+                current.viewWillDisappear(true)
+            } else {
+                removeTrailing(current)
+            }
+        }
+        if let controller, trailingHiding === controller {
+            trailingHiding = nil
+            controller.viewWillAppear(true)
+            controller.viewDidAppear(true)
+        } else if let hiding = trailingHiding, controller != nil {
+            removeTrailing(hiding)
+        }
+        trailingController = controller
+        if controller != nil {
+            trailingWidth = width
+            trailingMinimumLeadingWidth = minimumLeadingWidth
+        }
+        trailingAnimatesChange = animated && window != nil && !inLiveResize
+        needsLayout = true
+    }
+
+    public func additionalWidthForTrailing(width: CGFloat, minimumLeadingWidth: CGFloat) -> CGFloat {
+        return max(0, width + minimumLeadingWidth - lastPaneAvailableWidth)
+    }
+
+    public func canShowTrailing(width: CGFloat, minimumLeadingWidth: CGFloat) -> Bool {
+        return lastPaneAvailableWidth - width >= minimumLeadingWidth
+    }
+
+    private func trailingReservedWidth(available: CGFloat) -> CGFloat {
+        guard trailingController != nil, available - trailingWidth >= trailingMinimumLeadingWidth else {
+            return 0
+        }
+        return trailingWidth
+    }
+
+    private func updateTrailingShown(target: CGFloat) {
+        let animates = trailingAnimatesChange && !inLiveResize
+        trailingAnimatesChange = false
+        guard target != trailingTarget else {
+            return
+        }
+        trailingTarget = target
+        if animates {
+            trailingAnimator = DisplayLinkAnimator(duration: 0.3, from: trailingShown, to: target, timingFunction: CAMediaTimingFunction(controlPoints: 0.25, 0.8, 0.25, 1.0), update: { [weak self] value in
+                guard let self else {
+                    return
+                }
+                self.trailingShown = value
+                self.needsLayout = true
+            }, completion: { [weak self] in
+                guard let self else {
+                    return
+                }
+                self.trailingAnimator = nil
+                self.needsLayout = true
+            })
+        } else {
+            trailingAnimator?.invalidate()
+            trailingAnimator = nil
+            trailingShown = target
+        }
+    }
+
+    private func layoutTrailing(reserved: CGFloat) {
+        guard let controller = trailingController ?? trailingHiding else {
+            return
+        }
+        guard reserved > 0 else {
+            removeTrailing(controller)
+            return
+        }
+        let insets = controller.insets
+        let rect = NSMakeRect(frame.width - reserved + insets.left, insets.top, max(0, trailingWidth - insets.left - insets.right), max(0, frame.height - insets.top - insets.bottom))
+        if !controller.isLoaded() {
+            controller._frameRect = rect
+        }
+        if controller.view.superview !== container {
+            controller.view.frame = rect
+            controller.viewWillAppear(false)
+            container.addSubview(controller.view)
+            controller.viewDidAppear(false)
+        } else {
+            if !NSEqualRects(rect, controller.view.frame) {
+                controller.view.frame = rect
+            }
+            if container.subviews.last !== controller.view {
+                container.addSubview(controller.view, positioned: .above, relativeTo: nil)
+            }
+        }
+    }
+
+    private func removeTrailing(_ controller: ViewController) {
+        let wasHiding = trailingHiding === controller
+        if wasHiding {
+            trailingHiding = nil
+        }
+        guard controller.isLoaded(), controller.view.superview === container else {
+            return
+        }
+        if !wasHiding {
+            controller.viewWillDisappear(false)
+        }
+        controller.view.removeFromSuperview()
+        controller.viewDidDisappear(wasHiding)
+    }
 
     public func setFixed(controller: ViewController, fixed: Bool) {
         if fixed {
@@ -396,11 +519,14 @@ public class SplitView : View {
             self.delegate?.splitViewDidNeedSwapToLayout(state: state)
         }
 
+        let trailingView = [trailingHiding, trailingController].compactMap { $0 }.first(where: { $0.isLoaded() && $0.view.superview === container })?.view
         var previousControllerView: NSView? = nil
         for entry in _controllers {
             guard let view = entry.value?.view, view.superview === container else { continue }
             if let previousControllerView = previousControllerView {
                 container.addSubview(view, positioned: .below, relativeTo: previousControllerView)
+            } else if let trailingView {
+                container.addSubview(view, positioned: .below, relativeTo: trailingView)
             } else {
                 container.addSubview(view, positioned: .above, relativeTo: nil)
             }
@@ -408,6 +534,7 @@ public class SplitView : View {
         }
 
         var x:CGFloat = 0;
+        var trailingReserved: CGFloat = 0
 
         for (index, obj) in _controllers.enumerated() {
             if let obj = obj.value {
@@ -430,7 +557,10 @@ public class SplitView : View {
                     _min = min(_min, frame.width - 350)
                 }
                 if(index == _controllers.count - 1) {
-                    _min = frame.width - x;
+                    lastPaneAvailableWidth = frame.width - x
+                    updateTrailingShown(target: trailingReservedWidth(available: lastPaneAvailableWidth))
+                    trailingReserved = trailingShown
+                    _min = frame.width - x - trailingReserved;
                 }
 
                 size = NSMakeSize(x + _min > frame.width ? (frame.width - x) : _min, frame.height);
@@ -441,9 +571,11 @@ public class SplitView : View {
                 let rect: NSRect
                 if isLast {
                     obj.slotLeadingInset = paneRect.minX
+                    obj.slotTrailingInset = trailingReserved
                     rect = NSMakeRect(0, paneRect.minY + insets.top, frame.width, max(0, paneRect.height - insets.top - insets.bottom))
                 } else {
                     obj.slotLeadingInset = 0
+                    obj.slotTrailingInset = 0
                     rect = NSMakeRect(paneRect.minX + insets.left, paneRect.minY + insets.top, max(0, paneRect.width - insets.left - insets.right), max(0, paneRect.height - insets.top - insets.bottom))
                 }
 
@@ -454,6 +586,8 @@ public class SplitView : View {
                 x += paneRect.width;
             }
         }
+
+        layoutTrailing(reserved: trailingReserved)
 
         if state != .none {
             if state == .dual || state == .minimisize {

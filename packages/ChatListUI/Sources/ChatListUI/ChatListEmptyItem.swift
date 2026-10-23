@@ -37,6 +37,10 @@ public final class ChatListSpaceItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return ChatListSpaceItemView.self
     }
+    
+    public override var accessibilityIsSpacer: Bool {
+        return true
+    }
 }
 
 private final class ChatListSpaceItemView : TableRowView {

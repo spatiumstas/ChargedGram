@@ -459,6 +459,13 @@ open class BackgroundView: View {
 
 
 
+public enum ViewControllerLifecycleHooks {
+    public static var willAppear: ((ViewController) -> Void)?
+    public static var didAppear: ((ViewController) -> Void)?
+    public static var didDisappear: ((ViewController) -> Void)?
+    public static var didDeinit: ((ObjectIdentifier) -> Void)?
+}
+
 open class ViewController : NSObject {
     
     
@@ -541,6 +548,14 @@ open class ViewController : NSObject {
     public var slotLeadingInset: CGFloat = 0 {
         didSet {
             if slotLeadingInset != oldValue, isLoaded() {
+                viewDidResized(view.frame.size)
+            }
+        }
+    }
+
+    public var slotTrailingInset: CGFloat = 0 {
+        didSet {
+            if slotTrailingInset != oldValue, isLoaded() {
                 viewDidResized(view.frame.size)
             }
         }
@@ -633,6 +648,10 @@ open class ViewController : NSObject {
     
     open var isAutoclosePopover: Bool {
         return true
+    }
+
+    open var popoverBackgroundColor: NSColor {
+        return presentation.colors.background
     }
     
     open func menuItems() -> [ContextMenuItem] {
@@ -876,6 +895,7 @@ open class ViewController : NSObject {
     
     
     open func viewWillAppear(_ animated:Bool) -> Void {
+        ViewControllerLifecycleHooks.willAppear?(self)
         _viewOnState.set(true)
     }
 
@@ -912,6 +932,7 @@ open class ViewController : NSObject {
         NotificationCenter.default.removeObserver(self)
         assertOnMainThread()
         self.onDeinit?()
+        ViewControllerLifecycleHooks.didDeinit?(ObjectIdentifier(self))
     }
     
     
@@ -935,6 +956,7 @@ open class ViewController : NSObject {
     }
     
     open func viewDidAppear(_ animated:Bool) -> Void {
+        ViewControllerLifecycleHooks.didAppear?(self)
         //assert(self.window != nil)
         if hasNextResponder {
             self.window?.set(handler: { [weak self] _ -> KeyHandlerResult in
@@ -1029,7 +1051,7 @@ open class ViewController : NSObject {
     }
     
     open func viewDidDisappear(_ animated:Bool) -> Void {
-        
+        ViewControllerLifecycleHooks.didDisappear?(self)
     }
     
     open func scrollup(force: Bool = false) {
@@ -1378,16 +1400,19 @@ open class ModalController : ModalViewController {
     }
     
     open override func viewWillAppear(_ animated: Bool) {
+        ViewControllerLifecycleHooks.willAppear?(self)
         self.controller.viewWillAppear(animated)
     }
     open override func viewWillDisappear(_ animated: Bool) {
         self.controller.viewWillDisappear(animated)
     }
     open override func viewDidAppear(_ animated: Bool) {
+        ViewControllerLifecycleHooks.didAppear?(self)
         self.controller.viewDidAppear(animated)
     }
     open override func viewDidDisappear(_ animated: Bool) {
         self.controller.viewDidDisappear(animated)
+        ViewControllerLifecycleHooks.didDisappear?(self)
     }
     open override func firstResponder() -> NSResponder? {
         return controller.controller.firstResponder()

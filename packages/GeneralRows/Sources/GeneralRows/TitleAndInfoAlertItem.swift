@@ -33,6 +33,23 @@ public final class TitleAndInfoAlertItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return TitleAndInfoAlertItemView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return header.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        let string = text.attributedString.string
+        return string.isEmpty ? nil : string
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .staticText
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
     
 }
 
@@ -50,6 +67,7 @@ private final class TitleAndInfoAlertItemView: GeneralContainableRowView {
         headerView.userInteractionEnabled = false
         headerView.isSelectable = false
         
+        imageView.isAccessibilityDecorative = true
         addSubview(imageView)
         addSubview(headerView)
         addSubview(textView)

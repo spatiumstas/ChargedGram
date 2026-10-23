@@ -108,6 +108,16 @@ final class WalletLinkedRecipientRowItem: GeneralRowItem {
     override func viewClass() -> AnyClass {
         return WalletLinkedRecipientRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        let name = nameLayout.attributedString.string
+        return name.isEmpty ? nil : name
+    }
+
+    override var accessibilityValue: String? {
+        let parts = [usernameLayout?.attributedString.string, isLoading ? Optional(strings().voiceOverCommonLoading) : address].compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
 }
 
 struct WalletRecipientAddressRenderStep: Equatable {
@@ -241,7 +251,12 @@ final class WalletLinkedRecipientRowView: GeneralRowView {
             view.userInteractionEnabled = false
             view.isSelectable = false
             view.isEventLess = true
+            view.isAccessibilityDecorative = true
         }
+        avatarControl.setAccessibilityLabel(strings().voiceOverCommonProfilePhoto)
+        addressControl.setAccessibilityLabel(strings().voiceOverCommonCopy)
+        infoControl.setAccessibilityLabel(strings().voiceOverCommonInfo)
+        infoIconView.isAccessibilityDecorative = true
         cardView.addSubview(nameView)
         cardView.addSubview(usernameView)
         addressControl.addSubview(addressView)
@@ -438,6 +453,7 @@ final class WalletLinkedRecipientRowView: GeneralRowView {
             } else {
                 icon = ImageView()
                 icon.isEventLess = true
+                icon.isAccessibilityDecorative = true
                 icon.contentGravity = .resizeAspectFill
                 icon.layer?.masksToBounds = true
                 icon.layer?.cornerRadius = walletRecipientAvatarSize / 2
@@ -491,8 +507,12 @@ private final class WalletLinkedRecipientInfoRowItem: TableRowItem {
     fileprivate let textLayout: TextViewLayout
     fileprivate let addressLayout: TextViewLayout
     fileprivate let copyAddress: () -> Void
+    fileprivate let address: String
+    private let openPeer: (() -> Void)?
 
     init(_ initialSize: NSSize, stableId: AnyHashable, text: NSAttributedString, address: String, openPeer: (() -> Void)?, copyAddress: @escaping () -> Void) {
+        self.address = address
+        self.openPeer = openPeer
         self.textLayout = TextViewLayout(text, alignment: .center, alwaysStaticItems: true)
         if let openPeer {
             self.textLayout.interactions = TextViewInteractions(processURL: { _ in
@@ -523,28 +543,47 @@ private final class WalletLinkedRecipientInfoRowItem: TableRowItem {
     override func viewClass() -> AnyClass {
         return WalletLinkedRecipientInfoRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        let text = textLayout.attributedString.string
+        return text.isEmpty ? address : text
+    }
+
+    override var accessibilityValue: String? {
+        return address
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        copyAddress()
+        return true
+    }
+
+    override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        guard let openPeer else {
+            return nil
+        }
+        return [NSAccessibilityCustomAction(name: strings().voiceOverCommonOpen, handler: {
+            openPeer()
+            return true
+        })]
+    }
 }
 
 private final class WalletLinkedRecipientInfoRowView: TableRowView {
     private let textView = TextView()
-    private let addressBlockView = Control()
-    private let addressView = TextView()
+    private let addressBlockView = WalletAddressControl(frame: .zero)
 
     required init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         textView.isSelectable = false
-        addressView.userInteractionEnabled = false
-        addressView.isSelectable = false
-        addressView.isEventLess = true
-        addressBlockView.layer?.cornerRadius = 10
-        addressBlockView.scaleOnClick = true
-        addressBlockView.set(handler: { [weak self] _ in
-            guard let item = self?.item as? WalletLinkedRecipientInfoRowItem else {
-                return
-            }
-            item.copyAddress()
-        }, for: .Click)
-        addressBlockView.addSubview(addressView)
         addSubview(textView)
         addSubview(addressBlockView)
     }
@@ -563,8 +602,7 @@ private final class WalletLinkedRecipientInfoRowView: TableRowView {
             return
         }
         textView.update(item.textLayout)
-        addressView.update(item.addressLayout)
-        addressBlockView.backgroundColor = theme.colors.background
+        addressBlockView.update(address: item.address, layout: item.addressLayout, copyAddress: item.copyAddress)
         needsLayout = true
     }
 
@@ -575,7 +613,6 @@ private final class WalletLinkedRecipientInfoRowView: TableRowView {
         }
         textView.centerX(y: 0)
         addressBlockView.frame = NSMakeRect(20, textView.frame.maxY + 16, frame.width - 40, item.addressBlockHeight)
-        addressView.center()
     }
 }
 

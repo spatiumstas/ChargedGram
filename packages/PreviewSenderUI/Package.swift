@@ -3,6 +3,7 @@
 import PackageDescription
 
 let deps: [(String, String)] = [
+
     ("TGUIKit", "../TGUIKit"),
     ("ColorPalette", "../ColorPalette"),
     ("InAppSettings", "../InAppSettings"),
@@ -52,6 +53,17 @@ let package = Package(
                 .product(name: "TelegramCore", package: "TelegramCore", condition: nil),
                 .product(name: "Postbox", package: "Postbox", condition: nil),
             ] + deps.map { .product(name: $0.0, package: $0.0, condition: nil) },
-            path: "Sources/PreviewSenderUI"),
+            path: "Sources/PreviewSenderUI",
+            sources: [
+                "CanCollage.swift",
+                "MediaGroupPreviewRowItem.swift",
+                "MediaPaidSetterController.swift",
+                "MediaPreviewRowItem.swift",
+                "PreviewSenderAttachmentEdits.swift",
+                "PreviewSenderChildAction.swift",
+                "PreviewSenderController.swift",
+                "PreviewSenderPendingActions.swift",
+                "PreviewSenderUIHooks.swift",
+            ]),
     ]
 )

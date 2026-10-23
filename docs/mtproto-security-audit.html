@@ -97,7 +97,7 @@ pre code { background: none; padding: 0; }
 
 <h2>Scope</h2>
 <ul>
-  <li><b>Rust MTProto engine</b> (<code>github.com/macosswift/mtproto-engine</code>, <code>third-party/mtproto-engine</code>): sessions, transport, obfuscation, MTProxy and SOCKS5, CDN connections. It runs every session in the macOS app.</li>
+  <li><b>Rust MTProto engine</b> (<code>github.com/TelegramMessenger/mtproto-engine</code>, <code>third-party/mtproto-engine</code>): sessions, transport, obfuscation, MTProxy and SOCKS5, CDN connections. It runs every session in the macOS app.</li>
   <li><b>MtProtoKit</b>: in the app it still performs every auth-key exchange and temp-key binding, because the engine runs with <code>generate_key = 0</code>. Telegram iOS uses the same code.</li>
   <li><b>Host glue and TelegramCore</b>: <code>MTProtoRustEngine</code> (<code>RustNetworkSession</code>) and the CDN download path (<code>FetchV2</code>, <code>MultipartFetch</code>).</li>
 </ul>
@@ -206,7 +206,7 @@ pre code { background: none; padding: 0; }
 </table>
 </div>
 <h2 id="fixed-engine">Fixed in the Rust engine</h2>
-<p>All of these are in <code>github.com/macosswift/mtproto-engine</code>. Each test fails on the code before the fix and passes after it.</p>
+<p>All of these are in <code>github.com/TelegramMessenger/mtproto-engine</code>. Each test fails on the code before the fix and passes after it.</p>
 <div class="table-wrap">
 <table>
 <thead><tr><th>ID</th><th>Severity</th><th>Problem</th><th>Fix</th><th>Test</th></tr></thead>

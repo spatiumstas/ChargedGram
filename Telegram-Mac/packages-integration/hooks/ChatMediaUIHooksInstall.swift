@@ -19,11 +19,15 @@ private func mapChatMediaStickerPackPreviewSource(_ source: ChatMediaStickerPack
 }
 
 func installChatMediaUIHooks() {
-    ChatMediaUIHooks.install(ChatMediaUIHooks(getAudioPlayer: { context in
+    var hooks = ChatMediaUIHooks(getAudioPlayer: { context in
         return (context as? AccountContext)?.sharedContext.getAudioPlayer()
     }, showQuickLookPreview: { context, media, stableId, delegate in
         QuickLookPreview.current.show(context: context as! AccountContext, with: media, stableId: stableId, delegate)
     }, makeStickerPackPreview: { context, peerId, references in
         return StickerPackPreviewModalController(context as! AccountContext, peerId: peerId, references: references.map(mapChatMediaStickerPackPreviewSource))
-    }))
+    })
+    hooks.makeStickerPackPreviewWithContext = { context, peerId, references in
+        return StickerPackPreviewModalController(context, peerId: peerId, references: references.map(mapChatMediaStickerPackPreviewSource))
+    }
+    ChatMediaUIHooks.install(hooks)
 }

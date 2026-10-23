@@ -16,8 +16,25 @@ private let more_image = TelegramThemeHooks.shared.image(.iconStoryMore).precomp
 private let muted_image = TelegramThemeHooks.shared.image(.iconStoryMute).precomposed(NSColor.white)
 private let cant_unmute = TelegramThemeHooks.shared.image(.iconStoryMute).precomposed(NSColor.white.withAlphaComponent(0.75))
 
-
 private let unmuted_image = TelegramThemeHooks.shared.image(.iconStoryUnmute).precomposed(NSColor.white)
+
+private final class StoryAuthorControl: Control {
+    weak var secondary: Control?
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        guard isAccessibilityElement() else {
+            return super.accessibilityRole()
+        }
+        return .button
+    }
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        guard let secondary = secondary, !secondary.isHidden, secondary.userInteractionEnabled, secondary.isAccessibilityElement(), let name = secondary.accessibilityLabel(), !name.isEmpty else {
+            return nil
+        }
+        return [NSAccessibilityCustomAction(name: name, handler: { [weak secondary] in
+            return secondary?.accessibilityPerformPress() ?? false
+        })]
+    }
+}
 
 private let privacy_close_friends = TelegramThemeHooks.shared.image(.iconStoryCloseFriends).precomposed()
 private let privacy_contacts = TelegramThemeHooks.shared.image(.iconStoryContacts).precomposed()
@@ -33,6 +50,7 @@ private final class RepostView : View {
         addSubview(imageView)
         self.imageView.image = forward_repost
         self.imageView.sizeToFit()
+        self.imageView.isAccessibilityDecorative = true
     }
     
     required init?(coder: NSCoder) {
@@ -96,6 +114,7 @@ private final class AuthorView : View {
         avatarView.userInteractionEnabled = false
         nameView.userInteractionEnabled = false
         nameView.isSelectable = false
+        nameView.isAccessibilityDecorative = true
     }
     
     required init?(coder: NSCoder) {
@@ -147,7 +166,7 @@ final class StoryControlsView : Control {
     private let muted = ImageButton()
     private let privacy = ImageButton()
 
-    private let avatarAndText = Control()
+    private let avatarAndText = StoryAuthorControl()
     
     private var arguments: StoryArguments?
     private var groupId: PeerId?
@@ -182,6 +201,8 @@ final class StoryControlsView : Control {
 
         textView.isSelectable = false
         dateView.isSelectable = false
+        textView.isAccessibilityDecorative = true
+        dateView.isAccessibilityDecorative = true
         
         more.scaleOnClick = true
         more.autohighlight = false
@@ -194,6 +215,9 @@ final class StoryControlsView : Control {
         
         more.set(image: more_image, for: .Normal)
         more.sizeToFit(.zero, NSMakeSize(24, 24), thatFit: true)
+        more.setAccessibilityLabel(strings().voiceOverCommonMore)
+        muted.setAccessibilityLabel(strings().voiceOverCommonMute)
+        privacy.setAccessibilityLabel(strings().storyPrivacyTitlePrivacy)
         
         muted.set(image: muted_image, for: .Normal)
         muted.sizeToFit(.zero, NSMakeSize(24, 24), thatFit: true)
@@ -224,6 +248,7 @@ final class StoryControlsView : Control {
         }
         
         avatarAndText.scaleOnClick = true
+        avatarAndText.secondary = dateContainer
         
         avatarAndText.set(handler: { [weak self] control in
             if let groupId = self?.story?.peer?.id {
@@ -262,6 +287,11 @@ final class StoryControlsView : Control {
         } else {
             muted.set(image: isMuted || volume == 0 ? muted_image : unmuted_image, for: .Normal)
         }
+        if arguments.interaction.hasNoSound(story.storyItem) {
+            muted.setAccessibilityLabel(strings().storyControlsVideoNoSound)
+        } else {
+            muted.setAccessibilityLabel(isMuted || volume == 0 ? strings().voiceOverCommonUnmute : strings().voiceOverCommonMute)
+        }
     }
     
     
@@ -282,6 +312,15 @@ final class StoryControlsView : Control {
             privacy.set(image: privacy_selected_contacts, for: .Normal)
         } else if story.storyItem.isContacts {
             privacy.set(image: privacy_contacts, for: .Normal)
+        }
+        if story.storyItem.isCloseFriends {
+            privacy.setAccessibilityValue(strings().storyPrivacyCloseFriends)
+        } else if story.storyItem.isSelectedContacts {
+            privacy.setAccessibilityValue(strings().storyPrivacySelectUsers)
+        } else if story.storyItem.isContacts {
+            privacy.setAccessibilityValue(strings().storyPrivacyContacts)
+        } else {
+            privacy.setAccessibilityValue(nil)
         }
         privacy.sizeToFit(.zero, NSMakeSize(24, 24), thatFit: true)
 
@@ -387,6 +426,11 @@ final class StoryControlsView : Control {
         } else {
             muted.set(image: arguments.interaction.presentation.isMuted || arguments.interaction.presentation.volume == 0 ? muted_image : unmuted_image, for: .Normal)
         }
+        if hasNoSound {
+            muted.setAccessibilityLabel(strings().storyControlsVideoNoSound)
+        } else {
+            muted.setAccessibilityLabel(arguments.interaction.presentation.isMuted || arguments.interaction.presentation.volume == 0 ? strings().voiceOverCommonUnmute : strings().voiceOverCommonMute)
+        }
         muted.isHidden = !arguments.interaction.canBeMuted(story.storyItem)
         more.isHidden = context.peerId == groupId || peer.isBot
 
@@ -401,6 +445,14 @@ final class StoryControlsView : Control {
         dateContainer.isHidden = peer.isBot == true
         
         dateContainer.userInteractionEnabled = self.repostView != nil || self.authorView != nil
+        dateContainer.isAccessibilityDecorative = !dateContainer.userInteractionEnabled
+        if let author = story.storyItem.author {
+            dateContainer.setAccessibilityLabel(author._asPeer().compactDisplayTitle)
+        } else if let forwardInfo = story.storyItem.forwardInfo, case let .known(peer, _, _) = forwardInfo {
+            dateContainer.setAccessibilityLabel(peer._asPeer().compactDisplayTitle)
+        } else {
+            dateContainer.setAccessibilityLabel(nil)
+        }
         dateContainer.scaleOnClick = true
         dateView.userInteractionEnabled = false
         
@@ -440,6 +492,7 @@ final class StoryControlsView : Control {
                 current = view
             } else {
                 current = ImageView()
+                current.isAccessibilityDecorative = true
                 dateContainer.addSubview(current)
                 self.liveTextIndicator = current
             }
@@ -455,6 +508,8 @@ final class StoryControlsView : Control {
         
         textView.update(authorLayout)
         dateView.update(dateLayout)
+        avatarAndText.setAccessibilityLabel(authorName.string)
+        avatarAndText.setAccessibilityValue(peer.isBot ? nil : date.string)
         
         avatarAndText.setFrameSize(NSMakeSize(textView.frame.width + dateView.frame.width + avatar.frame.width + 10, avatar.frame.height))
         

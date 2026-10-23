@@ -31,6 +31,7 @@ let deps: [(String, String)] = [
     ("InstantPageUI", "../InstantPageUI"),
     ("LocalAnimations", "../LocalAnimations"),
     ("InputView", "../InputView"),
+
 ]
 
 let package = Package(

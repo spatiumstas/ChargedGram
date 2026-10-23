@@ -14,38 +14,24 @@ public class InvisibleInkDustView: View {
     private var currentParams: (size: CGSize, color: NSColor, textColor: NSColor, rects: [CGRect], wordRects: [CGRect])?
     private var animColor: CGColor?
     
-    private let textMaskView: View
-    private let textSpotView: ImageView
-    
     private var emitterView: View
     private var emitter: CAEmitterCell?
     private var emitterLayer: CAEmitterLayer?
-    private let emitterMaskView: View
-    private let emitterSpotView: ImageView
-    private let emitterMaskFillView: View
         
+    private lazy var keyObserver = WindowKeyObserver(update: { [weak self] in
+        self?.updatePlayback()
+    })
+    private var isFadedOut = false
+    private var revealGeneration: UInt64 = 0
     public var isRevealed = false
     
     public override init() {
         
         self.emitterView = View()
         
-        self.textMaskView = View()
-        self.textSpotView = ImageView()
-        
-        self.emitterMaskView = View()
-        self.emitterSpotView = ImageView()
-        
-        self.emitterMaskFillView = View()
-        self.emitterMaskFillView.backgroundColor = .white
-        
         super.init()
         
         self.addSubview(self.emitterView)
-        
-        self.textMaskView.addSubview(self.textSpotView)
-        self.emitterMaskView.addSubview(self.emitterSpotView)
-        self.emitterMaskView.addSubview(self.emitterMaskFillView)
         
         initialize()
     }
@@ -103,7 +89,7 @@ public class InvisibleInkDustView: View {
         self.emitterView.layer?.addSublayer(emitterLayer)
         
         self.updateEmitter()
-        
+        self.updatePlayback()
     }
     
     public func update(revealed: Bool) {
@@ -112,14 +98,40 @@ public class InvisibleInkDustView: View {
         }
         
         self.isRevealed = revealed
+        self.revealGeneration &+= 1
+        let generation = self.revealGeneration
         
         if revealed {
             let transition = ContainedViewLayoutTransition.animated(duration: 0.3, curve: .linear)
             transition.updateAlpha(view: self, alpha: 0.0)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: { [weak self] in
+                guard let self, self.isRevealed, self.revealGeneration == generation else {
+                    return
+                }
+                self.isFadedOut = true
+                self.updatePlayback()
+            })
         } else {
+            self.isFadedOut = false
+            self.updatePlayback()
             let transition = ContainedViewLayoutTransition.animated(duration: 0.4, curve: .linear)
             transition.updateAlpha(view: self, alpha: 1.0)
         }
+    }
+    
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        self.keyObserver.observe(self.window)
+        self.updatePlayback()
+    }
+    
+    var isEmitterPlaying: Bool {
+        return !(self.emitterLayer?.isTimelineFrozen ?? true)
+    }
+    
+    private func updatePlayback() {
+        let isPlaying = !self.isFadedOut && WindowKeyObserver.isKey(self.window)
+        self.emitterLayer?.setTimelineFrozen(!isPlaying)
     }
     
    
@@ -150,9 +162,6 @@ public class InvisibleInkDustView: View {
         self.currentParams = (size, color, textColor, rects, wordRects)
                 
         self.emitterView.frame = CGRect(origin: CGPoint(), size: size)
-        self.emitterMaskView.frame = self.emitterView.bounds
-        self.emitterMaskFillView.frame = self.emitterView.bounds
-        self.textMaskView.frame = CGRect(origin: CGPoint(x: 3.0, y: 3.0), size: size)
         
         self.updateEmitter()
 
@@ -190,6 +199,11 @@ public class MediaDustView: View {
     private var emitter: CAEmitterCell?
     private var emitterLayer: CAEmitterLayer?
         
+    private lazy var keyObserver = WindowKeyObserver(update: { [weak self] in
+        self?.updatePlayback()
+    })
+    private var isFadedOut = false
+    private var revealGeneration: UInt64 = 0
     public var isRevealed = false
     
     private let maskLayer = SimpleShapeLayer()
@@ -275,6 +289,7 @@ public class MediaDustView: View {
         self.layer?.addSublayer(emitterLayer)
         
         self.updateEmitter()
+        self.updatePlayback()
         
   //      self.setupRandomAnimations()
 
@@ -286,14 +301,40 @@ public class MediaDustView: View {
         }
         
         self.isRevealed = revealed
+        self.revealGeneration &+= 1
+        let generation = self.revealGeneration
         
         if revealed {
             let transition = ContainedViewLayoutTransition.animated(duration: 0.3, curve: .linear)
             transition.updateAlpha(view: self, alpha: 0.0)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: { [weak self] in
+                guard let self, self.isRevealed, self.revealGeneration == generation else {
+                    return
+                }
+                self.isFadedOut = true
+                self.updatePlayback()
+            })
         } else {
+            self.isFadedOut = false
+            self.updatePlayback()
             let transition = ContainedViewLayoutTransition.animated(duration: 0.4, curve: .linear)
             transition.updateAlpha(view: self, alpha: 1.0)
         }
+    }
+    
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        self.keyObserver.observe(self.window)
+        self.updatePlayback()
+    }
+    
+    var isEmitterPlaying: Bool {
+        return !(self.emitterLayer?.isTimelineFrozen ?? true)
+    }
+    
+    private func updatePlayback() {
+        let isPlaying = !self.isFadedOut && WindowKeyObserver.isKey(self.window)
+        self.emitterLayer?.setTimelineFrozen(!isPlaying)
     }
     
     private var didSetupAnimations = false

@@ -8,6 +8,7 @@ import GeneralRows
 import TelegramMediaUtils
 import TelegramTheme
 import TelegramUtils
+import Localization
 
 
 public final class GroupCallPeerAvatarRowItem : GeneralRowItem {
@@ -34,6 +35,18 @@ public final class GroupCallPeerAvatarRowItem : GeneralRowItem {
     }
     
     public override var hasBorder: Bool {
+        return false
+    }
+
+    public override var accessibilityLabel: String? {
+        return strings().voiceOverCommonPhotoOf(peer.displayTitle)
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .image
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
         return false
     }
     

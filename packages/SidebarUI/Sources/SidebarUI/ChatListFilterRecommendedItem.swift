@@ -13,7 +13,11 @@ import SwiftSignalKit
 
 class ChatListFilterRecommendedItem: GeneralRowItem {
     fileprivate let textLayout: TextViewLayout
+    private let title: String
+    private let descriptionText: String
     init(_ initialSize: NSSize, stableId: AnyHashable, title: String, description: String, viewType: GeneralViewType, add: @escaping()->Void) {
+        self.title = title
+        self.descriptionText = description
 
         let attr = NSMutableAttributedString()
 
@@ -42,6 +46,14 @@ class ChatListFilterRecommendedItem: GeneralRowItem {
 
     override func viewClass() -> AnyClass {
         return ChatListFilterRecommendedView.self
+    }
+
+    override var accessibilityLabel: String? {
+        return title
+    }
+
+    override var accessibilityValue: String? {
+        return descriptionText
     }
 
 }

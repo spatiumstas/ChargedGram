@@ -53,6 +53,43 @@ public class LanguageRowItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return LanguageRowView.self
     }
+    
+    public override var accessibilityLabel: String? {
+        return title.attributedString.string
+    }
+    
+    public override var accessibilityValue: String? {
+        let value = locale.attributedString.string
+        return value.isEmpty ? nil : value
+    }
+    
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .radioButton
+    }
+    
+    public override var accessibilityToggleState: Bool? {
+        return selected
+    }
+    
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+    
+    public override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        guard deletable, !selected else {
+            return nil
+        }
+        let deleteAction = self.deleteAction
+        return [NSAccessibilityCustomAction(name: strings().voiceOverCommonDelete, handler: {
+            deleteAction()
+            return true
+        })]
+    }
+    
+    public override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
+    }
 }
 
 
@@ -68,6 +105,8 @@ public class LanguageRowView : TableRowView {
         addSubview(localeTextView)
         addSubview(selectedImage)
        
+        selectedImage.isAccessibilityDecorative = true
+        deleteButton.setAccessibilityLabel(strings().voiceOverCommonDelete)
         selectedImage.sizeToFit()
         localeTextView.isSelectable = false
         titleTextView.isSelectable = false

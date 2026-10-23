@@ -103,6 +103,28 @@ class LocationPlaceSuggestionRowItem: GeneralRowItem {
         return success
     }
     
+    override var accessibilityLabel: String? {
+        return textLayout.attributedString.string.components(separatedBy: "\n").first
+    }
+
+    override var accessibilityValue: String? {
+        let lines = textLayout.attributedString.string.components(separatedBy: "\n")
+        return lines.count > 1 ? lines.dropFirst().joined(separator: ", ") : nil
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
+    }
+
     override func viewClass() -> AnyClass {
         return LocationPlaceSuggestionRowView.self
     }

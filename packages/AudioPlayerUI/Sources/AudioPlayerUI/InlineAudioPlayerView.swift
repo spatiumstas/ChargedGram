@@ -97,9 +97,9 @@ public class InlineAudioPlayerView: NavigationHeaderView, APDelegate {
 
     private var message:Message?
     private(set) var instantVideoPip:InlineAudioPlayerInstantVideoPIP?
-    private var ranges: (RangeSet<Int64>, Int64)?
     
     private var bufferingStatusDisposable: MetaDisposable = MetaDisposable()
+    private weak var observedController: APController?
     
    
     
@@ -169,6 +169,15 @@ public class InlineAudioPlayerView: NavigationHeaderView, APDelegate {
             }
         }, for: .Click)
         
+        previous.setAccessibilityLabel(strings().voiceOverCommonPrevious)
+        next.setAccessibilityLabel(strings().voiceOverCommonNext)
+        playPause.setAccessibilityLabel(strings().voiceOverCommonPlay)
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
+        repeatControl.setAccessibilityLabel(strings().dateSelectorScheduleRepeat)
+        volumeControl.setAccessibilityLabel(strings().voiceOverCommonVolume)
+        playingSpeed.setAccessibilityLabel(strings().voiceOverCommonPlaybackSpeed)
+        containerView.isAccessibilityDecorative = true
+
         previous.autohighlight = false
         next.autohighlight = false
         playPause.autohighlight = false
@@ -217,6 +226,7 @@ public class InlineAudioPlayerView: NavigationHeaderView, APDelegate {
 
         trackNameView.userInteractionEnabled = false
         trackNameView.isEventLess = true
+        trackNameView.isAccessibilityDecorative = true
         
         
         
@@ -325,17 +335,7 @@ public class InlineAudioPlayerView: NavigationHeaderView, APDelegate {
     }
     
     func updateStatus(_ ranges: RangeSet<Int64>, _ size: Int64) {
-        self.ranges = (ranges, size)
-        
-        if let ranges = self.ranges, !ranges.0.isEmpty, ranges.1 != 0 {
-            for range in ranges.0.ranges {
-                var progress = (CGFloat(range.count) / CGFloat(ranges.1))
-                progress = progress == 1.0 ? 0 : progress
-                progressView.set(fetchingProgress: progress, animated: progress > 0)
-                
-                break
-            }
-        }
+        progressView.set(fetchingProgressRanges: audioPlayerBufferingRanges(ranges, size: size), animated: false)
     }
     
     
@@ -377,16 +377,24 @@ public class InlineAudioPlayerView: NavigationHeaderView, APDelegate {
 
         let controller = contextObject.controller
 
+        observedController?.remove(listener: self)
+        observedController = controller
+        self.updateStatus(RangeSet(), 0)
+
         self.bufferingStatusDisposable.set((controller.bufferingStatus
-            |> deliverOnMainQueue).start(next: { [weak self] status in
+            |> deliverOnMainQueue).start(next: { [weak self, weak controller] status in
+                guard let self, let controller, self.observedController === controller, self.controller === controller else {
+                    return
+                }
                 if let status = status {
-                    self?.updateStatus(status.0, status.1)
+                    self.updateStatus(status.0, status.1)
+                } else {
+                    self.updateStatus(RangeSet(), 0)
                 }
             }))
         controller.baseRate = effectivePlayingRate(for: controller)
 
 
-        controller.remove(listener: self)
         controller.add(listener: self)
         self.ready.set(controller.ready.get())
 
@@ -414,6 +422,7 @@ public class InlineAudioPlayerView: NavigationHeaderView, APDelegate {
     }
     
     deinit {
+        observedController?.remove(listener: self)
         if let windowDidResignKeyObserver {
             NotificationCenter.default.removeObserver(windowDidResignKeyObserver)
         }
@@ -459,6 +468,9 @@ public class InlineAudioPlayerView: NavigationHeaderView, APDelegate {
     
     
     private func update(_ song: APSongItem, controller: APController, animated: Bool) {
+        guard observedController === controller, self.controller === controller, controller.currentSong?.stableId == song.stableId else {
+            return
+        }
         
         
         let iconColor = theme.colors.text
@@ -495,12 +507,14 @@ public class InlineAudioPlayerView: NavigationHeaderView, APDelegate {
             let artist = TextViewLayout(attr.0, maximumNumberOfLines:1, alignment: .left)
             self.trackNameView.update(artist)
         }
+        textViewContainer.setAccessibilityLabel([attr.0.string, attr.1?.string ?? ""].filter { !$0.isEmpty }.joined(separator: ", "))
         if let attr = attr.1 {
             let current: TextView
             if self.artistNameView == nil {
                 current = TextView()
                 current.userInteractionEnabled = false
                 current.isEventLess = true
+                current.isAccessibilityDecorative = true
                 self.artistNameView = current
                 textViewContainer.addSubview(current)
             } else {
@@ -526,6 +540,7 @@ public class InlineAudioPlayerView: NavigationHeaderView, APDelegate {
         
         playingSpeed.set(image: optionsRateImage(rate: String(format: "%.1fx", effectivePlayingRate(for: controller)), color: effectivePlayingRate(for: controller) == 1.0 ? dimColor : iconColor, isLarge: true), for: .Normal)
 
+        volumeControl.setAccessibilityValue(FastSettings.volumeRate == 0 ? strings().voiceOverCommonMuted : nil)
         switch FastSettings.volumeRate {
         case 0:
             volumeControl.set(image: TelegramThemeHooks.shared.image(.iconInlinePlayerVolumeOff).precomposed(dimColor), for: .Normal)
@@ -534,14 +549,20 @@ public class InlineAudioPlayerView: NavigationHeaderView, APDelegate {
         }
 
         if hasPlayerList {
+            repeatControl.setAccessibilityLabel(strings().voiceOverCommonPlaylist)
+            repeatControl.setAccessibilityValue(nil)
             repeatControl.set(image: TelegramThemeHooks.shared.image(.iconAudioPlayerList).precomposed(dimColor), for: .Normal)
         } else {
+            repeatControl.setAccessibilityLabel(strings().dateSelectorScheduleRepeat)
             switch controller.state.repeatState {
             case .circle:
+                repeatControl.setAccessibilityValue(strings().voiceOverCommonRepeatAll)
                 repeatControl.set(image: TelegramThemeHooks.shared.image(.iconInlinePlayerRepeat).precomposed(iconColor), for: .Normal)
             case .one:
+                repeatControl.setAccessibilityValue(strings().voiceOverCommonRepeatOne)
                 repeatControl.set(image: TelegramThemeHooks.shared.image(.iconInlinePlayerRepeatOne).precomposed(iconColor), for: .Normal)
             case .none:
+                repeatControl.setAccessibilityValue(strings().dateSelectorScheduleRepeatNever)
                 repeatControl.set(image: TelegramThemeHooks.shared.image(.iconInlinePlayerRepeat).precomposed(dimColor), for: .Normal)
             }
 
@@ -553,20 +574,24 @@ public class InlineAudioPlayerView: NavigationHeaderView, APDelegate {
         switch song.state {
         case .waiting:
             progressView.style = playProgressStyle
+            progressView.set(progress: 0, animated: animated)
         case .stoped:
+            progressView.style = playProgressStyle
             progressView.set(progress: 0, animated: animated)
         case let .playing(_, _, progress), let .paused(_, _, progress):
             progressView.style = playProgressStyle
-            progressView.set(progress: CGFloat(progress.isNaN ? 0 : progress), animated: animated, duration: 0.2)
+            progressView.set(progress: CGFloat(progress.isFinite ? min(max(progress, 0), 1) : 0), animated: animated, duration: 0.2)
         case let .fetching(progress):
             progressView.style = fetchProgressStyle
-            progressView.set(progress: CGFloat(progress), animated: animated)
+            progressView.set(progress: CGFloat(progress.isFinite ? min(max(progress, 0), 1) : 0), animated: animated)
         }
         
         switch controller.state.status {
         case .playing:
+            playPause.setAccessibilityLabel(strings().voiceOverCommonPause)
             play(animated: animated, sticker: LocalAnimatedSticker.playlist_play_pause)
         case .paused:
+            playPause.setAccessibilityLabel(strings().voiceOverCommonPlay)
             play(animated: animated, sticker: LocalAnimatedSticker.playlist_pause_play)
         default:
             break
@@ -602,6 +627,9 @@ public class InlineAudioPlayerView: NavigationHeaderView, APDelegate {
     }
     
     public func audioDidCompleteQueue(for controller:APController, animated: Bool) {
+        guard observedController === controller, self.controller === controller else {
+            return
+        }
         stopAndHide(true)
     }
 
@@ -825,10 +853,15 @@ public class InlineAudioPlayerView: NavigationHeaderView, APDelegate {
     }
     
     func stopAndHide(_ animated:Bool) -> Void {
+        guard let controller = self.controller, observedController === controller else {
+            return
+        }
         resetExpansion()
-        controller?.remove(listener: self)
-        controller?.stop()
-        controller?.cleanup()
+        observedController = nil
+        bufferingStatusDisposable.set(nil)
+        controller.remove(listener: self)
+        controller.stop()
+        controller.cleanup()
         AudioPlayerUIHooks.shared.hideInstantVideoPip(instantVideoPip)
         instantVideoPip = nil
         AudioPlayerUIHooks.shared.endInlinePlayer(context, animated)

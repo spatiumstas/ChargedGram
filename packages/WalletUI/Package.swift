@@ -28,6 +28,8 @@ let package = Package(
         .package(name: "SceneEffects", path: "../SceneEffects"),
         .package(name: "MetalEngine", path: "../../submodules/telegram-ios/submodules/MetalEngine"),
         .package(name: "QRCodeUtils", path: "../QRCodeUtils"),
+        .package(name: "UniqueGiftRenderer", path: "../UniqueGiftRenderer"),
+        .package(name: "InlineStickerLayer", path: "../InlineStickerLayer"),
     ],
     targets: [
         .target(
@@ -52,6 +54,8 @@ let package = Package(
                 .product(name: "SceneEffects", package: "SceneEffects", condition: nil),
                 .product(name: "MetalEngine", package: "MetalEngine", condition: nil),
                 .product(name: "QRCodeUtils", package: "QRCodeUtils", condition: nil),
+                .product(name: "UniqueGiftRenderer", package: "UniqueGiftRenderer", condition: nil),
+                .product(name: "InlineStickerLayer", package: "InlineStickerLayer", condition: nil),
             ],
             path: "Sources/WalletUI",
             resources: [.copy("Resources/ChatListNoResults.tgs"), .copy("Resources/GramDiamondLight.tgs"), .copy("Resources/WalletCommentLock.tgs"), .copy("Resources/WalletTransactionKey.pdf"), .copy("Resources/WalletTransactionKeyLarge.pdf"), .copy("Resources/WalletAddressInfo.pdf")]),

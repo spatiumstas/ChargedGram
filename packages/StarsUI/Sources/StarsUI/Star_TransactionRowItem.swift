@@ -180,6 +180,35 @@ public final class Star_TransactionItem : GeneralRowItem {
         super.init(initialSize, stableId: stableId, viewType: viewType)
     }
     
+    public override var accessibilityLabel: String? {
+        return nameLayout.attributedString.string
+    }
+    
+    public override var accessibilityValue: String? {
+        let amount = amountLayout.attributedString.string.replacingOccurrences(of: clown, with: "").trimmingCharacters(in: .whitespaces)
+        let currency: String
+        switch transaction.currency {
+        case .stars:
+            currency = strings().voiceOverCommonStars
+        case .ton:
+            currency = "TON"
+        }
+        return ["\(amount) \(currency)", descLayout?.attributedString.string, dateLayout.attributedString.string].compactMap { $0 }.joined(separator: ", ")
+    }
+    
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+    
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+    
+    public override func accessibilityPerformPress() -> Bool {
+        callback(transaction)
+        return true
+    }
+    
     public override func viewClass() -> AnyClass {
         return TransactionView.self
     }
@@ -373,6 +402,7 @@ private final class TransactionView : GeneralContainableRowView {
                 current = view
             } else {
                 current = ImageView(frame: NSMakeRect(0, 0, 40, 40))
+                current.isAccessibilityDecorative = true
                 self.avatarImage = current
                 addSubview(current)
             }

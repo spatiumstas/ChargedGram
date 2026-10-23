@@ -12,10 +12,6 @@ import TelegramMediaUtils
 import ColorPalette
 
 
-private var magicNumber: CGFloat {
-    return 8 / 370
-}
-
 private final class VideoAvatarKeyFramePreviewView: Control {
     private let imageView: ImageView = ImageView()
     private let flash: View = View()
@@ -24,6 +20,7 @@ private final class VideoAvatarKeyFramePreviewView: Control {
         super.init(frame: frameRect)
         addSubview(imageView)
         addSubview(flash)
+        imageView.isAccessibilityDecorative = true
         flash.backgroundColor = .white
         flash.frame = bounds
         imageView.frame = bounds
@@ -41,6 +38,7 @@ private final class VideoAvatarKeyFramePreviewView: Control {
             })
         } else {
             flash.removeFromSuperview()
+            completion(true)
         }
     }
     
@@ -63,6 +61,8 @@ private final class VideoAvatarModalView : View {
     private let playerContainer: View = View()
     private var keyFramePreview: VideoAvatarKeyFramePreviewView?
     private var keyFrameDotView: View?
+    private var keyFrameGeneration = UUID()
+    private var keyFrameAnimating = false
     private let controls: View = View()
     
     fileprivate let ok: TextButton = TextButton()
@@ -143,78 +143,67 @@ private final class VideoAvatarModalView : View {
     }
     
     func setKeyFrame(value: CGFloat?, highRes: CGImage? = nil, lowRes: CGImage? = nil, animated: Bool, completion: @escaping(Bool)->Void = { _ in}, moveToCurrentKeyFrame: @escaping(CGFloat)->Void = { _ in }) -> Void {
-        if let keyFramePreview = self.keyFramePreview {
-            self.keyFramePreview = nil
-            keyFramePreview.layer?.animateAlpha(from: 1, to: 0, duration: 0.2, removeOnCompletion: false, completion: { [weak keyFramePreview] _ in
-                keyFramePreview?.removeFromSuperview()
-            })
-        }
-        if let keyFrameDotView = self.keyFrameDotView {
-            self.keyFrameDotView = nil
-            keyFrameDotView.layer?.animateAlpha(from: 1, to: 0, duration: 0.2, removeOnCompletion: false, completion: { [weak keyFrameDotView] _ in
-                keyFrameDotView?.removeFromSuperview()
-            })
-        }
-        if let value = value {
-            let point = self.convert(selectionRectView.selectedRect.origin, from: selectionRectView)
-            let size = selectionRectView.selectedRect.size
-            let keyFramePreview = VideoAvatarKeyFramePreviewView(frame: CGRect(origin: point, size: size))
- 
-            
-            keyFramePreview.set(handler: { _ in
-                moveToCurrentKeyFrame(value)
-            }, for: .Click)
-            
-            keyFramePreview.update(with: highRes, value: value, animated: animated, completion: { [weak self, weak keyFramePreview] completed in
-                
-                if !completed {
-                    keyFramePreview?.removeFromSuperview()
-                    completion(completed)
-                    return
+        self.keyFrameGeneration = UUID()
+        let generation = self.keyFrameGeneration
+        self.keyFrameAnimating = false
+        self.keyFramePreview?.removeFromSuperview()
+        self.keyFrameDotView?.removeFromSuperview()
+        self.keyFramePreview = nil
+        self.keyFrameDotView = nil
+        guard let value else { return }
+
+        let origin = self.convert(selectionRectView.selectedRect.origin, from: selectionRectView)
+        let size = selectionRectView.selectedRect.size
+        let keyFramePreview = VideoAvatarKeyFramePreviewView(frame: CGRect(origin: origin, size: size))
+        self.keyFramePreview = keyFramePreview
+        self.keyFrameAnimating = true
+        self.addSubview(keyFramePreview)
+        keyFramePreview.set(handler: { [weak self] _ in
+            guard let self, self.keyFrameGeneration == generation else { return }
+            moveToCurrentKeyFrame(value)
+        }, for: .Click)
+        keyFramePreview.update(with: highRes, value: value, animated: animated, completion: { [weak self, weak keyFramePreview] completed in
+            guard let self, self.keyFrameGeneration == generation, let keyFramePreview, self.keyFramePreview === keyFramePreview else { return }
+            guard completed else {
+                self.keyFrameAnimating = false
+                self.keyFramePreview = nil
+                keyFramePreview.removeFromSuperview()
+                completion(false)
+                return
+            }
+            let keyFrameDotView = View()
+            self.keyFrameDotView = keyFrameDotView
+            self.addSubview(keyFrameDotView)
+            keyFrameDotView.backgroundColor = .white
+            keyFrameDotView.layer?.cornerRadius = 3
+
+            let point = NSMakePoint(self.controls.frame.minX + self.scrubberView.frame.minX + self.scrubberView.timelinePosition(for: value) - 15, self.controls.frame.maxY - self.scrubberView.frame.height - 30 - 14)
+            keyFrameDotView.frame = NSMakeRect(self.controls.frame.minX + self.scrubberView.frame.minX + self.scrubberView.timelinePosition(for: value) - 3, self.controls.frame.maxY - self.scrubberView.frame.height - 10, 6, 6)
+            let finish: (Bool) -> Void = { [weak self, weak keyFramePreview, weak keyFrameDotView] complete in
+                guard let self, self.keyFrameGeneration == generation, self.keyFrameAnimating, let keyFramePreview, self.keyFramePreview === keyFramePreview else { return }
+                self.keyFrameAnimating = false
+                keyFramePreview.update(with: lowRes, value: value, animated: false, completion: { _ in })
+                keyFramePreview.frame = CGRect(origin: point, size: NSMakeSize(30, 30))
+                keyFramePreview.layer?.removeAllAnimations()
+                if !complete {
+                    self.keyFramePreview = nil
+                    self.keyFrameDotView = nil
+                    keyFrameDotView?.removeFromSuperview()
+                    keyFramePreview.removeFromSuperview()
                 }
-                
-                guard let `self` = self, let keyFramePreview = keyFramePreview else {
-                    return
-                }
-                
-                let keyFrameDotView = View()
-                
-               
-                self.addSubview(keyFrameDotView)
-                keyFrameDotView.backgroundColor = .white
-                keyFrameDotView.layer?.cornerRadius = 3
-                
-                
-                let point = NSMakePoint(self.controls.frame.minX + self.scrubberView.frame.minX + value * self.scrubberView.frame.width - 15 + 2, self.controls.frame.maxY - self.scrubberView.frame.height - 30 - 14)
-                
-                keyFrameDotView.frame = NSMakeRect(self.controls.frame.minX + self.scrubberView.frame.minX + (value * self.scrubberView.frame.width) - 3 + 2, self.controls.frame.maxY - self.scrubberView.frame.height - 10, 6, 6)
-                
+                self.needsLayout = true
+                completion(complete)
+            }
+            if animated {
                 keyFramePreview.layer?.animateScale(from: 1, to: 30 / keyFramePreview.frame.width, duration: 0.23, removeOnCompletion: false)
-                keyFramePreview.layer?.animatePosition(from: keyFramePreview.frame.origin, to: point, duration: 0.3, removeOnCompletion: false, completion: { [weak self, weak keyFramePreview, weak keyFrameDotView] complete in
-                    
-                    keyFramePreview?.update(with: lowRes, value: value, animated: false, completion: { _ in })
-                    keyFramePreview?.frame = CGRect(origin: point, size: NSMakeSize(30, 30))
-                    keyFramePreview?.layer?.removeAllAnimations()
-                    
-                    self?.keyFrameDotView = keyFrameDotView
-                    self?.keyFramePreview = keyFramePreview
-                    
-                    if !complete {
-                        keyFrameDotView?.removeFromSuperview()
-                        keyFramePreview?.removeFromSuperview()
-                    }
-                    
-                    completion(complete)
-                })
-                
-               
-                
+                keyFramePreview.layer?.animatePosition(from: keyFramePreview.frame.origin, to: point, duration: 0.3, removeOnCompletion: false, completion: finish)
                 keyFrameDotView.layer?.animateAlpha(from: 0, to: 1, duration: 0.2)
-            })
-            self.addSubview(keyFramePreview)
-        }
+            } else {
+                finish(true)
+            }
+        })
     }
-    
+
     var playerSize: NSSize {
         return playerContainer.frame.size
     }
@@ -293,10 +282,10 @@ private final class VideoAvatarModalView : View {
         descView.centerX(y: controls.frame.maxY + 15)
         
         
-        if let keyFramePreview = keyFramePreview, let keyFrameDotView = keyFrameDotView, let value = keyFramePreview.keyFrame {
-            let point = NSMakePoint(self.controls.frame.minX + self.scrubberView.frame.minX + value * self.scrubberView.frame.width - 15 + 2, self.controls.frame.maxY - self.scrubberView.frame.height - 30 - 14)
+        if !self.keyFrameAnimating, let keyFramePreview = keyFramePreview, let keyFrameDotView = keyFrameDotView, let value = keyFramePreview.keyFrame {
+            let point = NSMakePoint(self.controls.frame.minX + self.scrubberView.frame.minX + self.scrubberView.timelinePosition(for: value) - 15, self.controls.frame.maxY - self.scrubberView.frame.height - 30 - 14)
             
-            keyFrameDotView.frame = NSMakeRect(self.controls.frame.minX + self.scrubberView.frame.minX + (value * self.scrubberView.frame.width) - 3 + 2, self.controls.frame.maxY - self.scrubberView.frame.height - 10, 6, 6)
+            keyFrameDotView.frame = NSMakeRect(self.controls.frame.minX + self.scrubberView.frame.minX + self.scrubberView.timelinePosition(for: value) - 3, self.controls.frame.maxY - self.scrubberView.frame.height - 10, 6, 6)
             keyFramePreview.frame = CGRect(origin: point, size: NSMakeSize(30, 30))
 
         }
@@ -326,6 +315,10 @@ public class VideoAvatarModalController: ModalViewController {
     private let rectDisposable = MetaDisposable()
     private let valuesDisposable = MetaDisposable()
     private let keyFrameGeneratorDisposable = MetaDisposable()
+    private var keyFrameGeneration = UUID()
+    private var keyFrameInteractionGeneration = UUID()
+    private var keyFramePreviewResumePending = false
+    private var thumbnailGeneration = UUID()
     private var playToEndObserver: NSObjectProtocol?
     
     fileprivate let scrubberValues:Atomic<VideoScrubberValues> = Atomic(value: VideoScrubberValues(movePos: 0, keyFrame: nil, leftTrim: 0, rightTrim: 1.0, minDist: 0, maxDist: 1, paused: true, suspended: false))
@@ -339,6 +332,8 @@ public class VideoAvatarModalController: ModalViewController {
     }
     private var firstTime: Bool = true
     private var timeObserverToken: Any?
+    private var playbackGeneration = UUID()
+    private var playbackActive = true
     
     public var completeState: Signal<VideoAvatarGeneratorState, NoError> {
         return state.get()
@@ -356,24 +351,13 @@ public class VideoAvatarModalController: ModalViewController {
         self.track = track
         self.holder = holder
         self.quality = quality
-        let size = track.naturalSize.applying(track.preferredTransform)
-        self.videoSize = NSMakeSize(abs(size.width), abs(size.height))
+        self.videoSize = EditedAvatarVideoGeometry(naturalSize: track.naturalSize, transform: track.preferredTransform)?.size ?? .zero
         
         self.item = AVPlayerItem(asset: asset)
         self.player = AVPlayer(playerItem: item)
         
-        let videoComposition = AVMutableVideoComposition()
-        videoComposition.renderSize = videoSize
-        videoComposition.frameDuration = CMTimeMake(value: 1, timescale: 30)
-        let transformer = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
-        let instruction = AVMutableVideoCompositionInstruction()
-        instruction.timeRange = CMTimeRangeMake(start: CMTime.zero, duration: self.asset.duration)
-        let transform1: CGAffineTransform = track.preferredTransform
-        transformer.setTransform(transform1, at: CMTime.zero)
-        instruction.layerInstructions = [transformer]
-        videoComposition.instructions = [instruction]
-        self.item.videoComposition = videoComposition
-        
+        self.item.videoComposition = editedAvatarVideoComposition(track: track, duration: asset.duration)
+
         self.localize = localize
         super.init(frame: CGRect(origin: .zero, size: context.window.contentView!.frame.size - NSMakeSize(20, 20)))
         self.bar = .init(height: 0)
@@ -417,10 +401,30 @@ public class VideoAvatarModalController: ModalViewController {
     
     public override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        if !self.playbackActive {
+            self.playbackActive = true
+            self.updateUserInterface(self.firstTime)
+            let values = self.scrubberValues.with { $0 }
+            if values.paused {
+                self.applyValuesToPlayer(values)
+            } else {
+                self.play()
+            }
+        }
     }
     public override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        self.playbackActive = false
+        self.invalidateKeyFramePreview()
+        self.thumbnailGeneration = UUID()
+        self.updateThumbsDisposable.set(nil)
+        self.generatedRect = nil
+        self.playbackGeneration = UUID()
         player.pause()
+        if let playToEndObserver {
+            NotificationCenter.default.removeObserver(playToEndObserver)
+            self.playToEndObserver = nil
+        }
         
         if let timeObserverToken = timeObserverToken {
             player.removeTimeObserver(timeObserverToken)
@@ -430,7 +434,8 @@ public class VideoAvatarModalController: ModalViewController {
     
     public override func returnKeyAction() -> KeyHandlerResult {
         
-        let dataSignal = generateVideo(self.asset, composition: self.currentVideoComposition(), quality: self.quality, values: self.scrubberValues.with { $0 })
+        guard let composition = self.currentVideoComposition() else { return .invoked }
+        let dataSignal = generateVideo(self.asset, composition: composition, quality: self.quality, values: self.scrubberValues.with { $0 })
         
         let promise: Promise<VideoAvatarGeneratorState> = Promise()
         promise.set(dataSignal)
@@ -462,92 +467,10 @@ public class VideoAvatarModalController: ModalViewController {
     }
     
     
-    private func currentVideoComposition() -> AVVideoComposition {
-        let size = self.videoSize
-        let naturalSize = self.asset.naturalSize
-        
-        enum Orientation {
-            case up, down, right, left
-        }
-        
-        func orientation(for track: AVAssetTrack) -> Orientation {
-            let t = track.preferredTransform
-            
-            if(t.a == 0 && t.b == 1.0 && t.c == -1.0 && t.d == 0) {
-                return .up
-            } else if(t.a == 0 && t.b == -1.0 && t.c == 1.0 && t.d == 0) {
-                return .down
-            } else if(t.a == 1.0 && t.b == 0 && t.c == 0 && t.d == 1.0) {
-                return .right
-            } else if(t.a == -1.0 && t.b == 0 && t.c == 0 && t.d == -1.0) {
-                return .left
-            } else {
-                return .up
-            }
-        }
-        
-        func roundSize(_ numToRound: CGFloat) -> CGFloat {
-            let numToRound = Int(numToRound)
-            let remainder = numToRound % 16;
-            if (remainder == 0) {
-                return CGFloat(numToRound)
-            }
-            return CGFloat((numToRound - 16) + (16 - remainder));
-        }
-        
-        let rotation: Orientation = orientation(for: track)
-        
-        var selectedRect = self.genericView.selectionRectView.selectedRect
-        let viewSize = self.genericView.playerSize
-        let coefficient = NSMakeSize(size.width / viewSize.width, size.height / viewSize.height)
-        
-        selectedRect = selectedRect.apply(multiplier: coefficient)
-        
-        selectedRect.size = NSMakeSize(min(selectedRect.width, selectedRect.height), min(selectedRect.width, selectedRect.height))
-        
-        let videoComposition = AVMutableVideoComposition()
-        
-        
-        
-        videoComposition.renderSize = NSMakeSize(roundSize(selectedRect.width), roundSize(selectedRect.height))
-        videoComposition.frameDuration = CMTimeMake(value: 1, timescale: 30)
-        
-        let transformer = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
-        let instruction = AVMutableVideoCompositionInstruction()
-        
-        instruction.timeRange = CMTimeRangeMake(start: CMTime.zero, duration: self.asset.duration)
-        
-        let point = selectedRect.origin
-        var finalTransform: CGAffineTransform = CGAffineTransform.identity
-        
-        switch rotation {
-        case .down:
-            finalTransform = finalTransform
-                .translatedBy(x: -point.x, y: naturalSize.width - point.y)
-                .rotated(by: -.pi / 2)
-        case .left:
-            finalTransform = finalTransform
-                .translatedBy(x: naturalSize.width - point.x, y: naturalSize.height - point.y)
-                .rotated(by: .pi)
-        case .right:
-            finalTransform = finalTransform
-                .translatedBy(x: -point.x, y: -point.y)
-                .rotated(by: 0)
-        case .up:
-            finalTransform = finalTransform
-                .translatedBy(x: naturalSize.height - point.x, y: -point.y)
-                .rotated(by: .pi / 2)
-        }
-        
-        transformer.setTransform(finalTransform, at: CMTime.zero)
-        
-        instruction.layerInstructions = [transformer]
-        videoComposition.instructions = [instruction]
-        
-        return videoComposition
+    private func currentVideoComposition() -> AVVideoComposition? {
+        editedAvatarVideoComposition(track: self.track, duration: self.asset.duration, selection: self.genericView.selectionRectView.selectedRect, viewSize: self.genericView.playerSize)
     }
-    
-    
+
     deinit {
         rectDisposable.dispose()
         updateThumbsDisposable.dispose()
@@ -566,45 +489,34 @@ public class VideoAvatarModalController: ModalViewController {
     private var generatedRect: NSRect? = nil
     
     private func updateUserInterface(_ firstTime: Bool) {
+        guard self.playbackActive else { return }
         let size = NSMakeSize(genericView.scrubberView.frame.height, genericView.scrubberView.frame.height)
-        
-        let signal = generateVideoScrubberThumbs(for: asset, composition: currentVideoComposition(), size: size, count: Int(ceil(genericView.scrubberView.frame.width / size.width)), gradually: true, blur: true)
+        guard let composition = self.currentVideoComposition(), size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0, let count = Int(exactly: ceil(genericView.scrubberView.frame.width / size.width)), count > 0 else { return }
+        let selectedRect = self.genericView.selectionRectView.selectedRect
+        guard self.generatedRect != selectedRect else { return }
+        self.generatedRect = selectedRect
+        self.thumbnailGeneration = UUID()
+        let generation = self.thumbnailGeneration
+        let request = MetaDisposable()
+        self.updateThumbsDisposable.set(request)
+        let signal = generateVideoScrubberThumbs(for: asset, composition: composition, size: size, count: count, gradually: true, blur: true)
             |> delay(0.2, queue: .concurrentDefaultQueue())
-        
-        
-        let duration = CMTimeGetSeconds(asset.duration)
-        
-        let keyFrame = scrubberValues.with { $0.keyFrame }
-        
-        let keyFrameSignal: Signal<CGImage?, NoError>
-            
-        if let keyFrame = keyFrame {
-            keyFrameSignal = generateVideoAvatarPreview(for: asset, composition: self.currentVideoComposition(), highSize: genericView.selectionRectView.selectedRect.size, lowSize: NSMakeSize(30, 30), at: Double(keyFrame) * duration)
-                |> delay(0.2, queue: .concurrentDefaultQueue())
-                |> map { $0.0 }
-        } else {
-            keyFrameSignal = .single(nil)
-        }
-        
-        var selectedRect = self.genericView.selectionRectView.selectedRect
-        let viewSize = self.genericView.playerSize
-        let coefficient = NSMakeSize(size.width / viewSize.width, size.height / viewSize.height)
-        
-        selectedRect = selectedRect.apply(multiplier: coefficient)
-
-        if generatedRect != selectedRect {
-            updateThumbsDisposable.set(combineLatest(queue: .mainQueue(), signal, keyFrameSignal).start(next: { [weak self] images, keyFrame in
-                self?.genericView.scrubberView.render(images.0, size: size)
-                self?.genericView.updateKeyFrameImage(keyFrame)
-                if self?.firstTime == true {
-                    self?.firstTime = !images.1
-                }
-                self?.generatedRect = selectedRect
-            }))
+            |> deliverOnMainQueue
+        request.set(signal.start(next: { [weak self] images in
+            guard let self, self.playbackActive, self.thumbnailGeneration == generation else { return }
+            self.genericView.scrubberView.render(images.0, size: size)
+            if self.firstTime {
+                self.firstTime = !images.1
+            }
+        }))
+        if let keyFrame = self.scrubberValues.with({ $0.keyFrame }) {
+            self.runKeyFrameUpdater(keyFrame, animated: false)
         }
     }
     private func applyValuesToPlayer(_ values: VideoScrubberValues) {
-        if values.movePos > values.rightTrim - (magicNumber + (magicNumber / 2)), !values.paused {
+        guard self.playbackActive, self.scrubberValues.with({ $0 }) == values, let range = EditedAvatarVideoRange(duration: self.asset.duration.seconds, leftTrim: Double(values.leftTrim), rightTrim: Double(values.rightTrim), keyFrame: nil) else { return }
+        self.item.forwardPlaybackEndTime = CMTimeRangeGetEnd(range.timeRange)
+        if values.movePos >= values.rightTrim, !values.paused {
             play()
         }
         if values.paused {
@@ -619,23 +531,21 @@ public class VideoAvatarModalController: ModalViewController {
             self.runKeyFrameUpdater(keyFrame)
             seekToNormal(values)
         } else if appliedKeyFrame != nil && values.keyFrame == nil {
-            self.genericView.setKeyFrame(value: nil, animated: true)
-            self.appliedKeyFrame = nil
+            self.invalidateKeyFramePreview()
         }
     }
     @discardableResult private func seekToNormal(_ values: VideoScrubberValues) -> CGFloat? {
-        let duration = CMTimeGetSeconds(asset.duration)
-        if values.suspended {
-            self.player.seek(to: CMTimeMakeWithSeconds(TimeInterval(values.movePos) * duration, preferredTimescale: 1000), toleranceBefore: .zero, toleranceAfter: .zero)
-            return values.keyFrame
-        } else {
-            self.player.seek(to: CMTimeMakeWithSeconds(TimeInterval(values.leftTrim + magicNumber) * duration, preferredTimescale: 1000), toleranceBefore: .zero, toleranceAfter: .zero)
-            return nil
-        }
+        let duration = self.asset.duration.seconds
+        guard let range = EditedAvatarVideoRange(duration: duration, leftTrim: Double(values.leftTrim), rightTrim: Double(values.rightTrim), keyFrame: values.suspended ? Double(values.movePos) : nil) else { return nil }
+        self.player.seek(to: range.thumbnailTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        return values.suspended ? CGFloat(range.thumbnailTime.seconds / duration) : nil
     }
-    
+
     private func play() {
+        guard self.playbackActive else { return }
         player.pause()
+        self.playbackGeneration = UUID()
+        let generation = self.playbackGeneration
         let duration = CMTimeGetSeconds(asset.duration)
         
         if let timeObserverToken = timeObserverToken {
@@ -643,6 +553,10 @@ public class VideoAvatarModalController: ModalViewController {
             self.timeObserverToken = nil
         }
         
+        let values = self.scrubberValues.with { $0 }
+        guard let range = EditedAvatarVideoRange(duration: duration, leftTrim: Double(values.leftTrim), rightTrim: Double(values.rightTrim), keyFrame: values.suspended ? Double(values.movePos) : nil) else { return }
+        self.item.forwardPlaybackEndTime = CMTimeRangeGetEnd(range.timeRange)
+
         _ = self.scrubberValues.modify { values in
             let values = values.withUpdatedPaused(false)
             if let result = self.seekToNormal(values) {
@@ -657,7 +571,8 @@ public class VideoAvatarModalController: ModalViewController {
 
         
         timeObserverToken = player.addPeriodicTimeObserver(forInterval: time, queue: .main) { [weak self]  time in
-            self?.updateValues { current in
+            guard let self, self.playbackActive, self.playbackGeneration == generation, time.isNumeric, time.seconds.isFinite else { return }
+            self.updateValues { current in
                 if !current.suspended {
                     return current.withUpdatedMove(CGFloat(CMTimeGetSeconds(time) / duration))
                 } else {
@@ -667,51 +582,78 @@ public class VideoAvatarModalController: ModalViewController {
         }
         
         
+        if let playToEndObserver {
+            NotificationCenter.default.removeObserver(playToEndObserver)
+        }
+        self.playToEndObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: self.item, queue: .main) { [weak self] _ in
+            guard let self, self.playbackActive, self.playbackGeneration == generation else { return }
+            self.play()
+        }
+
         self.player.play()
     }
     
-    private func runKeyFrameUpdater(_ keyFrame: CGFloat) {
-        let duration = CMTimeGetSeconds(asset.duration)
+    private func invalidateKeyFramePreview() {
+        self.keyFrameGeneration = UUID()
+        self.keyFramePreviewResumePending = false
+        self.keyFrameGeneratorDisposable.set(nil)
+        self.appliedKeyFrame = nil
+        self.genericView.setKeyFrame(value: nil, animated: false)
+    }
 
-        let size = genericView.selectionRectView.selectedRect.size
-        
-        let signal = generateVideoAvatarPreview(for: self.asset, composition: self.currentVideoComposition(), highSize: size, lowSize: NSMakeSize(30, 30), at: Double(keyFrame) * duration)
+    private func runKeyFrameUpdater(_ keyFrame: CGFloat, animated: Bool = true) {
+        guard self.playbackActive, self.scrubberValues.with({ $0.keyFrame }) == keyFrame else { return }
+        let resumePlayback = animated ? self.scrubberValues.with({ $0.paused && $0.suspended }) : self.keyFramePreviewResumePending
+        self.invalidateKeyFramePreview()
+        self.keyFramePreviewResumePending = resumePlayback
+        self.appliedKeyFrame = keyFrame
+        let generation = self.keyFrameGeneration
+        let interaction = self.keyFrameInteractionGeneration
+        var finished = false
+        let finish: (Bool) -> Void = { [weak self] completed in
+            guard let self, !finished, self.playbackActive, self.keyFrameGeneration == generation, self.keyFrameInteractionGeneration == interaction, self.scrubberValues.with({ $0.keyFrame }) == keyFrame, resumePlayback else { return }
+            finished = true
+            self.keyFramePreviewResumePending = false
+            _ = self.scrubberValues.modify { values in
+                let updated = values.withUpdatedPaused(false).withUpdatedSuspended(true)
+                return completed ? updated.withUpdatedMove(keyFrame) : updated
+            }
+            self.play()
+            self.updateValues { $0.withUpdatedSuspended(false) }
+        }
+        guard let composition = self.currentVideoComposition(), let range = EditedAvatarVideoRange(duration: self.asset.duration.seconds, leftTrim: Double(self.scrubberValues.with { $0.leftTrim }), rightTrim: Double(self.scrubberValues.with { $0.rightTrim }), keyFrame: Double(keyFrame)) else {
+            finish(false)
+            return
+        }
+        let size = self.genericView.selectionRectView.selectedRect.size
+        let signal = generateVideoAvatarPreview(for: self.asset, composition: composition, highSize: size, lowSize: NSMakeSize(30, 30), at: range.thumbnailTime.seconds)
+            |> take(1)
             |> deliverOnMainQueue
-        
-        keyFrameGeneratorDisposable.set(signal.start(next: { [weak self] highRes, lowRes in
-            self?.genericView.setKeyFrame(value: keyFrame, highRes: highRes, lowRes: lowRes, animated: true, completion: {  [weak self] completed in
-                if completed {
-                    self?.updateValues {
-                        $0.withUpdatedPaused(false)
-                            .withUpdatedMove(keyFrame)
-                    }
-                    self?.updateValues {
-                        $0.withUpdatedSuspended(false)
-                    }
-                } else {
-                    self?.updateValues {
-                        $0.withUpdatedSuspended(false)
-                        .withUpdatedPaused(false)
-                    }
-                }
-
-            }, moveToCurrentKeyFrame: { [weak self] keyFrame in
-                self?.updateValues {
-                    $0.withUpdatedSuspended(true)
-                    .withUpdatedMove(keyFrame)
-                }
-                self?.updateValues { [weak self] values in
-                    self?.seekToNormal(values)
-                    return values
-                }
-                self?.updateValues {
-                    $0.withUpdatedSuspended(false)
-                }
+        let request = MetaDisposable()
+        self.keyFrameGeneratorDisposable.set(request)
+        var received = false
+        request.set(signal.start(next: { [weak self] highRes, lowRes in
+            received = true
+            guard let self, self.playbackActive, self.keyFrameGeneration == generation, self.scrubberValues.with({ $0.keyFrame }) == keyFrame else { return }
+            guard let highRes, let lowRes else {
+                finish(false)
+                return
+            }
+            self.genericView.setKeyFrame(value: keyFrame, highRes: highRes, lowRes: lowRes, animated: animated, completion: finish, moveToCurrentKeyFrame: { [weak self] value in
+                guard let self, self.playbackActive, self.keyFrameGeneration == generation, self.scrubberValues.with({ $0.keyFrame }) == value else { return }
+                self.keyFrameInteractionGeneration = UUID()
+                self.keyFramePreviewResumePending = false
+                let values = self.scrubberValues.with { $0 }.withUpdatedMove(value).withUpdatedSuspended(true)
+                let position = self.seekToNormal(values) ?? value
+                self.updateValues { $0.withUpdatedMove(position).withUpdatedSuspended(values.paused) }
             })
-            self?.appliedKeyFrame = keyFrame
+        }, completed: {
+            if !received {
+                finish(false)
+            }
         }))
     }
-    
+
     public override var closable: Bool {
         return false
     }
@@ -730,17 +672,16 @@ public class VideoAvatarModalController: ModalViewController {
             _ = self?.returnKeyAction()
         }, for: .Click)
         
-        let duration = CMTimeGetSeconds(asset.duration)
-        
-        let scrubberSize = genericView.scrubberView.frame.width
-        
-        let valueSec = (scrubberSize / CGFloat(duration)) / scrubberSize
-        
-        self.updateValues { values in
-            return values.withUpdatedMinDist(valueSec).withUpdatedMaxDist(valueSec * 10.0).withUpdatedrightTrim(min(1, valueSec * 10.0))
+        guard let initialValues = initialAvatarVideoScrubberValues(duration: self.asset.duration.seconds) else {
+            self.state.set(.single(.error))
+            self.close()
+            return
         }
-        
+        self.updateValues { _ in initialValues }
+
         genericView.scrubberView.updateValues = { [weak self] values in
+            self?.keyFrameInteractionGeneration = UUID()
+            self?.keyFramePreviewResumePending = false
             self?.updateValues { _ in
                 return values
             }
@@ -752,13 +693,11 @@ public class VideoAvatarModalController: ModalViewController {
         }))
         
         valuesDisposable.set(self.scrubberValuesSignal.start(next: { [weak self] values in
-            self?.genericView.scrubberView.apply(values: values)
-            self?.applyValuesToPlayer(values)
+            guard let self, self.scrubberValues.with({ $0 }) == values else { return }
+            self.genericView.scrubberView.apply(values: values)
+            self.applyValuesToPlayer(values)
         }))
         
-        self.playToEndObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: self.item, queue: .main) { [weak self] _ in
-            self?.play()
-        }
         
         play()
         readyOnce()
@@ -770,115 +709,16 @@ public class VideoAvatarModalController: ModalViewController {
 
 public func selectVideoAvatar(context: any AccountContextProtocol, path: String, localize: String, quality: String = AVAssetExportPresetMediumQuality, signal:@escaping(Signal<VideoAvatarGeneratorState, NoError>)->Void, confirm: ((Signal<URL, NoError>, @escaping()->Void)->Void)? = nil) {
     let asset = AVURLAsset(url: URL(fileURLWithPath: path))
-    let track = asset.tracks(withMediaType: .video).first
-    if let track = track {
-        let composition = AVMutableComposition()
-        guard let compositionVideoTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
-            return
-        }
-                        
-        do {
-
-            try compositionVideoTrack.insertTimeRange(CMTimeRangeMake(start: .zero, duration: asset.duration), of: track, at: .zero)
-            let controller = VideoAvatarModalController(context: context, asset: composition, track: track, localize: localize, quality: quality, holder: asset, confirm: confirm)
-            showModal(with: controller, for: context.window)
-            signal(controller.completeState)
-        } catch { 
-            
-        }
+    guard let prepared = prepareEditedAvatarVideo(asset) else {
+        signal(.single(.error))
+        return
     }
+    let controller = VideoAvatarModalController(context: context, asset: prepared.composition, track: prepared.track, localize: localize, quality: quality, holder: asset, confirm: confirm)
+    showModal(with: controller, for: context.window)
+    signal(controller.completeState)
 }
 
 
 private func generateVideo(_ asset: AVComposition, composition: AVVideoComposition, quality: String, values: VideoScrubberValues) -> Signal<VideoAvatarGeneratorState, NoError> {
-    return Signal { subscriber in
-        
-        let exportSession = AVAssetExportSession(asset: asset, presetName: quality)!
-        exportSession.outputFileType = .mp4
-        exportSession.shouldOptimizeForNetworkUse = true
-        
-        let videoPath = NSTemporaryDirectory() + "\(arc4random()).mp4"
-        let thumbPath = NSTemporaryDirectory() + "\(arc4random()).jpg"
-        
-        
-        let imageGenerator = AVAssetImageGenerator(asset: asset)
-        imageGenerator.maximumSize = CGSize(width: 640, height: 640)
-        imageGenerator.appliesPreferredTrackTransform = true
-        imageGenerator.requestedTimeToleranceBefore = .zero
-        imageGenerator.requestedTimeToleranceAfter = .zero
-        
-        
-        imageGenerator.videoComposition = composition
-        let image = try? imageGenerator.copyCGImage(at: CMTimeMakeWithSeconds(Double(values.keyFrame ?? values.leftTrim) * asset.duration.seconds, preferredTimescale: 1000), actualTime: nil)
-        if let image = image {
-            let options = NSMutableDictionary()
-            options.setValue(640 as NSNumber, forKey: kCGImageDestinationImageMaxPixelSize as String)
-            options.setValue(true as NSNumber, forKey: kCGImageSourceCreateThumbnailWithTransform as String)
-            
-            let colorQuality: Float = 0.3
-            options.setObject(colorQuality as NSNumber, forKey: kCGImageDestinationLossyCompressionQuality as NSString)
-            
-            
-            let mutableData: CFMutableData = NSMutableData() as CFMutableData
-            let colorDestination = CGImageDestinationCreateWithData(mutableData, kUTTypeJPEG, 1, options)!
-            CGImageDestinationSetProperties(colorDestination, nil)
-            
-            CGImageDestinationAddImage(colorDestination, image, options as CFDictionary)
-            CGImageDestinationFinalize(colorDestination)
-            
-            try? (mutableData as Data).write(to: URL(fileURLWithPath: thumbPath))
-            
-            subscriber.putNext(.start(thumb: thumbPath))
-            
-        }
-        
-        exportSession.outputURL = URL(fileURLWithPath: videoPath)
-        
-        exportSession.videoComposition = composition
-        
-        
-        
-        let wholeDuration = CMTimeGetSeconds(asset.duration)
-        
-        let from = TimeInterval(values.leftTrim) * wholeDuration
-        let to = TimeInterval(values.rightTrim) * wholeDuration
-        
-        let start = CMTimeMakeWithSeconds(from, preferredTimescale: 1000)
-        let duration = CMTimeMakeWithSeconds(to - from, preferredTimescale: 1000)
-        
-        if #available(OSX 10.14, *) {
-            exportSession.fileLengthLimit = 2 * 1024 * 1024
-        }
-        
-        let timer = SwiftSignalKit.Timer(timeout: 0.05, repeat: true, completion: {
-            subscriber.putNext(.progress(exportSession.progress))
-        }, queue: .concurrentBackgroundQueue())
-        
-        exportSession.timeRange = CMTimeRangeMake(start: start, duration: duration)
-        
-        
-        exportSession.exportAsynchronously(completionHandler: { [weak exportSession] in
-            
-            timer.invalidate()
-            
-            if let exportSession = exportSession, exportSession.status == .completed, exportSession.error == nil {
-                subscriber.putNext(.complete(thumb: thumbPath, video: videoPath, keyFrame: values.keyFrame != nil ? Double(values.keyFrame!) * asset.duration.seconds : nil))
-                subscriber.putCompletion()
-                
-            } else {
-                subscriber.putNext(.error)
-                subscriber.putCompletion()
-            }
-            
-        })
-
-      
-        
-        timer.start()
-        
-        return ActionDisposable {
-            exportSession.cancelExport()
-            timer.invalidate()
-        }
-    } |> runOn(.concurrentBackgroundQueue())
+    generateEditedAvatarVideo(asset, composition: composition, quality: quality, leftTrim: Double(values.leftTrim), rightTrim: Double(values.rightTrim), keyFrame: values.keyFrame.map(Double.init))
 }

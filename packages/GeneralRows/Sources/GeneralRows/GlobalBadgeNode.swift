@@ -19,6 +19,7 @@ public class GlobalBadgeNode: Node {
     private let disposable:MetaDisposable = MetaDisposable()
     private var textLayout:(TextNodeLayout, TextNode)?
     public var customLayout: Bool = false
+    public private(set) var unreadCount: Int32 = 0
     public var xInset:CGFloat = 0
     public var onUpdate:(()->Void)?
     private var attributedString:NSAttributedString? {
@@ -184,6 +185,7 @@ public class GlobalBadgeNode: Node {
         
         self.disposable.set(s.start(next: { [weak self] result in
             if let strongSelf = self {
+                strongSelf.unreadCount = result.total
                                 
                 if result.total == 0 {
                     strongSelf.attributedString = nil
@@ -192,7 +194,7 @@ public class GlobalBadgeNode: Node {
                 }
                 strongSelf.layoutChanged?()
                 
-                if dockTile {
+                if dockTile, NSApplication.shared.dockTile.badgeLabel != result.dockText {
                     NSApplication.shared.dockTile.badgeLabel = result.dockText
                     forceUpdateStatusBarIconByDockTile(sharedContext: sharedContext)
                 }

@@ -149,6 +149,7 @@ public enum ChatState : Equatable {
         }
     }
 
+
     case normal
     case selecting
     case block(String)
@@ -443,6 +444,13 @@ public class ChatPresentationInterfaceState: Equatable {
                 return true
             }
             return peer.id == accountPeer?.id
+        }
+        return false
+    }
+
+    public var managedBotNeedsPhoto: Bool {
+        if let cachedData = cachedData as? CachedUserData, cachedData.botManagerId != nil, let user = peer as? TelegramUser, user.profileImageRepresentations.isEmpty {
+            return true
         }
         return false
     }
@@ -905,8 +913,8 @@ public class ChatPresentationInterfaceState: Equatable {
     }
     
     public var isShowSidebar: Bool {
-        if let sidebarEnabled = sidebarEnabled, let peer = peer, let sidebarShown = sidebarShown, let layout = layout {
-            return sidebarEnabled && peer.canSendMessage(chatMode.isThreadMode) && sidebarShown && layout == .dual
+        if let sidebarEnabled = sidebarEnabled, let peer = peer, let sidebarShown = sidebarShown {
+            return sidebarEnabled && peer.canSendMessage(chatMode.isThreadMode) && sidebarShown
         }
         return false
     }
@@ -1718,6 +1726,14 @@ public class ChatPresentationInterfaceState: Equatable {
     
     public func withUpdatedRemovePaidMessageFeeData(_ removePaidMessageFeeData: RemovePaidMessageFeeData?) -> ChatPresentationInterfaceState {
         return ChatPresentationInterfaceState(interfaceState: self.interfaceState, peer: self.peer, notificationSettings: self.notificationSettings, inputQueryResult: self.inputQueryResult, keyboardButtonsMessage:self.keyboardButtonsMessage, initialAction: self.initialAction, historyCount: self.historyCount, searchMode: self.searchMode, recordingState: self.recordingState, isBlocked: self.isBlocked, peerStatus: self.peerStatus, pinnedMessageId: self.pinnedMessageId, urlPreview: self.urlPreview, selectionState: self.selectionState, sidebarEnabled: self.sidebarEnabled, sidebarShown: self.sidebarShown, layout: self.layout, canAddContact: self.canAddContact, isEmojiSection: self.isEmojiSection, chatLocation: self.chatLocation, chatMode: self.chatMode, canInvokeBasicActions: self.canInvokeBasicActions, isNotAccessible: self.isNotAccessible, restrictionInfo: self.restrictionInfo, mainPeer: self.mainPeer, limitConfiguration: limitConfiguration, discussionGroupId: discussionGroupId, slowMode: self.slowMode, hasScheduled: self.hasScheduled, failedMessageIds: self.failedMessageIds, hidePinnedMessage: self.hidePinnedMessage, canPinMessage: self.canPinMessage, tempPinnedMaxId: self.tempPinnedMaxId, groupCall: self.groupCall, messageSecretTimeout: self.messageSecretTimeout, reportMode: self.reportMode, botMenu: self.botMenu, inviteRequestsPending: self.inviteRequestsPending, inviteRequestsPendingPeers: self.inviteRequestsPendingPeers, currentSendAsPeerId: self.currentSendAsPeerId, sendAsPeers: self.sendAsPeers, allowedReactions: self.allowedReactions, attachItems: self.attachItems, cachedData: self.cachedData, threadInfo: self.threadInfo, translateState: self.translateState, presence: self.presence, savedMessageTags: self.savedMessageTags, accountPeer: self.accountPeer, displaySavedChatsAsTopics: self.displaySavedChatsAsTopics, shortcuts: self.shortcuts, connectedBot: self.connectedBot, contentSettings: self.contentSettings, playedMessageEffects: self.playedMessageEffects, adMessage: self.adMessage, acknowledgedPaidMessage: self.acknowledgedPaidMessage, alwaysPaidMessage: self.alwaysPaidMessage, starsState: self.starsState, sendPaidMessageStars: self.sendPaidMessageStars, freezeAccount: self.freezeAccount, freezeAccountAppealAddressName: self.freezeAccountAppealAddressName, monoforumState: self.monoforumState, monoforumTopics: self.monoforumTopics, removePaidMessageFeeData: removePaidMessageFeeData)
+    }
+
+    public func withToggledSidebarEnabled(_ enabled: Bool?) -> ChatPresentationInterfaceState {
+        return ChatPresentationInterfaceState(interfaceState: self.interfaceState, peer: self.peer, notificationSettings: self.notificationSettings, inputQueryResult: self.inputQueryResult, keyboardButtonsMessage:self.keyboardButtonsMessage, initialAction: self.initialAction, historyCount: self.historyCount, searchMode: self.searchMode, recordingState: self.recordingState, isBlocked: self.isBlocked, peerStatus: self.peerStatus, pinnedMessageId: self.pinnedMessageId, urlPreview: self.urlPreview, selectionState: self.selectionState, sidebarEnabled: enabled, sidebarShown: self.sidebarShown, layout: self.layout, canAddContact: self.canAddContact, isEmojiSection: self.isEmojiSection, chatLocation: self.chatLocation, chatMode: self.chatMode, canInvokeBasicActions: self.canInvokeBasicActions, isNotAccessible: self.isNotAccessible, restrictionInfo: self.restrictionInfo, mainPeer: self.mainPeer, limitConfiguration: limitConfiguration, discussionGroupId: discussionGroupId, slowMode: self.slowMode, hasScheduled: self.hasScheduled, failedMessageIds: self.failedMessageIds, hidePinnedMessage: self.hidePinnedMessage, canPinMessage: self.canPinMessage, tempPinnedMaxId: self.tempPinnedMaxId, groupCall: self.groupCall, messageSecretTimeout: self.messageSecretTimeout, reportMode: self.reportMode, botMenu: self.botMenu, inviteRequestsPending: self.inviteRequestsPending, inviteRequestsPendingPeers: self.inviteRequestsPendingPeers, currentSendAsPeerId: self.currentSendAsPeerId, sendAsPeers: self.sendAsPeers, allowedReactions: self.allowedReactions, attachItems: self.attachItems, cachedData: self.cachedData, threadInfo: self.threadInfo, translateState: self.translateState, presence: self.presence, savedMessageTags: self.savedMessageTags, accountPeer: self.accountPeer, displaySavedChatsAsTopics: self.displaySavedChatsAsTopics, shortcuts: self.shortcuts, connectedBot: self.connectedBot, contentSettings: self.contentSettings, playedMessageEffects: self.playedMessageEffects, adMessage: self.adMessage, acknowledgedPaidMessage: self.acknowledgedPaidMessage, alwaysPaidMessage: self.alwaysPaidMessage, starsState: self.starsState, sendPaidMessageStars: self.sendPaidMessageStars, freezeAccount: self.freezeAccount, freezeAccountAppealAddressName: self.freezeAccountAppealAddressName, monoforumState: self.monoforumState, monoforumTopics: self.monoforumTopics, removePaidMessageFeeData: self.removePaidMessageFeeData)
+    }
+
+    public func withToggledSidebarShown(_ shown: Bool?) -> ChatPresentationInterfaceState {
+        return ChatPresentationInterfaceState(interfaceState: self.interfaceState, peer: self.peer, notificationSettings: self.notificationSettings, inputQueryResult: self.inputQueryResult, keyboardButtonsMessage:self.keyboardButtonsMessage, initialAction: self.initialAction, historyCount: self.historyCount, searchMode: self.searchMode, recordingState: self.recordingState, isBlocked: self.isBlocked, peerStatus: self.peerStatus, pinnedMessageId: self.pinnedMessageId, urlPreview: self.urlPreview, selectionState: self.selectionState, sidebarEnabled: self.sidebarEnabled, sidebarShown: shown, layout: self.layout, canAddContact: self.canAddContact, isEmojiSection: self.isEmojiSection, chatLocation: self.chatLocation, chatMode: self.chatMode, canInvokeBasicActions: self.canInvokeBasicActions, isNotAccessible: self.isNotAccessible, restrictionInfo: self.restrictionInfo, mainPeer: self.mainPeer, limitConfiguration: limitConfiguration, discussionGroupId: discussionGroupId, slowMode: self.slowMode, hasScheduled: self.hasScheduled, failedMessageIds: self.failedMessageIds, hidePinnedMessage: self.hidePinnedMessage, canPinMessage: self.canPinMessage, tempPinnedMaxId: self.tempPinnedMaxId, groupCall: self.groupCall, messageSecretTimeout: self.messageSecretTimeout, reportMode: self.reportMode, botMenu: self.botMenu, inviteRequestsPending: self.inviteRequestsPending, inviteRequestsPendingPeers: self.inviteRequestsPendingPeers, currentSendAsPeerId: self.currentSendAsPeerId, sendAsPeers: self.sendAsPeers, allowedReactions: self.allowedReactions, attachItems: self.attachItems, cachedData: self.cachedData, threadInfo: self.threadInfo, translateState: self.translateState, presence: self.presence, savedMessageTags: self.savedMessageTags, accountPeer: self.accountPeer, displaySavedChatsAsTopics: self.displaySavedChatsAsTopics, shortcuts: self.shortcuts, connectedBot: self.connectedBot, contentSettings: self.contentSettings, playedMessageEffects: self.playedMessageEffects, adMessage: self.adMessage, acknowledgedPaidMessage: self.acknowledgedPaidMessage, alwaysPaidMessage: self.alwaysPaidMessage, starsState: self.starsState, sendPaidMessageStars: self.sendPaidMessageStars, freezeAccount: self.freezeAccount, freezeAccountAppealAddressName: self.freezeAccountAppealAddressName, monoforumState: self.monoforumState, monoforumTopics: self.monoforumTopics, removePaidMessageFeeData: self.removePaidMessageFeeData)
     }
     
 }

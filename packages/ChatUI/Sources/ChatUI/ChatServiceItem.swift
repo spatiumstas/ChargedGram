@@ -31,6 +31,14 @@ import SceneEffects
 import UniqueGiftBackground
 
 public class ChatServiceItem: ChatRowItem {
+
+    public override var accessibilityKind: ChatMessageAccessibility.Kind {
+        return .text(text.attributedString.string)
+    }
+
+    public override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        return nil
+    }
     
     
     
@@ -2821,6 +2829,15 @@ public class ChatServiceItem: ChatRowItem {
                             attributedString.addAttribute(.font, value: NSFont.medium(theme.fontSize), range: range)
                         }
                     }
+                case .noPaidMessagesTokenUsed:
+                    let peerName = message.peers[message.id.peerId]?.compactDisplayTitle ?? ""
+                    let serviceText = noPaidMessagesTokenUsedText(peerName: peerName, isAuthor: authorId == context.peerId)
+                    let _ = attributedString.append(string: serviceText.text, color: grayTextColor, font: .normal(theme.fontSize))
+                    if serviceText.peerRange.location != NSNotFound, serviceText.peerRange.length > 0 {
+                        let link = ChatHistoryLink.peerInfo(link: "", peerId: message.id.peerId, action: nil, openChat: false, postId: nil, callback: chatInteraction.openInfo)
+                        attributedString.add(link: link, for: serviceText.peerRange, color: grayTextColor)
+                        attributedString.addAttribute(.font, value: NSFont.medium(theme.fontSize), range: serviceText.peerRange)
+                    }
                 case let .managedBotCreated(botId):
                     let botName = message.peers[botId]?.displayTitle ?? ""
                     let _ = attributedString.append(string: strings().chatServiceManagedBotCreated(authorName, botName), color: grayTextColor, font: .normal(theme.fontSize))
@@ -3200,14 +3217,7 @@ public class ChatServiceItem: ChatRowItem {
         
         let context = self.context
         
-        let calendar = Calendar.current
-        
-        var components = DateComponents()
-        components.day = Int(birthday.day)
-        components.month = Int(birthday.month)
-        components.year = Int(birthday.year ?? 1)
-
-        if let date = calendar.date(from: components) {
+        if let date = birthday.dateForPicker {
             guard let controller = ChatNavigationHooks.shared.makeBirthdayCalendar(context.window, date) else {
                 return
             }
@@ -3221,6 +3231,9 @@ public class ChatServiceItem: ChatRowItem {
                 let birthday: TelegramBirthday
                 
                 private var interactions: ModalInteractions?
+                private var isVisible = true
+                private var hasSubmitted = false
+                private let saveAction = ChatBirthdaySaveAction()
                 
                 init(_ controller: NavigationViewController, context: any AccountContextProtocol, birthday: TelegramBirthday) {
                     self.context = context
@@ -3228,13 +3241,24 @@ public class ChatServiceItem: ChatRowItem {
                     super.init(controller)
                 }
                 
+                override func viewWillAppear(_ animated: Bool) {
+                    super.viewWillAppear(animated)
+                    self.isVisible = true
+                    self.saveAction.setActive(true)
+                }
+
+                override func viewWillDisappear(_ animated: Bool) {
+                    self.isVisible = false
+                    self.saveAction.setActive(false)
+                    super.viewWillDisappear(animated)
+                }
+
                 override var modalInteractions: ModalInteractions? {
                     
                     if let interactions {
                         return interactions
                     }
                     
-                    let context = self.context
                     let bottomLayout: TextViewLayout?
                     if let _ = birthday.year {
                         let attr = NSMutableAttributedString()
@@ -3249,11 +3273,27 @@ public class ChatServiceItem: ChatRowItem {
                     let interactions = ModalInteractions(
                         acceptTitle: strings().chatServiceBirthdayAddToProfile,
                         accept: { [weak self] in
-                            let controller = self?.controller.controller as? (any ChatBirthdayCalendar)
-                            if let controller {
-                                ChatNavigationHooks.shared.updateAccountBirthday(controller.date, context)
+                            guard let self, self.isVisible, !self.hasSubmitted, !self.saveAction.isPending, let controller = self.controller.controller as? (any ChatBirthdayCalendar), let window = self.view.window as? Window else { return }
+                            let birthday = controller.date.birthday
+                            let canPresent: () -> Bool = { [weak self, weak controller, weak window] in
+                                guard let self, let controller, let window else { return false }
+                                return self.isVisible && !self.hasSubmitted && self.view.window === window && self.context.window === window && self.controller.controller === controller
                             }
-                            self?.modal?.close()
+                            self.saveAction.perform(signal: self.context.engine.accountData.updateBirthday(birthday: birthday), window: window, canPresent: canPresent, failed: { error in
+                                switch error {
+                                case .flood:
+                                    showModalText(for: window, text: strings().loginFloodWait)
+                                case .generic:
+                                    showModalText(for: window, text: strings().unknownError)
+                                }
+                            }, completed: { [weak self, weak controller] in
+                                guard let self, let controller else { return }
+                                if controller.date.birthday == birthday {
+                                    self.hasSubmitted = true
+                                    self.modal?.close()
+                                }
+                                showModalText(for: window, text: strings().birthdayAlertAdded)
+                            })
                         },
                         height: bottomLayout != nil ? 80 : 60,
                         singleButton: true,
@@ -3266,7 +3306,7 @@ public class ChatServiceItem: ChatRowItem {
                     
                     bottomLayout?.interactions.processURL = { [weak self, weak interactions] _ in
                         let controller = self?.controller.controller as? (any ChatBirthdayCalendar)
-                        guard let self, let controller else {
+                        guard let self, self.isVisible, !self.hasSubmitted, !self.saveAction.isPending, let controller else {
                             return
                         }
                         controller.hideYear()
@@ -4369,6 +4409,7 @@ public class ChatServiceRowView: TableRowView, RevealTableView {
                     current = view
                 } else {
                     current = ImageView()
+                    current.isAccessibilityDecorative = true
                     addSubview(current)
                     self.badgeView = current
                 }
@@ -5220,6 +5261,7 @@ public class ChatServiceRowView: TableRowView, RevealTableView {
             }
             while checkViews.count < data.items.count {
                 let view = ImageView(frame: .zero)
+                view.isAccessibilityDecorative = true
                 itemsContainer.addSubview(view)
                 checkViews.append(view)
             }

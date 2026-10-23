@@ -16,6 +16,10 @@ public final class SegmentTypesRowItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return SegmentTypesRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return items.first(where: { $0.selected })?.title ?? items.first?.title
+    }
 }
 
 private final class SegmentTypesRowView: GeneralContainableRowView {

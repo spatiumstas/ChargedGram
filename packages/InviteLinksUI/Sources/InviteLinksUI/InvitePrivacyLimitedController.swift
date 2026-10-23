@@ -72,6 +72,14 @@ private final class UpgradeToPremiumRowItem : GeneralRowItem {
     public override var height: CGFloat {
         return 50 + 10 + headerLayout.layoutSize.height + 2 + textLayout.layoutSize.height + 10 + 40 + 40
     }
+
+    public override var accessibilityLabel: String? {
+        return headerLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return textLayout.attributedString.string
+    }
     
     public override func viewClass() -> AnyClass {
         return UpgradeToPremiumRowView.self
@@ -214,6 +222,14 @@ private final class InviteViaLinkHeaderItem : GeneralRowItem {
     public override var height: CGFloat {
         return 40 + 10 + self.textLayout.layoutSize.height + viewType.innerInset.top + viewType.innerInset.bottom
     }
+
+    public override var accessibilityLabel: String? {
+        return textLayout.attributedString.string
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
     
     public override func viewClass() -> AnyClass {
         return InviteViaLinkHeaderView.self
@@ -232,6 +248,7 @@ private final class InviteViaLinkHeaderView : GeneralContainableRowView {
         textView.isSelectable = false
         
         button.userInteractionEnabled = false
+        button.isAccessibilityDecorative = true
     }
     
     public override func layout() {

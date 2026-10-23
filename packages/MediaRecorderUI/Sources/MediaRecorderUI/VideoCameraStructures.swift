@@ -39,16 +39,18 @@ public enum VideoCameraRecordingStatus : Equatable {
 }
 
 public func ==(lhs: VideoCameraRecordingStatus, rhs: VideoCameraRecordingStatus) -> Bool {
-    switch lhs {
-    case .idle:              if case .idle = rhs { return true }
-    case .startingRecording: if case .startingRecording = rhs { return true }
-    case .recording:         if case .recording = rhs { return true }
-    case .madeThumbnail:     if case .madeThumbnail = rhs { return true }
-    case .stoppingRecording: if case .stoppingRecording = rhs { return true }
-    case .paused:            if case .paused = rhs { return true }
-    case .stopped:           if case .stopped = rhs { return true }
-    case .failed:            if case .failed = rhs { return true }
-    case .finishRecording:   if case .finishRecording = rhs { return true }
+    switch (lhs, rhs) {
+    case (.idle, .idle), (.startingRecording, .startingRecording), (.recording, .recording), (.stoppingRecording, .stoppingRecording), (.failed, .failed):
+        return true
+    case let (.madeThumbnail(lhs), .madeThumbnail(rhs)):
+        return lhs === rhs
+    case let (.paused(lhs), .paused(rhs)):
+        return lhs == rhs
+    case let (.stopped(lhs), .stopped(rhs)):
+        return lhs === rhs
+    case let (.finishRecording(lhsPath, lhsDuration, lhsId, lhsThumb), .finishRecording(rhsPath, rhsDuration, rhsId, rhsThumb)):
+        return lhsPath == rhsPath && lhsDuration == rhsDuration && lhsId == rhsId && lhsThumb === rhsThumb
+    default:
+        return false
     }
-    return false
 }

@@ -183,6 +183,15 @@ private final class HeaderItem : GeneralRowItem {
         return height
     }
     
+    override var accessibilityLabel: String? {
+        return title.attributedString.string
+    }
+    
+    override var accessibilityValue: String? {
+        let value = info.attributedString.string
+        return value.isEmpty ? nil : value
+    }
+    
     public override func viewClass() -> AnyClass {
         return HeaderView.self
     }
@@ -249,6 +258,7 @@ private final class HeaderView : GeneralRowView {
         dismiss.setGlassEffect(size: NSMakeSize(36, 36))
         dismiss.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
         dismiss.scaleOnClick = true
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
         
         dismiss.setSingle(handler: { [weak item] _ in
             item?.arguments.dismiss()
@@ -315,6 +325,10 @@ private final class GiftsRowItem : GeneralRowItem {
         super.init(initialSize, height: 125, stableId: stableId)
     }
     
+    override var accessibilityLabel: String? {
+        return state.unique.title
+    }
+    
     public override func viewClass() -> AnyClass {
         return GiftsRowView.self
     }
@@ -332,6 +346,7 @@ private final class GiftsRowView: GeneralRowView {
         addSubview(arrowView)
         addSubview(infoView)
         
+        arrowView.isAccessibilityDecorative = true
         infoView.userInteractionEnabled = false
         infoView.isSelectable = false
     }

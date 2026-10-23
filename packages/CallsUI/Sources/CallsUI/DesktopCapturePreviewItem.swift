@@ -28,6 +28,34 @@ final class DesktopCapturePreviewItem : GeneralRowItem {
     override var width: CGFloat {
         return 90
     }
+
+    override var accessibilityLabel: String? {
+        return scope.source.title()
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .radioButton
+    }
+
+    override var accessibilityToggleState: Bool? {
+        return selected
+    }
+
+    override var accessibilityIsEnabled: Bool {
+        return isAvailable
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        guard let manager = manager else {
+            return false
+        }
+        select(scope.source, manager)
+        return true
+    }
     
     override func viewClass() -> AnyClass {
         return DesktopCapturePreviewView.self
@@ -55,8 +83,31 @@ class DesktopCameraCapturerRowItem: GeneralRowItem {
     override var width: CGFloat {
         return 90
     }
-    
 
+    override var accessibilityLabel: String? {
+        return source.title()
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .radioButton
+    }
+
+    override var accessibilityToggleState: Bool? {
+        return selected
+    }
+
+    override var accessibilityIsEnabled: Bool {
+        return isAvailable
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        select(source)
+        return true
+    }
     
     override func viewClass() -> AnyClass {
         return DesktopCapturePreviewView.self
@@ -86,6 +137,7 @@ private final class DesktopCaptureSourceMacView : Control {
         super.init(frame: frameRect)
         addSubview(contentView)
         addSubview(picture)
+        picture.isAccessibilityDecorative = true
         
         shadowView.shadowBackground = .blackTransparent
         

@@ -59,6 +59,7 @@ private func decodeDstData(_ data: Data) -> DstData? {
 }
 
 final class TRLotData {
+    static let transientScratchBufferSize = 80 * 80 * 4
     
     
     fileprivate var map:DstData
@@ -461,7 +462,8 @@ final class TRLotFileSupplyment {
                         
                         
                     } else {
-                        length = compression_encode_buffer(dst, self.bufferSize, address, self.bufferSize, self.data.encodeScratchBuffer, COMPRESSION_LZFSE)
+                        let scratch = self.bufferSize <= TRLotData.transientScratchBufferSize ? nil : self.data.encodeScratchBuffer
+                        length = compression_encode_buffer(dst, self.bufferSize, address, self.bufferSize, scratch, COMPRESSION_LZFSE)
                     }
                     let _ = self.data.writeFrame(frame: Int(current.1), data: Data(bytes: dst, count: length))
                 }

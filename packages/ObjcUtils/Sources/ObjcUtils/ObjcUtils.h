@@ -88,3 +88,5 @@ CMTimebaseRef _Nullable createTimebase(void);
 CMTimebaseRef _Nullable createTimebaseWithClock(CMClockRef clock);
 
 BOOL setWindowCaptureExclusion(NSWindow * _Nonnull window, CGRect rect, BOOL exclude);
+
+void TGDisableLayerActions(CALayer * _Nonnull layer);

@@ -25,7 +25,7 @@ public struct StylePreviewInfo: Equatable {
 
 public func fetchAiStylePreviewInfo(context: any AccountContextProtocol, slug: String) -> Signal<StylePreviewInfo?, NoError> {
     let url = context.meUrlPrefix + "addstyle/\(slug)"
-    return webpagePreview(account: context.account, urls: [url])
+    let signal = webpagePreview(account: context.account, urls: [url])
     |> filter { result in
         if case .result = result { return true }
         return false
@@ -53,6 +53,7 @@ public func fetchAiStylePreviewInfo(context: any AccountContextProtocol, slug: S
         }
         return info
     }
+    return (signal)
 }
 
 private typealias StyleExample = TelegramAIComposeToneExample
@@ -99,6 +100,15 @@ private final class StylePreviewHeaderRowItem : GeneralRowItem {
         h += subtitleLayout.layoutSize.height
         h += StylePreviewHeaderRowItem.bottomInset
         return h
+    }
+    override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+    override var accessibilityValue: String? {
+        return subtitleLayout.attributedString.string
+    }
+    override var accessibilityIncludesChildren: Bool {
+        return false
     }
     override func viewClass() -> AnyClass {
         return StylePreviewHeaderRowView.self
@@ -200,6 +210,18 @@ private final class BeforeAfterRowItem : GeneralRowItem {
         return padding + beforeLabelLayout.layoutSize.height + interLabel + beforeLayout.layoutSize.height + interBlock + .borderSize + interBlock + afterLabelLayout.layoutSize.height + interLabel + afterLayout.layoutSize.height + padding
     }
 
+    override var accessibilityLabel: String? {
+        return "\(beforeLabelLayout.attributedString.string): \(beforeLayout.attributedString.string)"
+    }
+
+    override var accessibilityValue: String? {
+        return "\(afterLabelLayout.attributedString.string): \(afterLayout.attributedString.string)"
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
     override func viewClass() -> AnyClass {
         return BeforeAfterRowView.self
     }
@@ -270,9 +292,11 @@ private final class BeforeAfterRowView : GeneralContainableRowView {
 private final class Arguments {
     let context: any AccountContextProtocol
     let requestAnother: ()->Void
-    init(context: any AccountContextProtocol, requestAnother: @escaping()->Void) {
+    let openAuthor: (String, String) -> Void
+    init(context: any AccountContextProtocol, requestAnother: @escaping()->Void, openAuthor: @escaping (String, String) -> Void) {
         self.context = context
         self.requestAnother = requestAnother
+        self.openAuthor = openAuthor
     }
 }
 
@@ -326,9 +350,8 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
                 let handle = author.hasPrefix("@") ? author : "@\(author)"
                 let username = handle.hasPrefix("@") ? String(handle.dropFirst()) : handle
                 let markdown = strings().aiStylePreviewAddByAuthor(handle)
-                let ctx = arguments.context
                 entries.append(.desc(sectionId: sectionId, index: index, text: .markdown(markdown, linkHandler: { _ in
-                    TranslateUIHooks.shared.followResolvedName(handle, username, ctx)
+                    arguments.openAuthor(handle, username)
                 }), data: .init(color: theme.colors.listGrayText, viewType: .textBottomItem)))
             } else {
                 entries.append(.desc(sectionId: sectionId, index: index, text: .plain(strings().aiStylePreviewAddNoAuthor), data: .init(color: theme.colors.listGrayText, viewType: .textBottomItem)))
@@ -374,7 +397,7 @@ public func AiStylePreviewModalController(context: any AccountContextProtocol, s
             return
         }
         let signal = context.engine.messages.getAIComposeToneExample(slug: slug, num: num) |> deliverOnMainQueue
-        actionsDisposable.add(signal.start(next: { example in
+        actionsDisposable.add((signal).start(next: { example in
             updateState { current in
                 var current = current
                 if let example {
@@ -394,11 +417,13 @@ public func AiStylePreviewModalController(context: any AccountContextProtocol, s
     let arguments = Arguments(context: context, requestAnother: {
         let nextNum = stateValue.with { $0.exampleNum } + 1
         fetchExample(nextNum)
+    }, openAuthor: { handle, username in
+        TranslateUIHooks.shared.followResolvedNameObserved(handle, username, context)
     })
 
     if let fileId = info.emojiFileId {
         let resolve = context.engine.stickers.resolveInlineStickers(fileIds: [fileId]) |> deliverOnMainQueue
-        actionsDisposable.add(resolve.start(next: { files in
+        actionsDisposable.add((resolve).start(next: { files in
             guard let file = files[fileId] else { return }
             updateState { current in
                 var current = current
@@ -427,7 +452,7 @@ public func AiStylePreviewModalController(context: any AccountContextProtocol, s
         }
     }))
 
-    let signal = statePromise.get() |> deliverOnPrepareQueue |> map { state in
+    let signal = (statePromise.get() |> deliverOnPrepareQueue) |> map { state in
         return InputDataSignalValue(entries: entries(state, arguments: arguments))
     }
 
@@ -447,6 +472,7 @@ public func AiStylePreviewModalController(context: any AccountContextProtocol, s
     }, singleButton: true)
 
     let modalController = InputDataModalController(controller, modalInteractions: modalInteractions, size: NSMakeSize(360, 0))
+
 
     controller.afterTransaction = { [weak modalInteractions] _ in
         guard let modalInteractions else { return }

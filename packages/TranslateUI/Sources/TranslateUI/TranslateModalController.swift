@@ -192,6 +192,16 @@ private final class TranslateTabRowItem : GeneralRowItem {
         self.updateMode = updateMode
         super.init(initialSize, stableId: stableId)
     }
+    override var accessibilityLabel: String? {
+        switch mode {
+        case .translate:
+            return strings().translateTabTranslate
+        case .style:
+            return strings().translateTabStyle
+        case .fix:
+            return strings().translateTabFix
+        }
+    }
     override func viewClass() -> AnyClass {
         return TranslateTabRowView.self
     }
@@ -216,6 +226,10 @@ private final class TranslateTabItemView : Control {
         activeTextView.isSelectable = false
         inactiveTextView.userInteractionEnabled = false
         inactiveTextView.isSelectable = false
+        imageView.isAccessibilityDecorative = true
+        activeTextView.isAccessibilityDecorative = true
+        inactiveTextView.isAccessibilityDecorative = true
+        setAccessibilityLabel(title)
         scaleOnClick = true
         set(handler: { _ in select() }, for: .SingleClick)
     }
@@ -376,6 +390,9 @@ private final class StyleEmojiRowItem : GeneralRowItem {
         self.styleMenu = styleMenu
         super.init(initialSize, stableId: stableId, viewType: viewType)
     }
+    override var accessibilityLabel: String? {
+        return styles.first(where: { $0.id == selectedId })?.title ?? strings().translateTabStyle
+    }
     override func viewClass() -> AnyClass {
         return StyleEmojiRowView.self
     }
@@ -408,6 +425,11 @@ private final class StyleEmojiItemView : Control {
         activeLabel.isSelectable = false
         inactiveLabel.userInteractionEnabled = false
         inactiveLabel.isSelectable = false
+        emojiView.isAccessibilityDecorative = true
+        emojiView.textView.isAccessibilityDecorative = true
+        activeLabel.isAccessibilityDecorative = true
+        inactiveLabel.isAccessibilityDecorative = true
+        setAccessibilityLabel(title)
         scaleOnClick = true
         set(handler: { _ in select() }, for: .SingleClick)
     }
@@ -434,6 +456,7 @@ private final class StyleEmojiItemView : Control {
                 iconView = view
             } else {
                 iconView = ImageView()
+                iconView.isAccessibilityDecorative = true
                 self.iconView = iconView
                 addSubview(iconView)
             }
@@ -498,6 +521,9 @@ private final class StyleCreateItemView : Control {
         addSubview(label)
         label.userInteractionEnabled = false
         label.isSelectable = false
+        imageView.isAccessibilityDecorative = true
+        label.isAccessibilityDecorative = true
+        setAccessibilityLabel(strings().translateModalCreate)
         scaleOnClick = true
         set(handler: { _ in select() }, for: .SingleClick)
         updateTheme()
@@ -1135,7 +1161,7 @@ public func TranslateModalController(context: any AccountContextProtocol, from: 
             // the chat's inline translation shows the same rich result.
             let richSignal = context.engine.messages.translateRichMessage(messageId: messageId, toLang: state.to, tone: state.tone)
             |> deliverOnMainQueue
-            disposable.set(richSignal.start(next: { page in
+            disposable.set((richSignal).start(next: { page in
                 updateState { current in
                     var current = current
                     if let page {
@@ -1191,7 +1217,7 @@ public func TranslateModalController(context: any AccountContextProtocol, from: 
 
             let richSignal = context.engine.messages.composeRichMessageWithAI(instantPage: richPage, proofread: proofread, translateToLang: translateToLang, changeStyle: changeStyle, customPrompt: customPrompt, emojify: emojify)
             |> deliverOnMainQueue
-            disposable.set(richSignal.start(next: { page in
+            disposable.set((richSignal).start(next: { page in
                 let (previewText, previewEntities) = richTextPlainPreview(from: page)
                 updateState { current in
                     var current = current
@@ -1263,7 +1289,7 @@ public func TranslateModalController(context: any AccountContextProtocol, from: 
         } else {
             signal = translateBlocks(context: context, from: stateValue.with { $0.from }, to: stateValue.with { $0.to }, blocks: blocks, configState: configState, tone: stateValue.with { $0.tone })
         }
-        disposable.set(signal.start(next: { result in
+        disposable.set((signal).start(next: { result in
             updateState { current in
                 var current = current
                 if result.result.isEmpty {
@@ -1402,7 +1428,7 @@ public func TranslateModalController(context: any AccountContextProtocol, from: 
         }
         menu.addItem(ContextMenuItem(strings().translateModalShareStyle, handler: {
             if let slug = style.slug {
-                TranslateUIHooks.shared.shareLink(context, context.meUrlPrefix + "addstyle/\(slug)")
+                TranslateUIHooks.shared.shareLinkObserved(context, context.meUrlPrefix + "addstyle/\(slug)")
             }
         }, itemImage: MenuAnimation.menu_share.value))
         menu.addItem(ContextSeparatorItem())
@@ -1423,15 +1449,15 @@ public func TranslateModalController(context: any AccountContextProtocol, from: 
                 verifyAlert(for: context.window, header: strings().translateModalDeleteStyleHeader, information: strings().translateModalDeleteStyleConfirm, ok: strings().modalDelete, option: strings().translateModalDeleteStyleForAll, successHandler: { result in
                     switch result {
                     case .thrid:
-                        _ = context.engine.messages.deleteAITextStyle(id: styleId, accessHash: accessHash).startStandalone()
+                        _ = (context.engine.messages.deleteAITextStyle(id: styleId, accessHash: accessHash)).startStandalone()
                     case .basic:
-                        _ = context.engine.messages.unsaveAITextStyle(id: styleId, accessHash: accessHash).startStandalone()
+                        _ = (context.engine.messages.unsaveAITextStyle(id: styleId, accessHash: accessHash)).startStandalone()
                     }
                     removeLocal()
                 })
             } else {
                 verifyAlert(for: context.window, header: strings().translateModalDeleteStyleHeader, information: strings().translateModalDeleteStyleConfirm, ok: strings().modalDelete, successHandler: { _ in
-                    _ = context.engine.messages.unsaveAITextStyle(id: styleId, accessHash: accessHash).startStandalone()
+                    _ = (context.engine.messages.unsaveAITextStyle(id: styleId, accessHash: accessHash)).startStandalone()
                     removeLocal()
                 })
             }
@@ -1447,7 +1473,7 @@ public func TranslateModalController(context: any AccountContextProtocol, from: 
     
     request()
     
-    let signal = statePromise.get() |> deliverOnPrepareQueue |> map { state in
+    let signal = (statePromise.get() |> deliverOnPrepareQueue) |> map { state in
         return InputDataSignalValue(entries: entries(state, arguments: arguments))
     }
     
@@ -1482,7 +1508,7 @@ public func TranslateModalController(context: any AccountContextProtocol, from: 
         modalInteractions = ModalInteractions(acceptTitle: strings().translateApply, accept: {
             if stateValue.with({ $0.limitExceeded }) {
                 close?()
-                FeatureNavigationHooks.shared.showPremiumBoarding(context, context.window, .aiCompose, false, nil)
+                FeatureNavigationHooks.shared.showPremiumBoardingObserved(context, context.window, .aiCompose, false, nil)
                 return
             }
             if let onUseRich {
@@ -1521,13 +1547,14 @@ public func TranslateModalController(context: any AccountContextProtocol, from: 
 
     let modalController = InputDataModalController(controller, modalInteractions: modalInteractions, size: NSMakeSize(360, 0))
     
+
     controller.leftModalHeader = ModalHeaderData(image: theme.icons.modalClose, handler: { [weak modalController] in
         modalController?.close()
     })
 
     if isInputMode {
         controller.rightModalHeader = ModalHeaderData(image: theme.icons.chatActionInfo, handler: {
-            TranslateUIHooks.shared.showAboutCocoonModal(context)
+            TranslateUIHooks.shared.showAboutCocoonModalObserved(context)
         })
     }
     

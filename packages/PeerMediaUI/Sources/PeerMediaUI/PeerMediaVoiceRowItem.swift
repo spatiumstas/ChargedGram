@@ -8,6 +8,7 @@ import AudioPlayerCore
 import ChatUI
 import GalleryUI
 import GeneralRows
+import Localization
 import TelegramMediaUtils
 import TelegramTheme
 import TelegramUtils
@@ -52,6 +53,30 @@ public class PeerMediaVoiceRowItem: PeerMediaRowItem {
     
     public override func viewClass() -> AnyClass {
         return PeerMediaVoiceRowView.self
+    }
+
+    public override var accessibilityLabel: String? {
+        return strings().voiceOverCommonVoiceMessage
+    }
+
+    public override var accessibilityValue: String? {
+        return [nameLayout.attributedString.string, titleLayout.attributedString.string].filter { !$0.isEmpty }.joined(separator: ", ")
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        if interface.presentation.state == .selecting {
+            interface.update({ $0.withToggledSelectedMessage(message.id) })
+            return true
+        }
+        guard let view = view as? PeerMediaVoiceRowView else {
+            return false
+        }
+        view.executeInteraction(true)
+        return true
     }
 }
 

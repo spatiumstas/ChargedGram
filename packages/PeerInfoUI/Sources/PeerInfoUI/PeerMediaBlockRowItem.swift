@@ -6,6 +6,7 @@ import SwiftSignalKit
 import CoreGraphics
 import TelegramContext
 import GeneralRows
+import Localization
 
 class PeerMediaBlockRowItem<Context: AccountContextProtocol>: GeneralRowItem {
     
@@ -57,6 +58,14 @@ class PeerMediaBlockRowItem<Context: AccountContextProtocol>: GeneralRowItem {
     override func makeSize(_ width: CGFloat, oldWidth: CGFloat = 0) -> Bool {
         _ = super.makeSize(width, oldWidth: oldWidth)
         return true
+    }
+    
+    override var accessibilityLabel: String? {
+        return isMediaVisible ? strings().peerInfoSharedMedia : nil
+    }
+    
+    override var accessibilityIsSpacer: Bool {
+        return !isMediaVisible
     }
     
     override func viewClass() -> AnyClass {

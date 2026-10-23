@@ -326,6 +326,18 @@ private final class WalletSendFundsStatusRowItem: GeneralRowItem {
     override func viewClass() -> AnyClass {
         return WalletSendFundsStatusRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        let warning = warningLayout.attributedString.string
+        if !warning.isEmpty {
+            return warning
+        }
+        return showsDeposit ? strings().walletSendControllerDepositFundsLink : nil
+    }
+
+    override var accessibilityIsSpacer: Bool {
+        return warningLayout.attributedString.string.isEmpty && !showsDeposit
+    }
 }
 
 private final class WalletSendFundsStatusRowView: GeneralRowView {
@@ -337,6 +349,7 @@ private final class WalletSendFundsStatusRowView: GeneralRowView {
         addSubview(warningView)
         warningView.userInteractionEnabled = false
         warningView.isSelectable = false
+        warningView.isAccessibilityDecorative = true
         addSubview(button)
         button.autoSizeToFit = false
         button.scaleOnClick = true
@@ -412,6 +425,29 @@ private final class WalletSendFeesRowItem: GeneralRowItem {
 
     override func viewClass() -> AnyClass {
         return WalletSendFeesRowView.self
+    }
+
+    override var accessibilityLabel: String? {
+        return display == nil ? nil : titleLayout.attributedString.string
+    }
+
+    override var accessibilityValue: String? {
+        if let valueLayout {
+            return valueLayout.attributedString.string
+        }
+        return display == .loading ? strings().voiceOverCommonLoading : nil
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .staticText
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override var accessibilityIsSpacer: Bool {
+        return display == nil
     }
 }
 
@@ -504,6 +540,24 @@ private final class WalletSendCommentRowItem: GeneralRowItem {
     override func viewClass() -> AnyClass {
         return WalletSendCommentRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        let text = textLayout.attributedString.string
+        return text.isEmpty ? nil : text
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
+    }
 }
 
 private final class WalletSendCommentRowView: GeneralRowView {
@@ -539,6 +593,7 @@ private final class WalletSendCommentRowView: GeneralRowView {
             return
         }
         textView.update(item.textLayout)
+        control.setAccessibilityLabel(item.textLayout.attributedString.string)
         needsLayout = true
     }
 
@@ -717,6 +772,7 @@ struct WalletSendStep {
     let acceptTitle: () -> String
     let submit: () -> Void
     let updateButton: () -> Void
+    let requestDismiss: (@escaping () -> Void) -> Void
 }
 
 @available(macOS 10.15, *)
@@ -728,7 +784,9 @@ private func makeWalletSendModal(context: any AccountContextProtocol, environmen
     let modalInteractions = ModalInteractions(acceptTitle: step.acceptTitle(), accept: {
         step.submit()
     }, singleButton: true, customTheme: { walletModalTheme })
-    let modalController = WalletModalController(step.controller, modalInteractions: modalInteractions, size: NSMakeSize(360, 0))
+    let modalController = WalletModalController(step.controller, modalInteractions: modalInteractions, closeHandler: { close in
+        step.requestDismiss(close)
+    }, size: NSMakeSize(360, 0))
     getModal = { [weak modalController] in
         return modalController
     }
@@ -762,8 +820,18 @@ public func walletPeerSendAddress(context: any AccountContextProtocol, environme
 }
 
 @available(macOS 10.15, *)
+
+@available(macOS 10.15, *)
 public func showWalletSendMoney(context: any AccountContextProtocol, environment: WalletUIEnvironment, walletContext: WalletContext, peer: Peer) {
-    showModal(with: WalletSendController(context: context, environment: environment, walletContext: walletContext, peer: peer, completed: walletOpenRecipientChat(environment: environment, window: context.window, peerId: peer.id)), for: context.window)
+    let completed = walletOpenRecipientChat(environment: environment, window: context.window, peerId: peer.id)
+    let controller = WalletSendController(context: context, environment: environment, walletContext: walletContext, peer: peer, completed: {
+        completed()
+    })
+    let onDeinit = controller.onDeinit
+    controller.onDeinit = {
+        onDeinit?()
+    }
+    showModal(with: controller, for: context.window)
 }
 
 let walletSendTransferFiatSwitchDelay: Double = 0.54
@@ -778,6 +846,8 @@ func walletTransferSuccessText(isCollectible: Bool, recipient: String) -> String
 }
 
 private var walletDetachedSubmissions: [String: Disposable] = [:]
+
+@available(macOS 10.15, *)
 
 @available(macOS 10.15, *)
 public func submitWalletTransferDetached(context: any AccountContextProtocol, environment: WalletUIEnvironment, walletContext: WalletContext, prepared: WalletContext.PreparedTransfer, window: Window, recipientName: String?, recipientPeerId: PeerId? = nil, session: PasscodeSession? = nil, submitted: @escaping () -> Void = {}, failed: @escaping () -> Void = {}) {
@@ -886,8 +956,10 @@ private func runWalletTransferDetached(environment: WalletUIEnvironment, walletC
         }
         if let recipientPeerId {
             environment.showModalText(for: window, text: text, button: strings().walletSendControllerOpenChat, callback: { _ in
-                closeAllModals(window: window)
-                environment.openChat(recipientPeerId)
+                do {
+                    closeAllModals(window: window)
+                    environment.openChat(recipientPeerId)
+                }
             })
         } else {
             environment.showModalText(for: window, text: text)
@@ -1000,11 +1072,20 @@ func makeWalletSendController(context: any AccountContextProtocol, environment: 
     }
 
     var getController: (() -> InputDataController?)? = nil
+    let presentChild: (() -> InputDataModalController, Window, (() -> NSView?)?) -> Void = { makeController, window, morphSource in
+        let controller = makeController()
+        let onDeinit = controller.onDeinit
+        controller.onDeinit = {
+            onDeinit?()
+        }
+        showModal(with: controller, for: window, morphSource: morphSource)
+    }
     let amountRowView: () -> WalletAmountRowView? = {
         return getController?()?.tableView.item(stableId: InputDataEntryId.custom(_id_amount))?.view as? WalletAmountRowView
     }
     var close: (() -> Void)? = nil
     var submitImpl: (() -> Void)? = nil
+    var closesWithoutConfirmation = false
 
     var window: Window {
         return walletUIWindow(context, getController?())
@@ -1041,21 +1122,21 @@ func makeWalletSendController(context: any AccountContextProtocol, environment: 
 
     let editComment: () -> Void = {
         let current = stateValue.with { $0 }
-        showModal(with: walletCommentInputController(comment: walletTransactionComment(current.comment), isPublic: current.isCommentPublic, completion: { comment, isPublic in
+        presentChild({ walletCommentInputController(comment: walletTransactionComment(current.comment), isPublic: current.isCommentPublic, completion: { comment, isPublic in
             updateState { current in
                 var current = current
                 current.comment = comment
                 current.isCommentPublic = isPublic
                 return current
             }
-        }), for: window)
+        }) }, window, nil)
     }
 
     let arguments = Arguments(context: context, environment: environment, deposit: { morphSource in
         guard case let .wallet(info) = walletContext.stateValue.phase else {
             return
         }
-        showModal(with: WalletReceiveController(context: context, environment: environment, walletContext: walletContext, address: info.address), for: window, morphSource: morphSource)
+        presentChild({ WalletReceiveController(context: context, environment: environment, walletContext: walletContext, address: info.address) }, window, morphSource)
     }, editComment: editComment, updateAmount: { amount in
         let resolved = clampedTransferAmount(amount)
         updateState { current in
@@ -1285,6 +1366,7 @@ func makeWalletSendController(context: any AccountContextProtocol, environment: 
                 current.isSending = false
                 return current
             }
+            closesWithoutConfirmation = true
             getModal()?.close(animationType: .noMorph)
             completed?()
         }
@@ -1468,7 +1550,7 @@ func makeWalletSendController(context: any AccountContextProtocol, environment: 
                 return
             }
             close?()
-            showModal(with: WalletTransactionController(context: context, environment: environment, walletContext: walletContext, subject: .preview(address: resolved.address, amount: current.amount, sendAll: walletShouldSendAll(current), comment: current.comment, initialFee: walletSendInitialFee(current)), transferAnimation: transferAnimation), for: targetWindow)
+            presentChild({ WalletTransactionController(context: context, environment: environment, walletContext: walletContext, subject: .preview(address: resolved.address, amount: current.amount, sendAll: walletShouldSendAll(current), comment: current.comment, initialFee: walletSendInitialFee(current)), transferAnimation: transferAnimation) }, targetWindow, nil)
         }
         let setResolvingSigningAccess: (Bool) -> Void = { value in
             updateState { current in
@@ -1483,18 +1565,23 @@ func makeWalletSendController(context: any AccountContextProtocol, environment: 
             openPreview()
         case let .wallet(info) where info.canExportPhrase:
             setResolvingSigningAccess(true)
-            signingAccessDisposable.set(walletRestoreSigningAccess(context: context, environment: environment, window: targetWindow, walletContext: walletContext, authorization: restoreAuthorization, retry: {
+            let restoration = walletRestoreSigningAccess(context: context, environment: environment, window: targetWindow, walletContext: walletContext, authorization: restoreAuthorization, retry: {
                 submitImpl?()
             }, next: {
-                setResolvingSigningAccess(false)
-                openPreview()
+                do {
+                    setResolvingSigningAccess(false)
+                    openPreview()
+                }
             }, failed: {
                 setResolvingSigningAccess(false)
-            }))
+            })
+            signingAccessDisposable.set(ActionDisposable {
+                restoration.dispose()
+            })
         case .wallet:
-            showModal(with: WalletImportController(context: context, environment: environment, walletContext: walletContext, mode: .enterRecoveryPhrase, onImported: {
+            presentChild({ WalletImportController(context: context, environment: environment, walletContext: walletContext, mode: .enterRecoveryPhrase, onImported: {
                 openPreview()
-            }), for: targetWindow)
+            }) }, targetWindow, nil)
         default:
             environment.showModalText(for: targetWindow, text: strings().walletSendControllerStillSyncing)
         }
@@ -1628,7 +1715,7 @@ func makeWalletSendController(context: any AccountContextProtocol, environment: 
         var items: [ContextMenuItem] = []
         if case let .wallet(info) = walletContext.stateValue.phase {
             items.append(ContextMenuItem(strings().walletSendControllerDepositFunds, handler: {
-                showModal(with: WalletReceiveController(context: context, environment: environment, walletContext: walletContext, address: info.address), for: targetWindow)
+                presentChild({ WalletReceiveController(context: context, environment: environment, walletContext: walletContext, address: info.address) }, targetWindow, nil)
             }, itemImage: environment.menuImage(.menu_plus)))
         }
         if state.isPeerMode {
@@ -1647,12 +1734,32 @@ func makeWalletSendController(context: any AccountContextProtocol, environment: 
     }
 
     close = {
+        closesWithoutConfirmation = true
         getModal()?.close()
+    }
+
+    let requestDismiss: (@escaping () -> Void) -> Void = { completion in
+        let state = stateValue.with { $0 }
+        guard !closesWithoutConfirmation, state.amount > 0 || amountRowView()?.hasInputText == true || state.comment?.isEmpty == false else {
+            completion()
+            return
+        }
+        let targetWindow = window
+        let restoresFocus = amountRowView().map { targetWindow.firstResponder === $0.firstResponder } ?? false
+        environment.verifyAlert_button(for: targetWindow, header: appName, information: strings().walletSendControllerDiscardTransfer, ok: strings().alertYes, cancel: strings().alertNO, successHandler: { _ in
+            completion()
+        }, cancelHandler: {
+            let state = stateValue.with { $0 }
+            guard restoresFocus, !state.isSending, !state.isResolvingSigningAccess, let controller = getController?(), getModal()?.current === controller, let responder = amountRowView()?.firstResponder else {
+                return
+            }
+            _ = targetWindow.makeFirstResponder(responder)
+        })
     }
 
     return WalletSendStep(controller: controller, acceptTitle: acceptTitleForState, submit: {
         submitImpl?()
-    }, updateButton: updateButton)
+    }, updateButton: updateButton, requestDismiss: requestDismiss)
 }
 
 private func walletCommentInputController(comment: String?, isPublic: Bool, completion: @escaping (String?, Bool) -> Void) -> InputDataModalController {

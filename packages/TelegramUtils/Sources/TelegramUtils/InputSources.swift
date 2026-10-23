@@ -22,38 +22,16 @@ public final class InputSources: NSObject {
     public func searchEmoji(postbox: Postbox, engine: TelegramEngine, sharedContext: any SharedAccountContextProtocol, query: String, completeMatch: Bool, checkPrediction: Bool) -> Signal<[String], NoError> {
         return combineLatest(value, baseAppSettings(accountManager: sharedContext.accountManager)) |> mapToSignal { sources, settings in
             if settings.predictEmoji || !checkPrediction {
-                func lookup(_ q: String, completeMatch: Bool) -> Signal<[String], NoError> {
-                    return combineLatest(sources.map({ engine.stickers.searchEmojiKeywords(inputLanguageCode: $0, query: q.lowercased(), completeMatch: completeMatch) })) |> map { results in
-                        let result = results.reduce([], { $0 + $1 })
-                        return result.reduce([], { current, value -> [String] in
-                            if completeMatch {
-                                if q.lowercased() == value.keyword.lowercased() {
-                                    return current + value.emoticons
-                                } else {
-                                    return current
-                                }
-                            } else {
-                                return current + value.emoticons
-                            }
-                        }).uniqueElements.map { $0.fixed }
-                    }
+                let query = normalizedEmojiKeywordQuery(query)
+                let emojis = query.emojis
+                if !emojis.isEmpty, emojis.joined() == query.filter({ !$0.isWhitespace }) {
+                    return .single(emojis.uniqueElements)
                 }
-                return lookup(query, completeMatch: completeMatch) |> mapToSignal { phrase -> Signal<[String], NoError> in
-                    if !phrase.isEmpty {
-                        return .single(phrase)
+                return searchEmojiKeywordMatches(query: query, languageCodes: sources, completeMatch: completeMatch, search: { language, query, completeMatch in
+                    engine.stickers.searchEmojiKeywords(inputLanguageCode: language, query: query, completeMatch: completeMatch) |> map { entries in
+                        entries.map { EmojiKeywordSearchEntry(keyword: $0.keyword, emoticons: $0.emoticons) }
                     }
-                    // The keyword index AND-matches the query's tokens, so a multi-word phrase only hits
-                    // genuine multi-word keywords. When that yields nothing, OR the per-word matches so
-                    // "rock and" still surfaces every word's emoji instead of going dead.
-                    let words = query.lowercased().components(separatedBy: CharacterSet.whitespacesAndNewlines).filter { !$0.isEmpty }
-                    guard words.count > 1, !completeMatch else {
-                        return .single(query.emojis)
-                    }
-                    return combineLatest(words.map { lookup($0, completeMatch: false) }) |> map { perWord in
-                        let combined = perWord.flatMap { $0 }.uniqueElements
-                        return combined.isEmpty ? query.emojis : combined
-                    }
-                } |> distinctUntilChanged
+                }) |> map { $0.isEmpty ? emojis : $0 }
             } else {
                 return .single([])
             }

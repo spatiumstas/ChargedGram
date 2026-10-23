@@ -35,11 +35,13 @@ private final class DrawLayer: SimpleLayer {
 
 open class TextViewLabel: View {
     
-    private var node:TextNode = TextNode()
     
     var text:(TextNodeLayout,TextNode)? {
         didSet {
-            self.drawLayer.text = text
+            if text?.0 !== oldValue?.0 || text?.1 !== oldValue?.1 {
+                self.drawLayer.text = text
+                self.setNeedsDisplay()
+            }
         }
     }
     
@@ -68,18 +70,20 @@ open class TextViewLabel: View {
     
     func update(attr:NSAttributedString?, size:NSSize) -> Void {
         if let attr = attr {
-            text = TextNode.layoutText(maybeNode: nil, attr, nil, linesCount, .end, size, nil,false, alignment)
+            text = TextNode.layoutText(maybeNode: text?.1, attr, nil, linesCount, .end, size, nil,false, alignment)
         } else {
             text = nil
         }
-        self.setNeedsDisplay()
     }
     
     open override func layout() {
         super.layout()
-        drawLayer.frame = bounds
+        if drawLayer.frame != bounds {
+            drawLayer.frame = bounds
+            drawLayer.setNeedsDisplay()
+        }
         if autosize {
-            text = TextNode.layoutText(maybeNode: node, attributedString, nil, linesCount, .end, NSMakeSize(frame.width - inset.left - inset.right, frame.height), nil,false, alignment)
+            update(attr: attributedString, size: NSMakeSize(frame.width - inset.left - inset.right, frame.height))
         }
     }
 

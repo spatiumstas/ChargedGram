@@ -107,6 +107,7 @@ final class ChatThemeSelectorView : View {
         
         cancel.autohighlight = false
         cancel.scaleOnClick = true
+        cancel.setAccessibilityLabel(strings().voiceOverCommonClose)
         
         
         

@@ -120,7 +120,14 @@ public final class ChatMessageBubbleBackdrop: NSView {
         self.applyImages()
     }
 
+    private var appliedType: (image: CGImage?, imageInsets: NSEdgeInsets, border: CGImage?, borderInsets: NSEdgeInsets, background: CGImage)?
+    
     public func setType(image: (CGImage, NSEdgeInsets)?, border: (CGImage, NSEdgeInsets)?, background: CGImage) {
+        let noInsets = NSEdgeInsetsZero
+        if let applied = self.appliedType, applied.image === image?.0, NSEdgeInsetsEqual(applied.imageInsets, image?.1 ?? noInsets), applied.border === border?.0, NSEdgeInsetsEqual(applied.borderInsets, border?.1 ?? noInsets), applied.background === background {
+            return
+        }
+        self.appliedType = (image?.0, image?.1 ?? noInsets, border?.0, border?.1 ?? noInsets, background)
         lastUpdate = nil
         if let _ = image {
             if self.maskLayer == nil {
@@ -251,19 +258,13 @@ public final class ChatMessageBubbleBackdrop: NSView {
         if let backgroundContent = backgroundContent {
             let newFrame = CGRect(origin: CGPoint(x: -rect.minX, y: -rect.minY), size: containerSize)
             if case .immediate = transition {
-                CATransaction.begin()
-                CATransaction.setDisableActions(true)
                 backgroundContent.frame = newFrame
-                CATransaction.commit()
             } else {
                 transition.updateFrame(layer: backgroundContent, frame: newFrame)
             }
             if lastUpdate?.rotated != rotated, rotated {
-                CATransaction.begin()
-                CATransaction.setDisableActions(true)
                 backgroundContent.setAffineTransform(backgroundContent.affineTransform().rotated(by: .pi))
                 backgroundContent.frame = newFrame
-                CATransaction.commit()
             }
         }
 

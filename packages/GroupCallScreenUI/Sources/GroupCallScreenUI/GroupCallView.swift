@@ -903,6 +903,7 @@ public final class GroupCallView : View {
                 isNew = false
             } else {
                 current = Control(frame: .zero)
+                current.setAccessibilityLabel(strings().voiceOverCommonHide)
                 self.secureVisualBackgroundView = current
                 addSubview(current, positioned: .below, relativeTo: self.secureEmojiView)
                 isNew = true

@@ -41,6 +41,28 @@ final class WalletPreviousWalletRowItem: GeneralRowItem {
     override func viewClass() -> AnyClass {
         return WalletPreviousWalletRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return addressLayout.attributedString.string.replacingOccurrences(of: "\n", with: " ")
+    }
+
+    override var accessibilityValue: String? {
+        let subtitle = subtitleLayout.attributedString.string
+        return subtitle.isEmpty ? nil : subtitle
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
+    }
 }
 
 private final class WalletPreviousWalletRowView: GeneralContainableRowView {
@@ -57,6 +79,7 @@ private final class WalletPreviousWalletRowView: GeneralContainableRowView {
         subtitleView.isSelectable = false
         subtitleView.isEventLess = true
         nextView.isEventLess = true
+        nextView.isAccessibilityDecorative = true
         addSubview(addressView)
         addSubview(subtitleView)
         addSubview(nextView)

@@ -498,7 +498,8 @@ class ChannelInfoArguments<Context: AccountContextProtocol> : PeerInfoArguments<
     
     func stats(_ datacenterId: Int32, monetization: Bool, stars: Bool) {
         if datacenterId == 0 {
-            self.pushViewController(ChannelBoostStatsController(context: context, peerId: peerId))
+            let controller = ChannelBoostStatsController(context: context, peerId: peerId)
+            self.pushViewController(controller)
         } else {
             self.pushViewController(ChannelStatsSegmentController(context, peerId: peerId, isChannel: true, monetization: monetization, stars: stars && !monetization))
         }
@@ -1153,7 +1154,9 @@ enum ChannelInfoEntry<Context: AccountContextProtocol>: PeerInfoEntry {
             
             return  TextAndLabelItem(initialSize, stableId: stableId.hashValue, label: strings().peerInfoSharelink, copyMenuText: strings().textCopyLabelShareLink, labelColor: theme.colors.text, text: text, context: arguments.context, viewType: viewType, detectLinks: true, isTextSelectable: value.count > 1, callback: arguments.share, selectFullWord: true, _copyToClipboard: {
                 arguments.copy(link)
-            }, linkInteractions: interactions)
+            }, linkInteractions: interactions, qrCode: { control in
+                arguments.openQrStudio(from: control)
+            })
         case let .peerId(_, value, viewType):
             return  TextAndLabelItem(initialSize, stableId: stableId.hashValue, label: "PEER ID", copyMenuText: strings().textCopyText, text: value, context: arguments.context, viewType: viewType, canCopy: true, _copyToClipboard: {
                 arguments.copy(value)

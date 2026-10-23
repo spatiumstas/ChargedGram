@@ -26,6 +26,7 @@ let deps: [(String, String)] = [
     ("ChatModeTypes", "../ChatModeTypes"),
     ("InlineStickerLayer", "../InlineStickerLayer"),
     ("InputDataUI", "../InputDataUI"),
+
 ]
 
 let package = Package(

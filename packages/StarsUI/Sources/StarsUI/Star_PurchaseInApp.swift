@@ -146,6 +146,15 @@ private final class HeaderItem : GeneralRowItem {
         return height
     }
     
+    override var accessibilityLabel: String? {
+        return headerLayout.attributedString.string
+    }
+    
+    override var accessibilityValue: String? {
+        let balance = balanceLayout.attributedString.string.replacingOccurrences(of: clown, with: "")
+        return [infoLayout.attributedString.string, balance].joined(separator: ", ")
+    }
+    
     public override func viewClass() -> AnyClass {
         return HeaderItemView.self
     }
@@ -464,6 +473,7 @@ private final class HeaderItemView : GeneralContainableRowView {
                 current = view
             } else {
                 current = ImageView()
+                current.isAccessibilityDecorative = true
                 self.subBadgeView = current
                 addSubview(current)
             }
@@ -512,6 +522,7 @@ private final class HeaderItemView : GeneralContainableRowView {
         dismiss.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
         dismiss.scaleOnClick = true
         dismiss.autohighlight = false
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
         
         balance.set(text: item.balanceLayout, context: item.context)
         header.set(text: item.headerLayout, context: item.context)
@@ -692,9 +703,19 @@ public enum StarPurchaseCompletionStatus : Equatable {
     }
 }
 
-public func Star_PurschaseInApp(context: (any AccountContextProtocol), invoice: TelegramMediaInvoice?, source: BotPaymentInvoiceSource, type: StarPurchaseType = .bot, completion:@escaping(StarPurchaseCompletionStatus)->Void = { _ in }) -> InputDataModalController {
 
+public func Star_PurschaseInApp(context: (any AccountContextProtocol), invoice: TelegramMediaInvoice?, source: BotPaymentInvoiceSource, type: StarPurchaseType = .bot, completion: @escaping (StarPurchaseCompletionStatus) -> Void = { _ in }) -> InputDataModalController {
+    if case let .message(messageId) = source {
+    }
+    let session = StarPurchaseSession()
     let actionsDisposable = DisposableSet()
+    let paymentDisposable = MetaDisposable()
+    actionsDisposable.add(paymentDisposable)
+    let dismiss = {
+        let cancelled = session.close()
+        actionsDisposable.dispose()
+        if cancelled { completion(.cancelled) }
+    }
 
     let request: State.Request
     if let invoice {
@@ -715,13 +736,12 @@ public func Star_PurschaseInApp(context: (any AccountContextProtocol), invoice: 
         statePromise.set(stateValue.modify (f))
     }
     
-    var procced = false
-    
     let starsContext = context.starsContext
     
     starsContext.load(force: true)
     
-    actionsDisposable.add(starsContext.state.startStrict(next: { starsState in
+    actionsDisposable.add((starsContext.state |> deliverOnMainQueue).start(next: { starsState in
+        guard session.isOpen else { return }
         updateState { current in
             var current = current
             current.myBalance = starsState?.balance
@@ -742,14 +762,16 @@ public func Star_PurschaseInApp(context: (any AccountContextProtocol), invoice: 
     default:
         let formAndMaybeValidatedInfo = context.engine.payments.fetchBotPaymentForm(source: source, themeParams: nil)
         
-        actionsDisposable.add(formAndMaybeValidatedInfo.startStrict(next: { [weak actionsDisposable] form in
+        actionsDisposable.add((formAndMaybeValidatedInfo |> take(1) |> deliverOnMainQueue).start(next: { [weak actionsDisposable] form in
+            guard session.isOpen else { return }
             updateState { current in
                 var current = current
                 current.formId = form.id
                 return current
             }
             if let paymentBotId = form.paymentBotId {
-                actionsDisposable?.add(context.engine.data.subscribe(TelegramEngine.EngineData.Item.Peer.Peer(id: paymentBotId)).startStrict(next: { peer in
+                actionsDisposable?.add((context.engine.data.subscribe(TelegramEngine.EngineData.Item.Peer.Peer(id: paymentBotId)) |> deliverOnMainQueue).start(next: { peer in
+                    guard session.isOpen else { return }
                     updateState { current in
                         var current = current
                         current.peer = peer
@@ -778,79 +800,90 @@ public func Star_PurschaseInApp(context: (any AccountContextProtocol), invoice: 
         close?()
     }, buy: {
         let state = stateValue.with { $0 }
-        let myBalance = state.myBalance ?? .init(value: 0, nanos: 0)
-        if let peer = state.peer {
-            if state.request.count > myBalance.value {
-                let sourceValue: Star_ListScreenSource
-                if case .starsChatSubscription = source {
-                    sourceValue = .purchaseSubscribe(peer, state.request.count)
-                } else {
-                    sourceValue = .purchase(peer, state.request.count)
-                }
-                showModal(with: Star_ListScreen(context: context, source: sourceValue), for: window)
+        guard let myBalance = state.myBalance, let peer = state.peer, let attempt = session.begin() else { return }
+        if state.request.count > myBalance.value {
+            let sourceValue: Star_ListScreenSource
+            if case .starsChatSubscription = source {
+                sourceValue = .purchaseSubscribe(peer, state.request.count)
             } else {
-                if let formId = state.formId {
-                    _ = showModalProgress(signal: context.engine.payments.sendStarsPaymentForm(formId: formId, source: source), for: window).startStandalone(next: { result in
-                        switch result {
-                        case let .done(receiptMessageId, subscriptionPeerId, _):
-//                            starsContext.add(balance: -state.request.count)
-                            let text: String
-                            switch type {
-                            case .bot:
-                                text = strings().starPurchaseSuccess(state.request.info, peer._asPeer().displayTitle, strings().starPurchaseTextInOther(Int(state.request.count)))
-                            case .paidMedia:
-                                text = strings().starPurchasePaidMediaSuccess(strings().starPurchaseTextInOther(Int(state.request.count)))
-                            case let .subscription(invite):
-                                text = strings().starsPurchaseSubscribeSuccess(invite.title)
-                            case let .botSubscription(invoice):
-                                text = strings().starsPurchaseBotSubscribeSuccess(invoice.title, peer._asPeer().displayTitle)
-                            }
-                            showModalText(for: window, text: text)
-                            
-                            switch type {
-                            case .paidMedia, .subscription:
-                                PlayConfetti(for: window, stars: true)
-                            default:
-                                break
-                            }
-                            context.starsContext.load(force: true)
-                            context.starsSubscriptionsContext.load(force: true)
-                            
-                            completion(.paid(messageId: receiptMessageId, peerId: subscriptionPeerId))
-                            procced = true
-                            close?()
+                sourceValue = .purchase(peer, state.request.count)
+            }
+            let controller = Star_ListScreen(context: context, source: sourceValue)
+            let onDeinit = controller.onDeinit
+            controller.onDeinit = {
+                onDeinit?()
+                session.finish(attempt)
+            }
+            guard session.isCurrent(attempt) else { return }
+            showModal(with: controller, for: window)
+        } else {
+            if let formId = state.formId {
+                let request = MetaDisposable()
+                paymentDisposable.set(request)
+                let signal = showModalProgress(signal: context.engine.payments.sendStarsPaymentForm(formId: formId, source: source) |> take(1) |> deliverOnMainQueue, for: window)
+                guard session.isCurrent(attempt) else { return }
+                request.set((signal).start(next: { result in
+                    switch result {
+                    case let .done(receiptMessageId, subscriptionPeerId, _):
+                        guard session.finish(attempt, paid: true) else { return }
+                        let text: String
+                        switch type {
+                        case .bot:
+                            text = strings().starPurchaseSuccess(state.request.info, peer._asPeer().displayTitle, strings().starPurchaseTextInOther(Int(state.request.count)))
+                        case .paidMedia:
+                            text = strings().starPurchasePaidMediaSuccess(strings().starPurchaseTextInOther(Int(state.request.count)))
+                        case let .subscription(invite):
+                            text = strings().starsPurchaseSubscribeSuccess(invite.title)
+                        case let .botSubscription(invoice):
+                            text = strings().starsPurchaseBotSubscribeSuccess(invoice.title, peer._asPeer().displayTitle)
+                        }
+                        showModalText(for: window, text: text)
+
+                        switch type {
+                        case .paidMedia, .subscription:
+                            PlayConfetti(for: window, stars: true)
                         default:
                             break
                         }
-                    }, error: { error in
-                        let text: String
-                        switch error {
-                        case .alreadyPaid:
-                            text = strings().checkoutErrorInvoiceAlreadyPaid
-                        case .generic:
-                            text = strings().unknownError
-                        case .paymentFailed:
-                            text = strings().checkoutErrorPaymentFailed
-                        case .precheckoutFailed:
-                            text = strings().checkoutErrorPrecheckoutFailed
-                        case .starGiftOutOfStock:
-                            text = strings().giftSoldOutError
-                        case .disallowedStarGift:
-                            text = strings().giftSendDisallowError
-                        case .starGiftUserLimit:
-                            text = strings().giftOptionsGiftBuyLimitReached
-                        case let .serverProvided(value):
-                            text = value
-                        }
-                        showModalText(for: window, text: text)
-                        completion(.failed)
-                    })
-                }
+                        context.starsContext.load(force: true)
+                        context.starsSubscriptionsContext.load(force: true)
+
+                        completion(.paid(messageId: receiptMessageId, peerId: subscriptionPeerId))
+                        close?()
+                    default:
+                        break
+                    }
+                }, error: { error in
+                    guard session.finish(attempt) else { return }
+                    let text: String
+                    switch error {
+                    case .alreadyPaid:
+                        text = strings().checkoutErrorInvoiceAlreadyPaid
+                    case .generic:
+                        text = strings().unknownError
+                    case .paymentFailed:
+                        text = strings().checkoutErrorPaymentFailed
+                    case .precheckoutFailed:
+                        text = strings().checkoutErrorPrecheckoutFailed
+                    case .starGiftOutOfStock:
+                        text = strings().giftSoldOutError
+                    case .disallowedStarGift:
+                        text = strings().giftSendDisallowError
+                    case .starGiftUserLimit:
+                        text = strings().giftOptionsGiftBuyLimitReached
+                    case let .serverProvided(value):
+                        text = value
+                    }
+                    completion(.failed)
+                    if session.isOpen { showModalText(for: window, text: text) }
+                }))
+            } else {
+                session.finish(attempt)
             }
         }
     })
     
-    let signal = statePromise.get() |> deliverOnPrepareQueue |> map { state in
+    let signal = (statePromise.get() |> deliverOnPrepareQueue) |> map { state in
         return InputDataSignalValue(entries: entries(state, arguments: arguments))
     }
     
@@ -860,18 +893,17 @@ public func Star_PurschaseInApp(context: (any AccountContextProtocol), invoice: 
         return controller
     }
     
-    controller.onDeinit = {
-        actionsDisposable.dispose()
-        if !procced {
-            completion(.cancelled)
-        }
-    }
+    controller.onDeinit = dismiss
     
     controller.contextObject = starsContext
     
-    let modalController = InputDataModalController(controller, modalInteractions: nil)
+    let modalController = InputDataModalController(controller, modalInteractions: nil, closeHandler: { close in
+        dismiss()
+        close()
+    })
     
     close = { [weak modalController] in
+        dismiss()
         modalController?.modal?.close()
     }
     

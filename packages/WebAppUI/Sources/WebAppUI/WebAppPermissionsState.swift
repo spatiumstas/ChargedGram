@@ -1,4 +1,5 @@
 import TelegramCore
+import Postbox
 import Foundation
 import SwiftSignalKit
 import InAppSettings
@@ -110,26 +111,34 @@ public func webAppPermissionsState(context: any AccountContextProtocol, peerId: 
     }
 }
 
-private func updateWebAppPermissionsState(context: any AccountContextProtocol, peerId: EnginePeer.Id, state: WebAppPermissionsState?) -> Signal<Never, NoError> {
-    let key = EngineDataBuffer(length: 8)
-    key.setInt64(0, value: peerId.id._internalGetInt64Value())
-    
-    if let state {
-        return context.engine.itemCache.put(collectionId: ApplicationSpecificItemCacheCollectionId.webAppPermissionsState, id: key, item: state)
-    } else {
-        return context.engine.itemCache.remove(collectionId: ApplicationSpecificItemCacheCollectionId.webAppPermissionsState, id: key)
-    }
-}
-
 public func updateWebAppPermissionsStateInteractively(context: any AccountContextProtocol, peerId: EnginePeer.Id, _ f: @escaping (WebAppPermissionsState?) -> WebAppPermissionsState?) -> Signal<Never, NoError> {
-    let key = EngineDataBuffer(length: 8)
+    let key = ValueBoxKey(length: 8)
     key.setInt64(0, value: peerId.id._internalGetInt64Value())
-    
-    return context.engine.data.get(TelegramEngine.EngineData.Item.ItemCache.Item(collectionId: ApplicationSpecificItemCacheCollectionId.webAppPermissionsState, id: key))
-    |> map { entry -> WebAppPermissionsState? in
-        return entry?.get(WebAppPermissionsState.self)
-    }
-    |> mapToSignal { current -> Signal<Never, NoError> in
-        return updateWebAppPermissionsState(context: context, peerId: peerId, state: f(current))
+    let entryId = ItemCacheEntryId(collectionId: ApplicationSpecificItemCacheCollectionId.webAppPermissionsState, key: key)
+    let postbox = context.account.postbox
+
+    return Signal { subscriber in
+        let cancelled = Atomic(value: false)
+        let disposable = (postbox.transaction { transaction -> Void in
+            guard !cancelled.with({ $0 }) else {
+                return
+            }
+            let current = transaction.retrieveItemCacheEntry(id: entryId)?.get(WebAppPermissionsState.self)
+            let updated = f(current)
+            guard !cancelled.with({ $0 }) else {
+                return
+            }
+            if let updated {
+                if let entry = CodableEntry(updated) {
+                    transaction.putItemCacheEntry(id: entryId, entry: entry)
+                }
+            } else {
+                transaction.removeItemCacheEntry(id: entryId)
+            }
+        } |> ignoreValues).start(completed: subscriber.putCompletion)
+        return ActionDisposable {
+            _ = cancelled.swap(true)
+            disposable.dispose()
+        }
     }
 }

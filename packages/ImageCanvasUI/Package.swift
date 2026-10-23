@@ -14,6 +14,8 @@ let package = Package(
         .package(name: "Localization", path: "../Localization"),
         .package(name: "TelegramTheme", path: "../TelegramTheme"),
         .package(name: "TelegramMediaUtils", path: "../TelegramMediaUtils"),
+        .package(name: "TelegramContext", path: "../TelegramContext"),
+        .package(name: "TextRecognizing", path: "../TextRecognizing"),
         .package(name: "SSignalKit", path: "../../submodules/telegram-ios/submodules/SSignalKit"),
     ],
     targets: [
@@ -25,6 +27,8 @@ let package = Package(
                 .product(name: "Localization", package: "Localization", condition: nil),
                 .product(name: "TelegramTheme", package: "TelegramTheme", condition: nil),
                 .product(name: "TelegramMediaUtils", package: "TelegramMediaUtils", condition: nil),
+                .product(name: "TelegramContext", package: "TelegramContext", condition: nil),
+                .product(name: "TextRecognizing", package: "TextRecognizing", condition: nil),
                 .product(name: "SwiftSignalKit", package: "SSignalKit", condition: nil),
             ],
             path: "Sources/ImageCanvasUI",

@@ -51,6 +51,10 @@ public class PeerMediaEmptyRowItem: TableRowItem {
     public override func viewClass() -> AnyClass {
         return PeerMediaEmptyRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return textLayout.attributedString.string
+    }
 }
 
 public class PeerMediaEmptyRowView : TableRowView {
@@ -61,6 +65,7 @@ public class PeerMediaEmptyRowView : TableRowView {
         addSubview(textView)
         textView.isSelectable = false
         addSubview(imageView)
+        imageView.isAccessibilityDecorative = true
     }
     
     public override var backdorColor: NSColor {

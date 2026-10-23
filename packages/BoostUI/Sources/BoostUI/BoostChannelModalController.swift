@@ -671,6 +671,32 @@ private final class AcceptRowItem : TableRowItem {
     override var stableId: AnyHashable {
         return _id_accept
     }
+
+    override var accessibilityLabel: String? {
+        if state.status.nextLevelBoosts == nil {
+            return strings().modalOK
+        } else if state.isAdmin {
+            return strings().modalCopyLink
+        } else if state.isGroup {
+            return strings().channelBoostBoostGroup
+        } else {
+            return strings().channelBoostBoostChannel
+        }
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        boost()
+        return true
+    }
+
     override func viewClass() -> AnyClass {
         return AcceptRowView.self
     }
@@ -842,7 +868,7 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
             entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: InputDataIdentifier("link"), equatable: InputDataEquatable(state.link(arguments.context)), comparable: nil, item: { initialSize, stableId in
                 return GeneralBlockTextRowItem(initialSize, stableId: stableId, viewType: .singleItem, text: state.link(arguments.context), font: .normal(.text), insets: NSEdgeInsets(left: 20, right: 20), rightAction: .init(image: arguments.presentation.icons.fast_copy_link, action: { _ in
                     arguments.copyLink(state.link(arguments.context))
-                }), customTheme: .initialize(arguments.presentation))
+                }, accessibilityLabel: strings().voiceOverCommonCopy), customTheme: .initialize(arguments.presentation))
             }))
             index += 1
             

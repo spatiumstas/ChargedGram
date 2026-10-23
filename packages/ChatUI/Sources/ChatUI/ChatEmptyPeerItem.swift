@@ -84,6 +84,11 @@ public class ChatEmptyPeerItem: TableRowItem {
         return ChatEmptyPeerView.self
     }
 
+    public override var accessibilityLabel: String? {
+        let text = textViewLayout.attributedString.string
+        return text.isEmpty ? nil : text
+    }
+
     // MARK: - Initial content
 
     fileprivate struct Content {
@@ -97,6 +102,11 @@ public class ChatEmptyPeerItem: TableRowItem {
         let textColor = theme.colors.text
         let attr = NSMutableAttributedString()
         var content = Content(attr: attr, lineSpacing: 5)
+
+        if chatInteraction.presentation.isNotAccessible, let peer = chatInteraction.peer {
+            attr.append(string: peer.isChannel ? strings().chatChannelUnaccessible : strings().chatGroupUnaccessible, color: textColor, font: .medium(.text))
+            return content
+        }
 
         switch chatInteraction.mode {
         case .history, .preview:
@@ -260,7 +270,9 @@ public class ChatEmptyPeerItem: TableRowItem {
                   peer?.restrictionInfo == nil else {
                 return
             }
-            if let _ = cachedData.botManagerId {
+            if let botInfo = cachedData.botInfo, !botInfo.description.isEmpty {
+                self.applyBotInfo(botInfo: botInfo, cachedData: cachedData, user: user, theme: theme)
+            } else if let _ = cachedData.botManagerId {
                 self.applyManagedBot(user: user, managerPeer: managerPeer, theme: theme)
             } else if let botInfo = cachedData.botInfo {
                 self.applyBotInfo(botInfo: botInfo, cachedData: cachedData, user: user, theme: theme)
@@ -375,6 +387,7 @@ public class ChatEmptyPeerItem: TableRowItem {
         self.textViewLayout = TextViewLayout(attr, alignment: .left)
         self.textViewLayout.interactions = LinkHooks.shared.globalLinkExecutor()
         self.image = botInfo.video ?? botInfo.photo
+        self.standImage = nil
     }
 
     private func applyPremiumRequired(user: Peer, theme: TelegramPresentationTheme) {
@@ -548,6 +561,7 @@ public class ChatEmptyPeerView: TableRowView {
         }
         if premRequiredImageView == nil {
             let view = ImageView()
+            view.isAccessibilityDecorative = true
             bgView.addSubview(view)
             premRequiredImageView = view
         }

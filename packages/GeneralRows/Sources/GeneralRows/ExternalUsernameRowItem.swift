@@ -38,6 +38,27 @@ public final class ExternalUsernameRowItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return ExternalUsernameRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return title.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return status.attributedString.string
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
+    }
     
 }
 
@@ -54,6 +75,9 @@ private final class ExternalUsernameRowView: GeneralContainableRowView {
         addSubview(title)
         addSubview(status)
         addSubview(imageView)
+        
+        resort.setAccessibilityLabel(strings().voiceOverCommonReorder)
+        imageView.isAccessibilityDecorative = true
         
         title.isSelectable = false
         title.userInteractionEnabled = false

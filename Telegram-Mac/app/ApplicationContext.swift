@@ -2,6 +2,7 @@ import Foundation
 import WebKit
 import UserNotifications
 import TGUIKit
+import InputDataUI
 import SwiftSignalKit
 import Postbox
 import TelegramCore
@@ -23,6 +24,7 @@ func openCommunity(_ communityId: PeerId, context: AccountContext) {
     context.bindings.mainViewController.chatList.navigationController?.push(CommunityListController(context, communityId: communityId))
 }
 
+
 func navigateToChat(navigation: NavigationViewController?, context: AccountContext, chatLocation:ChatLocation, mode: ChatMode = .history, focusTarget:ChatFocusTarget? = nil, initialAction: ChatInitialAction? = nil, chatLocationContextHolder: Atomic<ChatLocationContextHolder?>? = nil, additional: Bool = false, animated: Bool = true, navigationStyle: ViewControllerStyle? = nil, callback:@escaping(ChatController)->Void = { _ in }) {
         
     let context = appDelegate?.supportAccountContextValue?.getExternalContext(peerId: chatLocation.peerId, accountId: context.account.id) ?? context
@@ -33,27 +35,29 @@ func navigateToChat(navigation: NavigationViewController?, context: AccountConte
     
     let open:(ChatLocation, ChatInitialAction?, ChatMode)->Void = { [weak navigation] location, initialAction, mode in
         
-        let current = navigation?.controller as? ChatController
+        guard let navigation else { return }
+        let current = navigation.controller as? ChatController
         
         if current?.chatLocation == location, additional {
             current?.scrollup(force: true)
             current?.chatInteraction.invokeInitialAction(action: initialAction)
             return
         }
-        let controller: ChatController
-        if additional {
-            controller = ChatAdditionController(context: context, chatLocation: location, mode: mode, focusTarget: focusTarget, initialAction: initialAction, chatLocationContextHolder: chatLocationContextHolder)
-        } else if mode == .scheduled {
-            controller = ChatScheduleController(context: context, chatLocation: location, mode: mode, focusTarget: focusTarget, initialAction: initialAction, chatLocationContextHolder: chatLocationContextHolder)
-        } else {
-            controller = ChatController(context: context, chatLocation: location, mode: mode, focusTarget: focusTarget, initialAction: initialAction, chatLocationContextHolder: chatLocationContextHolder)
+        let controller: ChatController = chatNavigationChild() {
+            if additional {
+                return ChatAdditionController(context: context, chatLocation: location, mode: mode, focusTarget: focusTarget, initialAction: initialAction, chatLocationContextHolder: chatLocationContextHolder)
+            } else if mode == .scheduled {
+                return ChatScheduleController(context: context, chatLocation: location, mode: mode, focusTarget: focusTarget, initialAction: initialAction, chatLocationContextHolder: chatLocationContextHolder)
+            } else {
+                return ChatController(context: context, chatLocation: location, mode: mode, focusTarget: focusTarget, initialAction: initialAction, chatLocationContextHolder: chatLocationContextHolder)
+            }
         }
-        navigation?.push(controller, animated, style: navigationStyle)
+        navigation.push(controller, animated, style: navigationStyle)
         callback(controller)
 
     }
     
-    let signal = context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: chatLocation.peerId)) |> deliverOnMainQueue
+    let signal = context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: chatLocation.peerId)) |> take(1) |> deliverOnMainQueue
     
     _ = signal.start(next: { peer in
         
@@ -63,7 +67,10 @@ func navigateToChat(navigation: NavigationViewController?, context: AccountConte
         
         if let peer = peer?._asPeer() {
             if peer.isCommunity {
-                openCommunity(peer.id, context: context)
+                let controller = chatNavigationChild() {
+                    CommunityListController(context, communityId: peer.id)
+                }
+                context.bindings.mainViewController.chatList.navigationController?.push(controller)
                 return
             }
             if peer.hasSensitiveContent(platform: "ios") {
@@ -71,19 +78,28 @@ func navigateToChat(navigation: NavigationViewController?, context: AccountConte
                     let need_verification = context.appConfiguration.getBoolValue("need_age_video_verification", orElse: false)
                     
                     if need_verification {
-                        showModal(with: VerifyAgeAlertController(context: context), for: context.window)
+                        let controller = chatNavigationChild() {
+                            VerifyAgeAlertController(context: context)
+                        }
+                        showModal(with: controller, for: context.window)
                         return
                     }
                 }
                 if context.contentConfig.sensitiveContentEnabled {
                     checkNext(peer)
                 } else {
+                    let consent = ChatNavigationConsent()
                     verifyAlert(for: context.window, header: strings().chatSensitiveContent, information: strings().chatSensitiveContentConfirm, ok: strings().chatSensitiveContentConfirmOk, option: context.contentConfig.canAdjustSensitiveContent ? strings().chatSensitiveContentConfirmThird : nil, optionIsSelected: false, successHandler: { result in
-                        
-                        if result == .thrid {
-                            let _ = updateRemoteContentSettingsConfiguration(postbox: context.account.postbox, network: context.account.network, sensitiveContentEnabled: true).start()
+                        consent.resolve {
+                            if result == .thrid {
+                                let _ = updateRemoteContentSettingsConfiguration(postbox: context.account.postbox, network: context.account.network, sensitiveContentEnabled: true).start()
+                            }
+                            checkNext(peer)
                         }
-                        checkNext(peer)
+                    }, cancelHandler: {
+                        consent.resolve {}
+                    }, onDeinit: {
+                        consent.dismissed()
                     })
                 }
             } else {
@@ -91,6 +107,31 @@ func navigateToChat(navigation: NavigationViewController?, context: AccountConte
             }
         }
     })
+}
+
+private func chatNavigationChild<T: ViewController>( create: () -> T) -> T {
+    return create()
+}
+
+private final class ChatNavigationConsent {
+
+    private var resolved = false
+    private var dismissalScheduled = false
+
+
+    func resolve(_ action: () -> Void) {
+        guard !resolved else { return }
+        resolved = true
+        action()
+    }
+
+    func dismissed() {
+        guard !dismissalScheduled else { return }
+        dismissalScheduled = true
+        DispatchQueue.main.async {
+            self.resolved = true
+        }
+    }
 }
 
 private final class AuthModalController : ModalController {
@@ -249,6 +290,7 @@ final class AuthorizedApplicationContext: NSObject, SplitViewDelegate {
     private let emptyController:EmptyChatViewController
     
     private var entertainment: EntertainmentViewController?
+    private var entertainmentSidebar: EntertainmentSidebarController?
 
     private var leftSidebarController: LeftSidebarController?
     
@@ -452,6 +494,7 @@ final class AuthorizedApplicationContext: NSObject, SplitViewDelegate {
                 self.currentChatBackgroundMode = nil
             }
             self.applyEffectiveBackgroundMode()
+            self.updateEntertainmentSidebar()
         }))
 
         termDisposable.set((context.account.stateManager.termsOfServiceUpdate |> deliverOnMainQueue).start(next: { terms in
@@ -972,6 +1015,55 @@ final class AuthorizedApplicationContext: NSObject, SplitViewDelegate {
     }
     
     
+    func updateEntertainmentSidebar(animated: Bool = false) {
+        if FastSettings.sidebarEnabled && FastSettings.sidebarShown && hasSelectedChatPeer {
+            if animated {
+                self.view.layoutSubtreeIfNeeded()
+                let additionalWidth = self.view.splitView.additionalWidthForTrailing(width: EntertainmentSidebarController.paneWidth, minimumLeadingWidth: 380)
+                if additionalWidth > 0, !self.window.isFullScreen, let visibleFrame = self.window.screen?.visibleFrame {
+                    var frame = self.window.frame
+                    frame.size.width = min(visibleFrame.width, frame.width + additionalWidth)
+                    frame.origin.x = max(visibleFrame.minX, min(frame.minX, visibleFrame.maxX - frame.width))
+                    self.window.setFrame(frame, display: true, animate: true)
+                    self.view.layoutSubtreeIfNeeded()
+                }
+            }
+            let controller: EntertainmentSidebarController
+            if let current = self.entertainmentSidebar {
+                controller = current
+            } else {
+                controller = EntertainmentSidebarController(context: context, entertainment: context.bindings.entertainmentViewController, isChat: { $0 is ChatController })
+                controller.availabilityUpdated = { [weak self] in
+                    self?.updateEntertainmentSidebar()
+                }
+                self.entertainmentSidebar = controller
+            }
+            if controller.canShow {
+                self.view.splitView.setTrailing(controller: controller, width: EntertainmentSidebarController.paneWidth, minimumLeadingWidth: 380, animated: animated)
+            } else {
+                self.view.splitView.setTrailing(controller: nil, width: 0, minimumLeadingWidth: 0, animated: animated)
+            }
+        } else {
+            self.view.splitView.setTrailing(controller: nil, width: 0, minimumLeadingWidth: 0, animated: animated)
+        }
+    }
+
+    func isEntertainmentSidebarAvailable(in window: NSWindow?) -> Bool {
+        guard window === self.window else {
+            return false
+        }
+        self.view.layoutSubtreeIfNeeded()
+        let additionalWidth = self.view.splitView.additionalWidthForTrailing(width: EntertainmentSidebarController.paneWidth, minimumLeadingWidth: 380)
+        return additionalWidth == 0 || (!self.window.isFullScreen && self.window.frame.width + additionalWidth <= (self.window.screen?.visibleFrame.width ?? 0))
+    }
+
+    func isEntertainmentSidebarVisible(in window: NSWindow?) -> Bool {
+        guard window === self.window, let controller = self.entertainmentSidebar, controller.isLoaded() else {
+            return false
+        }
+        return controller.view.window === window && !controller.view.visibleRect.isEmpty
+    }
+
     private func updateMinMaxWindowSize(animated: Bool) {
         var width: CGFloat = 380
         if leftSidebarController != nil {

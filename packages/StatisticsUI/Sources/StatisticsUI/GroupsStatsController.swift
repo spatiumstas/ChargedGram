@@ -147,7 +147,7 @@ private func statsEntries(_ state: GroupStatsContextState, uiState: UIStatsState
             case let .Loaded(_, string):
                 ChartsDataManager.readChart(data: string.data(using: .utf8)!, sync: true, success: { collection in
                     entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: graph.identifier, equatable: InputDataEquatable(graph.graph), comparable: nil, item: { initialSize, stableId in
-                        return StatisticRowItem(initialSize, stableId: stableId, context: accountContext, collection: collection, viewType: .singleItem, type: graph.type, getDetailsData: { date, completion in
+                        return StatisticRowItem(initialSize, stableId: stableId, context: accountContext, collection: collection, viewType: .singleItem, type: graph.type, title: graph.title, getDetailsData: { date, completion in
                             detailedDisposable.set(context.loadDetailedGraph(graph.graph, x: Int64(date.timeIntervalSince1970) * 1000).start(next: { graph in
                                 if let graph = graph, case let .Loaded(_, data) = graph {
                                     completion(data)
@@ -390,7 +390,7 @@ public func GroupStatsViewController(_ context: any AccountContextProtocol, peer
     }
     
     let openPeerInfo:(PeerId)->Void = { peerId in
-        StatisticsHooks.shared.openPeerInfo(context, peerId)
+        StatisticsHooks.shared.openPeerInfoObserved(context, peerId)
     }
     
     let statsContext = GroupStatsContext(postbox: context.account.postbox, network: context.account.network, accountPeerId: context.peerId, peerId: peerId)

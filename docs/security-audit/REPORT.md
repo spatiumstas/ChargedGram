@@ -1,7 +1,7 @@
 # MTProto security audit — consolidated report (2026-10-02)
 
 Scope: the shipping macOS transport stack.
-- Rust MTProto engine: github.com/macosswift/mtproto-engine c9c7f23, telegram-ios third-party/mtproto-engine. It handles sessions, transport, obfuscation, proxy and CDN connections.
+- Rust MTProto engine: github.com/TelegramMessenger/mtproto-engine c9c7f23, telegram-ios third-party/mtproto-engine. It handles sessions, transport, obfuscation, proxy and CDN connections.
 - MtProtoKit. In the app it still performs every auth key exchange and temp-key binding; the engine runs with generate_key = 0.
 - The Swift host glue (MTProtoRustEngine) and TelegramCore's CDN download path (FetchV2).
 

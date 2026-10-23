@@ -45,6 +45,27 @@ public final class SearchStoryFoundItem : GeneralRowItem {
         return SearchStoryFoundView.self
     }
     
+    public override var accessibilityLabel: String? {
+        return headerLayout.attributedString.string
+    }
+    
+    public override var accessibilityValue: String? {
+        return infoLayout.attributedString.string
+    }
+    
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+    
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+    
+    public override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
+    }
+    
     public override func makeSize(_ width: CGFloat, oldWidth: CGFloat = 0) -> Bool {
         _ = super.makeSize(width, oldWidth: oldWidth)
         
@@ -79,6 +100,7 @@ private final class SearchStoryFoundView: GeneralContainableRowView {
         infoView.userInteractionEnabled = false
         infoView.isSelectable = false
         
+        overlay.setAccessibilityLabel(strings().voiceOverCommonOpen)
         overlay.set(handler: { [weak self] _ in
             if let item = self?.item as? GeneralRowItem {
                 item.action()

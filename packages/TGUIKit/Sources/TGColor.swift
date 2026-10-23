@@ -46,7 +46,7 @@ public class DashLayer : SimpleLayer {
 public extension NSColor {
     
     static func ==(lhs: NSColor, rhs: NSColor) -> Bool {
-        return lhs.argb == rhs.argb
+        return lhs === rhs || lhs.argb == rhs.argb
     }
     
     static func colorFromRGB(rgbValue:UInt32) ->NSColor {

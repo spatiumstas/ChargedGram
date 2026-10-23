@@ -3,7 +3,11 @@ import Cocoa
 
 public class ProgressIndicator : Control {
     
-    public var alwaysAnimate: Bool = false
+    public var alwaysAnimate: Bool = false {
+        didSet {
+            if alwaysAnimate != oldValue { updateWantsAnimation() }
+        }
+    }
     
     private var visualEffect: VisualEffect?
     public var blurBackground: NSColor? = nil {
@@ -30,6 +34,9 @@ public class ProgressIndicator : Control {
         }
     }
     private let indicator: SpinningProgressView = SpinningProgressView(frame: NSZeroRect)
+    var isSpinning: Bool {
+        return indicator.isAnimating
+    }
     public required init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         indicator.frame = bounds
@@ -75,7 +82,7 @@ public class ProgressIndicator : Control {
     }
 
     private func updateWantsAnimation() {
-        if (window != nil && !isHidden) || alwaysAnimate {
+        if (window != nil && !isHiddenOrHasHiddenAncestor) || alwaysAnimate {
             indicator.startAnimation()
         } else {
             indicator.stopAnimation()

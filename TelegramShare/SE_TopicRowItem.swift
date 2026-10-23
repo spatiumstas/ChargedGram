@@ -481,6 +481,23 @@ final class SE_TopicRowItem: GeneralRowItem {
     override func viewClass() -> AnyClass {
         return SE_TopicRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return nameLayout.attributedString.string
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
+    }
 }
 
 private class SE_TopicRowView : TableRowView {
@@ -497,6 +514,7 @@ private class SE_TopicRowView : TableRowView {
     
     required init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        containerView.isAccessibilityDecorative = true
         containerView.addSubview(iconView)
         addSubview(containerView)
         self.addSubview(nameView)

@@ -4,6 +4,7 @@ import ComponentsUI
 import TelegramCore
 import TelegramUtils
 import InlineStickerLayer
+import SwiftSignalKit
 
 
 
@@ -24,30 +25,7 @@ final class ChatRightIconLayer: SimpleLayer {
 }
 
 final class ChatRightTextLayer: SimpleLayer {
-    private final class DrawLayer: SimpleLayer {
-        var textLayout: TextViewLayout?
-        var textSize: NSSize = .zero
-
-        override func draw(in ctx: CGContext) {
-            guard let textLayout = textLayout else {
-                return
-            }
-            let renderer = ChatRightTextLayer.renderer
-            renderer.update(textLayout)
-            renderer.setFrameSize(textSize)
-            renderer.draw(renderer.drawingLayer, in: ctx)
-        }
-    }
-
-    static let renderer: TextView = {
-        let view = TextView()
-        view.disableBackgroundDrawing = true
-        view.userInteractionEnabled = false
-        view.isSelectable = false
-        return view
-    }()
-
-    private let drawLayer = DrawLayer()
+    private let drawLayer = TextViewLayer()
 
     var textLayout: TextViewLayout? {
         return drawLayer.textLayout
@@ -70,8 +48,8 @@ final class ChatRightTextLayer: SimpleLayer {
     }
 
     func update(_ layout: TextViewLayout) {
-        drawLayer.textLayout = layout
         bounds = CGRect(origin: .zero, size: layout.layoutSize)
+        drawLayer.update(layout, size: bounds.size)
         updateDrawLayer()
         drawLayer.setNeedsDisplay()
     }
@@ -81,8 +59,14 @@ final class ChatRightTextLayer: SimpleLayer {
             drawLayer.textSize = bounds.size
             drawLayer.setNeedsDisplay()
         }
-        drawLayer.frame = bounds
-        drawLayer.bounds = bounds.insetBy(dx: -2, dy: -3)
+        let drawingBounds = bounds.insetBy(dx: -2, dy: -3)
+        let drawingPosition = CGPoint(x: bounds.midX, y: bounds.midY)
+        if drawLayer.bounds != drawingBounds {
+            drawLayer.bounds = drawingBounds
+        }
+        if drawLayer.position != drawingPosition {
+            drawLayer.position = drawingPosition
+        }
     }
 
     func updateScale(_ scale: CGFloat) {
@@ -92,6 +76,125 @@ final class ChatRightTextLayer: SimpleLayer {
 }
 
 public class ChatRightView: View, ViewDisplayDelegate {
+
+    public let contentLayer = SimpleLayer()
+    public private(set) var isContentHosted = false
+
+    public required init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        contentLayer.anchorPoint = .zero
+        contentLayer.zPosition = 1
+        contentLayer.frame = bounds
+        layer?.addSublayer(contentLayer)
+    }
+
+    required public init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    public var flightLayer: CALayer? {
+        return isContentHosted ? contentLayer : layer
+    }
+
+    public var canHostContent: Bool {
+        return subviews.isEmpty && blurBackground == nil
+    }
+
+    public func hostContent(in parent: CALayer) {
+        if !isContentHosted {
+            isContentHosted = true
+            contentLayer.masksToBounds = true
+            contentLayer.isOpaque = true
+            contentLayer.edgeAntialiasingMask = []
+            if #available(macOS 10.15, *) { contentLayer.cornerCurve = .continuous }
+            syncHostedAppearance()
+        }
+        if contentLayer.superlayer !== parent {
+            parent.addSublayer(contentLayer)
+        }
+    }
+
+    public func restoreContent() {
+        guard isContentHosted else { return }
+        isContentHosted = false
+        contentLayer.removeAllAnimations()
+        contentLayer.masksToBounds = false
+        contentLayer.isOpaque = false
+        contentLayer.edgeAntialiasingMask = [.layerLeftEdge, .layerRightEdge, .layerBottomEdge, .layerTopEdge]
+        contentLayer.backgroundColor = nil
+        contentLayer.cornerRadius = 0
+        contentLayer.opacity = 1
+        contentLayer.isHidden = false
+        contentLayer.frame = bounds
+        layer?.addSublayer(contentLayer)
+    }
+
+    public func setLayerCornerRadius(_ radius: CGFloat) {
+        layer?.cornerRadius = radius
+        if isContentHosted, contentLayer.cornerRadius != radius {
+            contentLayer.cornerRadius = radius
+        }
+    }
+
+    public func updateHostedFrame(_ frame: NSRect, transition: ContainedViewLayoutTransition) {
+        guard isContentHosted else { return }
+        if self.frame != frame {
+            self.frame = frame
+        }
+        #if DEBUG
+        transition.updateFrame(layer: contentLayer, frame: frame.offsetBy(dx: ChatRowView.parityMutation, dy: 0))
+        #else
+        transition.updateFrame(layer: contentLayer, frame: frame)
+        #endif
+    }
+
+    private func syncHostedAppearance() {
+        guard isContentHosted, let layer else { return }
+        contentLayer.backgroundColor = layer.backgroundColor
+        contentLayer.cornerRadius = layer.cornerRadius
+        contentLayer.opacity = layer.opacity
+        contentLayer.isHidden = isHidden
+    }
+
+    public override var backgroundColor: NSColor {
+        didSet {
+            if isContentHosted {
+                contentLayer.backgroundColor = layer?.backgroundColor
+            }
+        }
+    }
+
+    public override var isHidden: Bool {
+        didSet {
+            if isContentHosted, contentLayer.isHidden != isHidden {
+                contentLayer.isHidden = isHidden
+            }
+        }
+    }
+
+    public override func change(opacity to: CGFloat, animated: Bool = true, _ save: Bool = true, removeOnCompletion: Bool = true, duration: Double = 0.2, timingFunction: CAMediaTimingFunctionName = .easeOut, completion: ((Bool) -> Void)? = nil) {
+        super.change(opacity: to, animated: animated, save, removeOnCompletion: removeOnCompletion, duration: duration, timingFunction: timingFunction, completion: completion)
+        guard isContentHosted, Float(to) != contentLayer.opacity else { return }
+        if animated {
+            var from = CGFloat(contentLayer.opacity)
+            if let presentation = contentLayer.presentation(), contentLayer.animation(forKey: "opacity") != nil {
+                from = CGFloat(presentation.opacity)
+            }
+            contentLayer.animateAlpha(from: from, to: to, duration: duration, timingFunction: timingFunction, removeOnCompletion: removeOnCompletion)
+        } else {
+            contentLayer.removeAnimation(forKey: "opacity")
+        }
+        if save {
+            contentLayer.opacity = Float(to)
+        }
+    }
+
+    public override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        if !isContentHosted, contentLayer.frame.size != newSize {
+            contentLayer.frame = bounds
+        }
+    }
 
     static func makeTextLayer(_ frame: NSRect) -> ChatRightTextLayer {
         let layer = ChatRightTextLayer()
@@ -142,6 +245,7 @@ public class ChatRightView: View, ViewDisplayDelegate {
         public private(set) var failed: NSRect?
         public private(set) var effect: NSRect?
         private let isStateOverlay: Bool
+        public private(set) var width: CGFloat = 0
         public init(_ item: ChatRowItem, size: NSSize) {
             
             self.isStateOverlay = item.isStateOverlayLayout
@@ -252,6 +356,7 @@ public class ChatRightView: View, ViewDisplayDelegate {
                 self.diceStakeImage = rect_i
                 self.diceStakeCount = rect_t
             }
+            self.width = measureWidth()
         }
         
         private func makeDate(_ item: ChatRowItem, _ size: NSSize, _ x: inout CGFloat) -> NSRect? {
@@ -302,24 +407,37 @@ public class ChatRightView: View, ViewDisplayDelegate {
             return nil
         }
         
-        public var width: CGFloat {
-            let rects = [self.state,
-                         self.read,
-                         self.sending,
-                         self.effect,
-                         self.diceStakeCount,
-                         self.diceStakeImage,
-                         self.paidMessageCount,
-                         self.paidMessageImage,
-                         self.replyCount,
-                         self.viewsCount,
-                         self.viewsImage,
-                         self.postAuthor,
-                         self.pin,
-                         self.edit,
-                         self.date].compactMap { $0 }
-            
-            var max = rects.max(by: { $0.maxX < $1.maxX }) ?? .zero
+        private func measureWidth() -> CGFloat {
+            var rightmost: NSRect?
+            func include(_ rect: NSRect?) {
+                guard let rect = rect else {
+                    return
+                }
+                if let current = rightmost {
+                    if current.maxX < rect.maxX {
+                        rightmost = rect
+                    }
+                } else {
+                    rightmost = rect
+                }
+            }
+            include(self.state)
+            include(self.read)
+            include(self.sending)
+            include(self.effect)
+            include(self.diceStakeCount)
+            include(self.diceStakeImage)
+            include(self.paidMessageCount)
+            include(self.paidMessageImage)
+            include(self.replyCount)
+            include(self.viewsCount)
+            include(self.viewsImage)
+            include(self.postAuthor)
+            include(self.pin)
+            include(self.edit)
+            include(self.date)
+
+            var max = rightmost ?? .zero
             if max == self.state || max == self.sending {
                 max.origin.x += 4
             }
@@ -366,6 +484,7 @@ public class ChatRightView: View, ViewDisplayDelegate {
     private var dateView: ChatRightTextLayer?
     private var failedView: ChatRightIconLayer?
     private weak var item:ChatRowItem?
+    private var tooltipTimer: SwiftSignalKit.Timer?
     
     public var isReversed: Bool {
         guard let item = item else {return false}
@@ -376,11 +495,7 @@ public class ChatRightView: View, ViewDisplayDelegate {
     
     public func set(item:ChatRowItem, animated:Bool) {
                 
-        self.item = item
-        self.toolTip = item.fullDate
-        item.updateTooltip = { [weak self] value in
-            self?.toolTip = value
-        }
+        bindTooltip(item)
         
         guard let frames = item.rightFrames else {
             return
@@ -486,7 +601,7 @@ public class ChatRightView: View, ViewDisplayDelegate {
         if let stateRect = frames.state {
             if self.stateView == nil {
                 stateView = ChatRightView.makeIconLayer(findSending(stacked) ?? stateRect)
-                self.layer?.addSublayer(self.stateView!)
+                self.contentLayer.addSublayer(self.stateView!)
                 if animated {
                     self.stateView?.animateAlpha(from: 0, to: 1, duration: 0.2)
                     self.stateView?.animateScaleCenter(from: 0.1, to: 1, duration: 0.2)
@@ -504,7 +619,7 @@ public class ChatRightView: View, ViewDisplayDelegate {
         if let readRect = frames.read {
             if readImageView == nil {
                 readImageView = ChatRightView.makeIconLayer(readRect)
-                self.layer?.addSublayer(self.readImageView!)
+                self.contentLayer.addSublayer(self.readImageView!)
                 if animated {
                     self.readImageView?.animateAlpha(from: 0, to: 1, duration: 0.2)
                     self.readImageView?.animateScaleCenter(from: 0.1, to: 1, duration: 0.2)
@@ -522,7 +637,7 @@ public class ChatRightView: View, ViewDisplayDelegate {
         if let replyCount = item.replyCount, let replyImageRect = frames.replyImage, let replyCountRect = frames.replyCount {
             if self.replyCountView == nil {
                 self.replyCountView = ChatRightView.makeTextLayer(replyCountRect)
-                self.layer?.addSublayer(self.replyCountView!)
+                self.contentLayer.addSublayer(self.replyCountView!)
                 if animated {
                     self.replyCountView?.animateAlpha(from: 0, to: 1, duration: 0.2)
                     self.replyCountView?.animateScaleCenter(from: 0.1, to: 1, duration: 0.2)
@@ -532,7 +647,7 @@ public class ChatRightView: View, ViewDisplayDelegate {
             
             if self.replyCountImage == nil {
                 self.replyCountImage = ChatRightView.makeIconLayer(replyImageRect)
-                self.layer?.addSublayer(self.replyCountImage!)
+                self.contentLayer.addSublayer(self.replyCountImage!)
                 if animated {
                     self.replyCountImage?.animateAlpha(from: 0, to: 1, duration: 0.2)
                     self.replyCountImage?.animateScaleCenter(from: 0.1, to: 1, duration: 0.2)
@@ -555,7 +670,7 @@ public class ChatRightView: View, ViewDisplayDelegate {
         if let paidMessage = item.paidMessage, let paidMessageImage = frames.paidMessageImage, let paidMessageCount = frames.paidMessageCount {
             if self.paidMessageCountView == nil {
                 self.paidMessageCountView = ChatRightView.makeTextLayer(paidMessageCount)
-                self.layer?.addSublayer(self.paidMessageCountView!)
+                self.contentLayer.addSublayer(self.paidMessageCountView!)
                 if animated {
                     self.paidMessageCountView?.animateAlpha(from: 0, to: 1, duration: 0.2)
                     self.paidMessageCountView?.animateScaleCenter(from: 0.1, to: 1, duration: 0.2)
@@ -565,7 +680,7 @@ public class ChatRightView: View, ViewDisplayDelegate {
             
             if self.paidMessageImage == nil {
                 self.paidMessageImage = ChatRightView.makeIconLayer(paidMessageImage)
-                self.layer?.addSublayer(self.paidMessageImage!)
+                self.contentLayer.addSublayer(self.paidMessageImage!)
                 if animated {
                     self.paidMessageImage?.animateAlpha(from: 0, to: 1, duration: 0.2)
                     self.paidMessageImage?.animateScaleCenter(from: 0.1, to: 1, duration: 0.2)
@@ -588,7 +703,7 @@ public class ChatRightView: View, ViewDisplayDelegate {
         if let diceStake = item.diceStake, let diceStakeImage = frames.diceStakeImage, let diceStakeCount = frames.diceStakeCount {
             if self.diceStakeCountView == nil {
                 self.diceStakeCountView = ChatRightView.makeTextLayer(diceStakeCount)
-                self.layer?.addSublayer(self.diceStakeCountView!)
+                self.contentLayer.addSublayer(self.diceStakeCountView!)
                 if animated {
                     self.diceStakeCountView?.animateAlpha(from: 0, to: 1, duration: 0.2)
                     self.diceStakeCountView?.animateScaleCenter(from: 0.1, to: 1, duration: 0.2)
@@ -598,7 +713,7 @@ public class ChatRightView: View, ViewDisplayDelegate {
 
             if self.diceStakeImageView == nil {
                 self.diceStakeImageView = ChatRightView.makeIconLayer(diceStakeImage)
-                self.layer?.addSublayer(self.diceStakeImageView!)
+                self.contentLayer.addSublayer(self.diceStakeImageView!)
                 if animated {
                     self.diceStakeImageView?.animateAlpha(from: 0, to: 1, duration: 0.2)
                     self.diceStakeImageView?.animateScaleCenter(from: 0.1, to: 1, duration: 0.2)
@@ -621,7 +736,7 @@ public class ChatRightView: View, ViewDisplayDelegate {
         if let pinRect = frames.pin {
             if self.pinView == nil {
                 self.pinView = ChatRightView.makeIconLayer(pinRect)
-                self.layer?.addSublayer(self.pinView!)
+                self.contentLayer.addSublayer(self.pinView!)
                 if animated {
                     self.pinView?.animateAlpha(from: 0, to: 1, duration: 0.2)
                     self.pinView?.animateScaleCenter(from: 0.1, to: 1, duration: 0.2)
@@ -641,7 +756,7 @@ public class ChatRightView: View, ViewDisplayDelegate {
         if let date = item.date, let dateRect = frames.date {
             if self.dateView == nil {
                 self.dateView = ChatRightView.makeTextLayer(dateRect)
-                self.layer?.addSublayer(self.dateView!)
+                self.contentLayer.addSublayer(self.dateView!)
                 if animated {
                     self.dateView?.animateAlpha(from: 0, to: 1, duration: 0.2)
                     self.dateView?.animateScaleCenter(from: 0.1, to: 1, duration: 0.2)
@@ -658,7 +773,7 @@ public class ChatRightView: View, ViewDisplayDelegate {
         if let failedRect = frames.failed {
             if self.failedView == nil {
                 self.failedView = ChatRightView.makeIconLayer(failedRect)
-                self.layer?.addSublayer(self.failedView!)
+                self.contentLayer.addSublayer(self.failedView!)
                 if animated {
                     self.failedView?.animateAlpha(from: 0, to: 1, duration: 0.2)
                     self.failedView?.animateScaleCenter(from: 0.1, to: 1, duration: 0.2)
@@ -676,7 +791,7 @@ public class ChatRightView: View, ViewDisplayDelegate {
         if let editedLabel = item.editedLabel, let editRect = frames.edit {
             if self.editView == nil {
                 self.editView = ChatRightView.makeTextLayer(editRect)
-                self.layer?.addSublayer(self.editView!)
+                self.contentLayer.addSublayer(self.editView!)
                 if animated {
                     self.editView?.animateAlpha(from: 0, to: 1, duration: 0.2)
                     self.editView?.animateScaleCenter(from: 0.1, to: 1, duration: 0.2)
@@ -692,7 +807,7 @@ public class ChatRightView: View, ViewDisplayDelegate {
         if let channelViews = item.channelViews, let viewsImageRect = frames.viewsImage, let viewsCountRect = frames.viewsCount {
             if self.viewsCountView == nil {
                 self.viewsCountView = ChatRightView.makeTextLayer(viewsCountRect)
-                self.layer?.addSublayer(self.viewsCountView!)
+                self.contentLayer.addSublayer(self.viewsCountView!)
                 if animated {
                     self.viewsCountView?.animateAlpha(from: 0, to: 1, duration: 0.2)
                     self.viewsCountView?.animateScaleCenter(from: 0.1, to: 1, duration: 0.2)
@@ -702,7 +817,7 @@ public class ChatRightView: View, ViewDisplayDelegate {
             
             if self.viewsImageView == nil {
                 self.viewsImageView = ChatRightView.makeIconLayer(viewsImageRect)
-                self.layer?.addSublayer(self.viewsImageView!)
+                self.contentLayer.addSublayer(self.viewsImageView!)
                 if animated {
                     self.viewsImageView?.animateAlpha(from: 0, to: 1, duration: 0.2)
                     self.viewsImageView?.animateScaleCenter(from: 0.1, to: 1, duration: 0.2)
@@ -725,7 +840,7 @@ public class ChatRightView: View, ViewDisplayDelegate {
         if let postAuthor = item.postAuthor, let postAuthorRect = frames.postAuthor {
             if self.postAuthorView == nil {
                 self.postAuthorView = ChatRightView.makeTextLayer(postAuthorRect)
-                self.layer?.addSublayer(self.postAuthorView!)
+                self.contentLayer.addSublayer(self.postAuthorView!)
                 if animated {
                     self.postAuthorView?.animateAlpha(from: 0, to: 1, duration: 0.2)
                     self.postAuthorView?.animateScaleCenter(from: 0.1, to: 1, duration: 0.2)
@@ -837,18 +952,80 @@ public class ChatRightView: View, ViewDisplayDelegate {
         }
     }
     
+    private func bindTooltip(_ item: ChatRowItem) {
+        if self.item !== item {
+            let wasRunning = tooltipTimer != nil
+            cancelTooltipTimer()
+            self.item = item
+            updateTooltipText(item.fullDate)
+            if wasRunning {
+                startTooltipTimerIfNeeded()
+            }
+        } else if tooltipTimer == nil {
+            updateTooltipText(item.fullDate)
+        }
+    }
+
+    private var canUpdateTooltip: Bool {
+        return window != nil && !isHiddenOrHasHiddenAncestor && !visibleRect.isEmpty && mouseInside()
+    }
+
+    private func updateTooltipText(_ value: String?) {
+        if toolTip != value {
+            toolTip = value
+        }
+    }
+
+    private func refreshTooltipCountdown() -> Bool {
+        guard let value = item?.tooltipCountdownText() else {
+            updateTooltipText(item?.fullDate)
+            return false
+        }
+        updateTooltipText(value)
+        return true
+    }
+
+    private func startTooltipTimerIfNeeded() {
+        guard tooltipTimer == nil, canUpdateTooltip, refreshTooltipCountdown() else {
+            return
+        }
+        tooltipTimer = SwiftSignalKit.Timer(timeout: 1.0, repeat: true, completion: { [weak self] in
+            guard let self else {
+                return
+            }
+            if !self.canUpdateTooltip || !self.refreshTooltipCountdown() {
+                self.cancelTooltipTimer()
+            }
+        }, queue: .mainQueue())
+        tooltipTimer?.start()
+    }
+
+    private func cancelTooltipTimer() {
+        tooltipTimer?.invalidate()
+        tooltipTimer = nil
+    }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        cancelTooltipTimer()
+    }
+
+    deinit {
+        tooltipTimer?.invalidate()
+    }
+
     public override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
-        self.item?.runTimerIfNeeded()
+        startTooltipTimerIfNeeded()
     }
     public override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
-        self.item?.cancelTimer()
+        cancelTooltipTimer()
     }
     
     public override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
-        self.item?.runTimerIfNeeded()
+        startTooltipTimerIfNeeded()
     }
     
     

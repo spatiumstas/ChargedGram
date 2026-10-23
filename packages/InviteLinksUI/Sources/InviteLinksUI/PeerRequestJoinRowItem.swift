@@ -67,6 +67,14 @@ final class PeerRequestJoinRowItem: GeneralRowItem {
 
         super.init(initialSize, stableId: stableId, viewType: viewType)
     }
+
+    override var accessibilityLabel: String? {
+        return nameLayout.attributedString.string
+    }
+
+    override var accessibilityValue: String? {
+        return [aboutLayout?.attributedString.string, dateLayout.attributedString.string, statusLayout?.attributedString.string].compactMap { $0 }.joined(separator: ", ")
+    }
     
     override var height: CGFloat {
         let inset = viewType.innerInset

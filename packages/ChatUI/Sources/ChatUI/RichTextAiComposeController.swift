@@ -90,6 +90,10 @@ private final class AiResultRowItem: GeneralRowItem {
     }
 
     override func viewClass() -> AnyClass { return AiResultRowView.self }
+
+    override var accessibilityLabel: String? {
+        return strings().richTextAiComposeResult
+    }
 }
 
 private final class AiResultRowView: GeneralContainableRowView {
@@ -162,7 +166,9 @@ public func RichTextAiComposeController(context: any AccountContextProtocol, com
     let initialState = State()
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
-    let updateState: ((State) -> State) -> Void = { f in statePromise.set(stateValue.modify(f)) }
+    let updateState: ((State) -> State) -> Void = { f in
+        statePromise.set(stateValue.modify(f))
+    }
 
     var close: (() -> Void)? = nil
 
@@ -179,12 +185,14 @@ public func RichTextAiComposeController(context: any AccountContextProtocol, com
         }
     })
 
-    let signal = statePromise.get() |> deliverOnPrepareQueue |> map { state in
+    let signal = (statePromise.get() |> deliverOnPrepareQueue |> map { state in
         return InputDataSignalValue(entries: entries(state, arguments: arguments))
-    }
+    })
 
     let controller = InputDataController(dataSignal: signal, title: strings().richTextAiComposeTitle, removeAfterDisappear: false, hasDone: false)
-    controller.onDeinit = { actionsDisposable.dispose() }
+    controller.onDeinit = {
+        actionsDisposable.dispose()
+    }
 
     let generate: () -> Void = {
         let state = stateValue.with { $0 }
@@ -263,6 +271,8 @@ public func RichTextAiComposeController(context: any AccountContextProtocol, com
     })
     controller.centerModalHeader = ModalHeaderData(title: strings().richTextAiComposeTitle)
 
-    close = { [weak modalController] in modalController?.close() }
+    close = { [weak modalController] in
+        modalController?.close()
+    }
     return modalController
 }

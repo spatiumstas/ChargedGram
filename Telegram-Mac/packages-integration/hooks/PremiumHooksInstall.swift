@@ -1,3 +1,4 @@
+import InputDataUI
 import Cocoa
 import TGUIKit
 import Postbox
@@ -7,7 +8,7 @@ import PremiumUI
 import TelegramMediaPlayer
 
 func installPremiumUIHooks() {
-    installPremiumHooks(.init(openChat: { context, peerId, action in
+    var hooks = PremiumHooks(openChat: { context, peerId, action in
         guard let context = context as? AccountContext else {
             return
         }
@@ -41,25 +42,8 @@ func installPremiumUIHooks() {
             return
         }
         let navigation = context.bindings.rootNavigation()
-        switch value {
-        case .business_location:
-            navigation.push(BusinessLocationController(context: context))
-        case .business_hours:
-            navigation.push(BusinessHoursController(context: context))
-        case .quick_replies:
-            navigation.push(BusinessQuickReplyController(context: context))
-        case .greeting_message:
-            navigation.push(BusinessMessageController(context: context, type: .greetings))
-        case .away_message:
-            navigation.push(BusinessMessageController(context: context, type: .away))
-        case .business_bots:
-            navigation.push(BusinessChatbotController(context: context))
-        case .business_intro:
-            navigation.push(BusinessIntroController(context: context))
-        case .business_links:
-            navigation.push(BusinessLinksController(context: context))
-        default:
-            break
+        if let controller = makePremiumBusinessController(context: context, value: value) {
+            navigation.push(controller)
         }
     }, preloadVideo: { context, video in
         guard let context = context as? AccountContext else {
@@ -71,8 +55,77 @@ func installPremiumUIHooks() {
             return
         }
         execute(inapp: inApp(for: url.nsstring, context: context, openInfo: openInfo))
-    }))
+    })
+    hooks.openLinkWithContext = { context, url, openInfo in
+        guard let context = context as? AccountContext else { return }
+        execute(inapp: inApp(for: url.nsstring, context: context, openInfo: openInfo))
+    }
+    hooks.openChatWithContext = { context, peerId, action in
+        guard let context = context as? AccountContext else { return }
+        let navigation = context.bindings.rootNavigation()
+        let chat = navigation.first { $0 is ChatController } as? ChatController
+        if let chat, chat.chatInteraction.peerId == peerId {
+            navigation.back()
+            if let action {
+                chat.chatInteraction.invokeInitialAction(action: action)
+            }
+        } else {
+            navigateToChat(navigation: navigation, context: context, chatLocation: .peer(peerId), initialAction: action)
+        }
+    }
+    hooks.showStickerPackPreviewWithContext = { context, shortName in
+        guard let context = context as? AccountContext else { return }
+        if let controller = premiumNavigationChild( create: {
+            StickerPackPreviewModalController(context, peerId: nil, references: [.emoji(.name(shortName))])
+        }) {
+            showModal(with: controller, for: context.window)
+        }
+    }
+    hooks.openBusinessFeatureWithContext = { context, value in
+        guard let context = context as? AccountContext else { return }
+        if let controller = premiumNavigationChild( create: {
+            makePremiumBusinessController(context: context, value: value)
+        }) {
+            context.bindings.rootNavigation().push(controller)
+        }
+    }
+    installPremiumHooks(hooks)
 }
+
+private func premiumNavigationChild<T: ViewController>( create: () -> T?) -> T? {
+    guard let controller = create() else {
+        return nil
+    }
+    let onDeinit = controller.onDeinit
+    controller.onDeinit = {
+        onDeinit?()
+    }
+    return controller
+}
+
+private func makePremiumBusinessController(context: AccountContext, value: PremiumValue) -> ViewController? {
+    switch value {
+    case .business_location:
+        return BusinessLocationController(context: context)
+    case .business_hours:
+        return BusinessHoursController(context: context)
+    case .quick_replies:
+        return BusinessQuickReplyController(context: context)
+    case .greeting_message:
+        return BusinessMessageController(context: context, type: .greetings)
+    case .away_message:
+        return BusinessMessageController(context: context, type: .away)
+    case .business_bots:
+        return BusinessChatbotController(context: context)
+    case .business_intro:
+        return BusinessIntroController(context: context)
+    case .business_links:
+        return BusinessLinksController(context: context)
+    default:
+        return nil
+    }
+}
+
 
 extension MediaAnimatedStickerView: @retroactive PremiumStickerView {
     public func updatePremiumSticker(file: TelegramMediaFile, size: NSSize, context: any AccountContextProtocol, tint: NSColor?, animated: Bool) {

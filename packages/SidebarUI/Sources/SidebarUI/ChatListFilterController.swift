@@ -85,6 +85,14 @@ private class FolderColorIconItem: TableRowItem {
     override func viewClass() -> AnyClass {
         return FolderColorIconView.self
     }
+
+    override var accessibilityLabel: String? {
+        return strings().voiceOverCommonColor
+    }
+
+    override var accessibilityValue: String? {
+        return selected ? strings().voiceOverCommonSelected : nil
+    }
 }
 
 private final class FolderColorIconView : ColorSwatchView {
@@ -114,6 +122,8 @@ private final class FolderColorIconView : ColorSwatchView {
         }
 
         update(fill: item.environment.colorImage(item.color, ring: false), ring: item.environment.colorImage(item.color, ring: true), selected: item.selected, animated: animated)
+        control.setAccessibilityLabel(item.accessibilityLabel)
+        control.setAccessibilityValue(item.accessibilityValue)
     }
 }
 
@@ -171,6 +181,10 @@ private final class FolderColorRowItem : GeneralRowItem {
 
     override func viewClass() -> AnyClass {
         return PeerNamesRowView.self
+    }
+
+    override var accessibilityLabel: String? {
+        return strings().voiceOverCommonColor
     }
 }
 

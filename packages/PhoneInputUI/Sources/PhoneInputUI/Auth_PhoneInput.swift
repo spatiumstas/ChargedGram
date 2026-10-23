@@ -186,6 +186,8 @@ public final class Auth_PhoneInput: View, NSTextFieldDelegate {
         addSubview(country)
         addSubview(nextView)
         addSubview(country_overlay)
+        nextView.isAccessibilityDecorative = true
+        country_overlay.setAccessibilityLabel(strings().loginCountryLabel)
         
         codeText.stringValue = "+"
         codeText.font = .code(.title)
@@ -322,6 +324,7 @@ public final class Auth_PhoneInput: View, NSTextFieldDelegate {
         } else {
             country.set(text: strings().loginInvalidCountryCode, for: .Normal)
         }
+        country_overlay.setAccessibilityValue(selected?.emojiName ?? strings().loginInvalidCountryCode)
         country.sizeToFit()
         if updateCode {
             codeText.stringValue = selected != nil ? "+\(selected!.countryCodes[0].code)" : "+"

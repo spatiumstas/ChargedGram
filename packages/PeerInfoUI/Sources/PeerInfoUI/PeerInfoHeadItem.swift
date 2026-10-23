@@ -117,7 +117,7 @@ private func actionItems<Context: AccountContextProtocol>(item: PeerInfoHeadItem
                     guard PeerInfoUIHooks.shared.walletHooks.hasWallet(context) else {
                         return
                     }
-                    PeerInfoUIHooks.shared.walletHooks.sendMoney(context, peer)
+                    PeerInfoUIHooks.shared.walletHooks.sendMoneyObserved(context, peer)
                 }))
             }
             if !(item.peerView.peers[item.peerView.peerId] is TelegramSecretChat), let cachedData = item.peerView.cachedData as? CachedUserData {
@@ -395,7 +395,8 @@ private func actionItems<Context: AccountContextProtocol>(item: PeerInfoHeadItem
         var subItems:[SubActionItem] = []
         while items.count > rowItemsCount - 1 {
             let item = items.removeLast()
-            subItems.insert(SubActionItem(text: item.text, animation: item.animation, destruct: item.destruct, action: item.action), at: 0)
+            let action = item.action
+            subItems.insert(SubActionItem(text: item.text, animation: item.animation, destruct: item.destruct, action: action), at: 0)
         }
         if !subItems.isEmpty {
             items.append(ActionItem(text: strings().peerInfoActionMore, color: item.accentColor, image: theme.icons.profile_more, animation: .menu_plus, action: { }, subItems: subItems))
@@ -413,6 +414,9 @@ class PeerInfoHeadItem<Context: AccountContextProtocol>: GeneralRowItem {
         if !editing {
             height = photoDimension + insets.bottom + nameLayout.layoutSize.height + statusLayout.layoutSize.height + insets.bottom
             
+            if walletBalance != nil {
+                height += PeerInfoBalanceView.spacing + PeerInfoBalanceView.height
+            }
             if !items.isEmpty {
                 let maxActionSize: NSSize = items.max(by: { $0.size.height < $1.size.height })!.size
                 height += maxActionSize.height + insets.top
@@ -426,7 +430,7 @@ class PeerInfoHeadItem<Context: AccountContextProtocol>: GeneralRowItem {
         if nameColor != nil || editing {
             height += 20
         }
-        if musicFile != nil, !editing {
+        if hasProfileStrip {
             height += PeerInfoMusicView.height(colorful: nameColor != nil)
             if nameColor == nil {
                 height += 20
@@ -633,6 +637,11 @@ class PeerInfoHeadItem<Context: AccountContextProtocol>: GeneralRowItem {
     let hasLiveStream: Bool
     
     let musicFile: TelegramMediaFile?
+    let walletBalance: Int64?
+
+    var hasProfileStrip: Bool {
+        return !editing && musicFile != nil
+    }
     
     let rating: TelegramStarRating?
     
@@ -705,6 +714,14 @@ class PeerInfoHeadItem<Context: AccountContextProtocol>: GeneralRowItem {
             self.musicFile = (peerView.cachedData as? CachedUserData)?.savedMusic
         } else {
             self.musicFile = nil
+        }
+
+        if #available(macOS 10.15, *), !editing, threadId == nil, let user = peer as? TelegramUser, peerView.peerId.namespace == Namespaces.Peer.CloudUser,
+           user.id != context.peerId, let walletHooks = PeerInfoUIHooks.shared.wallet as? PeerInfoWalletHooks, walletHooks.hasWallet(context),
+           let walletCard = (peerView.cachedData as? CachedUserData)?.walletCard, walletCard.balance >= 100_000_000 {
+            self.walletBalance = walletCard.balance
+        } else {
+            self.walletBalance = nil
         }
         
         self.rating = (peerView.cachedData as? CachedUserData)?.starRating
@@ -858,6 +875,12 @@ class PeerInfoHeadItem<Context: AccountContextProtocol>: GeneralRowItem {
         PeerInfoUIHooks.shared.showProfileMusicPlayerList(context, peer, musicFile, savedMusic, profileSavedMusic)
         
     }
+
+    func openWalletBalance(morphSource: (() -> NSView?)? = nil) {
+        if #available(macOS 10.15, *), let peer {
+            PeerInfoUIHooks.shared.walletHooks.showPeerBalanceObserved(context, peer, morphSource)
+        }
+    }
     
     var colorfulProfile: Bool {
         if let _ = nameColor {
@@ -909,6 +932,19 @@ class PeerInfoHeadItem<Context: AccountContextProtocol>: GeneralRowItem {
         onlineMemberCountDisposable.dispose()
     }
 
+    override var accessibilityLabel: String? {
+        let name = nameLayout.attributedString.string
+        if !name.isEmpty {
+            return name
+        }
+        return effectivePeer?.displayTitle
+    }
+    
+    override var accessibilityValue: String? {
+        let status = statusLayout.attributedString.string
+        return status.isEmpty ? nil : status
+    }
+    
     override func viewClass() -> AnyClass {
         return PeerInfoHeadView<Context>.self
     }
@@ -1323,7 +1359,34 @@ private final class SpawnGiftsView: View {
         for (_, iconLayer) in self.iconLayers {
             if iconLayer.frame.contains(location), let window = window as? Window {
                 if let context = self.context, let unique = iconLayer.gift.gift.unique {
-                    showModal(with: StarGift_Nft_Controller(context: context, gift: .unique(unique), source: .quickLook(peer, unique), giftsContext: self.giftsContext, pinnedInfo: iconLayer.gift.reference.flatMap { .init(pinnedInfo: iconLayer.gift.pinnedToTop, reference: $0) }), for: window)
+                    let gift = iconLayer.gift
+                    let purpose = Star_TransactionPurpose.starGift(
+                        gift: gift.gift,
+                        convertStars: gift.convertStars,
+                        text: gift.text,
+                        entities: gift.entities,
+                        nameHidden: gift.nameHidden,
+                        savedToProfile: gift.savedToProfile,
+                        converted: false,
+                        fromProfile: true,
+                        upgraded: false,
+                        prepaidUpgradeHash: gift.prepaidUpgradeHash,
+                        transferStars: gift.transferStars,
+                        canExportDate: gift.canExportDate,
+                        reference: gift.reference,
+                        sender: gift.fromPeer,
+                        saverId: nil,
+                        canTransferDate: gift.canTransferDate,
+                        canResaleDate: gift.canResaleDate,
+                        dropOriginalDetailsStars: gift.dropOriginalDetailsStars,
+                        canUpgrade: gift.canUpgrade,
+                        number: gift.number,
+                        isRefunded: gift.isRefunded,
+                        canCraftAt: gift.canCraftAt,
+                        craftChancePermille: unique.craftChancePermille,
+                        upgradeStars: gift.upgradeStars
+                    )
+                    showModal(with: StarGift_Nft_Controller(context: context, gift: gift.gift, source: .quickLook(peer, unique), purpose: purpose, giftsContext: self.giftsContext, pinnedInfo: gift.reference.flatMap { .init(pinnedInfo: gift.pinnedToTop, reference: $0) }), for: window)
                 }
             }
         }
@@ -1522,6 +1585,8 @@ private final class PeerInfoHeadView<Context: AccountContextProtocol> : GeneralC
     private var ratingView: PeerRatingView?
    
     private var musicView: PeerInfoMusicView?
+    private var preloadedWalletCard: WalletCard?
+    private var balanceView: PeerInfoBalanceView?
 
     private let backgroundView = PeerInfoBackgroundView(frame: .zero)
     
@@ -1831,7 +1896,7 @@ private final class PeerInfoHeadView<Context: AccountContextProtocol> : GeneralC
             transition.updateFrame(view: statusContainer, frame: statusContainerFrame)
         }
 
-        let actionsY = containerView.frame.height - actionsView.frame.height - (item.nameColor != nil ? 16 : 0) - (item.musicFile != nil ? PeerInfoMusicView.height(colorful: item.colorfulProfile) + (item.nameColor == nil ? 16 : -4) : 0)
+        let actionsY = containerView.frame.height - actionsView.frame.height - (item.nameColor != nil ? 16 : 0) - (item.hasProfileStrip ? PeerInfoMusicView.height(colorful: item.colorfulProfile) + (item.nameColor == nil ? 16 : -4) : 0)
         transition.updateFrame(view: actionsView, frame: actionsView.centerFrameX(y: actionsY))
 
         if let photo = topicPhotoView {
@@ -1851,9 +1916,15 @@ private final class PeerInfoHeadView<Context: AccountContextProtocol> : GeneralC
             statusOffset = rating.smallSize.width + 3
         }
         
+        if let balanceView {
+            let size = balanceView.size
+            let frame = NSMakeRect(floor((containerView.frame.width - size.width) / 2), statusContainer.frame.maxY + PeerInfoBalanceView.spacing, size.width, size.height)
+            let balanceTransition: ContainedViewLayoutTransition = balanceView.frame.isEmpty ? .immediate : transition
+            balanceTransition.updateFrame(view: balanceView, frame: frame)
+        }
         if let musicView {
-            let musicHeight = PeerInfoMusicView.height(colorful: item.colorfulProfile)
-            transition.updateFrame(view: musicView, frame: NSMakeRect(0, containerView.frame.height - musicHeight, containerView.frame.width, musicHeight))
+            let stripHeight = PeerInfoMusicView.height(colorful: item.colorfulProfile)
+            transition.updateFrame(view: musicView, frame: NSMakeRect(0, containerView.frame.height - stripHeight, containerView.frame.width, stripHeight))
         }
 
         transition.updateFrame(view: statusView, frame: statusView.centerFrameY(x: statusOffset))
@@ -1911,9 +1982,9 @@ private final class PeerInfoHeadView<Context: AccountContextProtocol> : GeneralC
         
         var exclusionRects: [CGRect] = []
         
-        let titleWidth = max(140.0, nameView.frame.width) + 42.0
+        let titleWidth = max(140.0, nameView.frame.width, balanceView?.frame.width ?? 0) + 42.0
         let titleTop = min(nameView.frame.minY, photoContainer.frame.maxY + 6.0)
-        let titleBottom = max(nameView.frame.maxY, statusContainer.frame.maxY)
+        let titleBottom = max(nameView.frame.maxY, statusContainer.frame.maxY, balanceView?.frame.maxY ?? 0)
         if titleBottom > titleTop {
             exclusionRects.append(CGRect(x: floor((size.width - titleWidth) / 2), y: titleTop, width: titleWidth, height: titleBottom - titleTop))
         }
@@ -1971,10 +2042,16 @@ private final class PeerInfoHeadView<Context: AccountContextProtocol> : GeneralC
             actionsView.change(size: NSMakeSize(actionItemWidth * CGFloat(items.count) + CGFloat(items.count - 1) * actionItemInset, maxActionSize.height), animated: animated)
 
             var x: CGFloat = inset
+            let useGlass = System.liquidGlass && rowItem.nameColor != nil && rowItem.threadId == nil && !rowItem.editing
 
             for (i, item) in items.enumerated() {
                 let view = actionsView.subviews[i] as! ActionButton
-                view.updateAndLayout(item: item, bgColor: rowItem.actionColor, useGlass: false)
+                view.updateAndLayout(item: item, bgColor: rowItem.actionColor, useGlass: useGlass)
+                if item.subItems?.isEmpty == false, let menu = view.contextMenu {
+                    view.contextMenu = {
+                        return menu()
+                    }
+                }
                 view.setFrameSize(NSMakeSize(actionItemWidth, maxActionSize.height))
                 view.change(pos: NSMakePoint(x, 0), animated: false)
                 x += actionItemWidth + actionItemInset
@@ -2009,6 +2086,7 @@ private final class PeerInfoHeadView<Context: AccountContextProtocol> : GeneralC
         updatePhoto(item, animated: animated)
         
         photoView.isHidden = item.isTopic
+        photoContainer.setAccessibilityLabel(strings().voiceOverCommonPhotoOf(item.effectivePeer?.displayTitle ?? item.nameLayout.attributedString.string))
 
         if !item.photos.isEmpty {
             
@@ -2163,6 +2241,32 @@ private final class PeerInfoHeadView<Context: AccountContextProtocol> : GeneralC
             performSubviewRemoval(view, animated: animated)
             self.musicView = nil
         }
+
+        if let walletBalance = item.walletBalance, !item.editing {
+            if #available(macOS 10.15, *), let card = (item.peerView.cachedData as? CachedUserData)?.walletCard, card != self.preloadedWalletCard {
+                self.preloadedWalletCard = card
+                PeerInfoUIHooks.shared.walletHooks.preloadPeerCard(item.context, card)
+            }
+            let current: PeerInfoBalanceView
+            if let view = self.balanceView {
+                current = view
+            } else {
+                current = PeerInfoBalanceView(frame: .zero)
+                self.balanceView = current
+                self.addSubview(current)
+                if animated {
+                    current.layer?.animateAlpha(from: 0, to: 1, duration: 0.2)
+                }
+            }
+            current.update(balance: walletBalance, textColor: item.textColor, iconColor: item.colorfulProfile ? item.textColor : theme.colors.accent, backgroundColor: item.actionColor, colorfull: item.colorfulProfile, useGlass: System.liquidGlass && item.nameColor != nil && item.threadId == nil && !item.editing)
+
+            current.control.setSingle(handler: { [weak item, weak current] _ in
+                item?.openWalletBalance(morphSource: { [weak current] in current?.control })
+            }, for: .Click)
+        } else if let view = self.balanceView {
+            performSubviewRemoval(view, animated: animated)
+            self.balanceView = nil
+        }
         
         if  item.hasLiveStream {
             let current: ImageView
@@ -2170,6 +2274,7 @@ private final class PeerInfoHeadView<Context: AccountContextProtocol> : GeneralC
                 current = view
             } else {
                 current = ImageView()
+                current.setAccessibilityLabel(strings().voiceOverCommonLive)
                 self.liveStreamView = current
                 photoContainer.addSubview(current)
             }
@@ -2314,6 +2419,7 @@ private final class PeerInfoHeadView<Context: AccountContextProtocol> : GeneralC
             } else {
                 topicView = Control(frame: size.bounds)
                 topicView.scaleOnClick = true
+                topicView.setAccessibilityLabel(strings().voiceOverCommonEmoji)
                 self.topicPhotoView = topicView
                 photoContainer.addSubview(topicView)
                 

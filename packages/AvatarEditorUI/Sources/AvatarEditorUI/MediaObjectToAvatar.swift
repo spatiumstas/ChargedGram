@@ -13,64 +13,12 @@ import TelegramMediaUtils
 import TelegramContext
 import AppKit
 
-private func buffer(from image: CGImage, zoom: CGFloat = 1.0, offset: CGPoint = .zero, background: CGImage? = nil) -> CVPixelBuffer? {
-    let attrs = [kCVPixelBufferCGImageCompatibilityKey: kCFBooleanTrue, kCVPixelBufferCGBitmapContextCompatibilityKey: kCFBooleanTrue] as CFDictionary
-    var pixelBuffer : CVPixelBuffer?
-    let status = CVPixelBufferCreate(kCFAllocatorDefault, Int(image.size.width), Int(image.size.height), kCVPixelFormatType_32ARGB, attrs, &pixelBuffer)
-    guard (status == kCVReturnSuccess) else {
-      return nil
+private func avatarPatternBackground(_ signal: Signal<ImageDataTransformation, NoError>, arguments: TransformImageArguments) -> Signal<CGImage, NoError> {
+    signal |> filter { $0.data.fullSizeComplete } |> take(1) |> mapToSignal { value in
+        guard let data = value.data.fullSizeData, let source = CGImageSourceCreateWithData(data as CFData, nil), CGImageSourceCreateImageAtIndex(source, 0, nil) != nil, let image = value.execute(arguments, value.data)?.generateImage() else { return .complete() }
+        return .single(image)
     }
-
-    CVPixelBufferLockBaseAddress(pixelBuffer!, CVPixelBufferLockFlags(rawValue: 0))
-    let pixelData = CVPixelBufferGetBaseAddress(pixelBuffer!)
-
-    let rect = CGRect(x: 0, y: 0, width: image.size.width, height: image.size.height)
-    
-    let rgbColorSpace = CGColorSpaceCreateDeviceRGB()
-    let context = CGContext(data: pixelData, width: Int(image.size.width), height: Int(image.size.height), bitsPerComponent: 8, bytesPerRow: CVPixelBufferGetBytesPerRow(pixelBuffer!), space: rgbColorSpace, bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue)
-    
-    context?.clear(rect)
-    if let background = background {
-        context?.draw(background, in: rect)
-    }
-    
-    var frame = rect.focus(NSMakeSize(rect.width * zoom, rect.height * zoom))
-    
-    var offset = offset
-    offset.x = mappingRange(offset.x, -3, 3, -2 * zoom, 2 * zoom)
-    offset.y = mappingRange(offset.y, -3, 3, -2 * zoom, 2 * zoom)
-
-    
-    frame.origin.x += frame.origin.x * offset.x
-    frame.origin.y -= frame.origin.y * offset.y
-    
-    context?.draw(image, in: frame)
-
-    CVPixelBufferUnlockBaseAddress(pixelBuffer!, CVPixelBufferLockFlags(rawValue: 0))
-    return pixelBuffer
 }
-
-private func makeImage(from image: CGImage, zoom: CGFloat = 1.0, offset: CGPoint, background: CGImage? = nil) -> CGImage {
-    let rect = CGRect(x: 0, y: 0, width: image.size.width, height: image.size.height)
-    return generateImage(image.size, contextGenerator: { size, ctx in
-        ctx.clear(size.bounds)
-        if let background = background {
-            ctx.draw(background, in: rect)
-        }
-        
-        
-        var frame = rect.focus(NSMakeSize(rect.width * zoom, rect.height * zoom))
-        
-        var offset = offset
-        offset.x = mappingRange(offset.x, -3, 3, -2 * zoom, 2 * zoom)
-        offset.y = mappingRange(offset.y, -3, 3, -2 * zoom, 2 * zoom)
-        frame.origin.x += frame.origin.x * offset.x
-        frame.origin.y -= frame.origin.y * offset.y
-        
-        ctx.draw(image, in: frame)
-    })!
-}
-
 
 private final class StickerToMp4Context {
     private let statusPromise: ValuePromise<StickerToMp4.Status> = ValuePromise(ignoreRepeated: true)
@@ -88,63 +36,22 @@ private final class StickerToMp4Context {
     }
     
     
-    public final class Export {
-        private let writter: AVAssetWriter
-        private let writerInput: AVAssetWriterInput
-        private let path: String
-        private let adaptor: AVAssetWriterInputPixelBufferAdaptor
+    private let export: AvatarVideoExport?
+    private let cancelled: Atomic<Bool>
+    private var started = false
+    private var processingStarted = false
+    private var completed = false
+    private var thumbnailPath: String?
 
-        public init(codec: String) throws {
-            self.path = NSTemporaryDirectory() + "tgs_\(arc4random()).mp4"
-            self.writter = try .init(url: URL.init(fileURLWithPath: path), fileType: .mov)
-            var settings:[String: Any] = [AVVideoWidthKey: NSNumber(value: 640), AVVideoHeightKey: NSNumber(value: 640), AVVideoCodecKey: codec];
-            
-            if codec == AVVideoCodecType.h264.rawValue {
-                let videoCompressionProps: Dictionary<String, Any> = [
-                    AVVideoAverageBitRateKey : 1500000,
-                    AVVideoMaxKeyFrameIntervalKey : 3,
-                ]
-                settings[AVVideoCompressionPropertiesKey] = videoCompressionProps
-            }
-            
-            self.writerInput = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
-            self.adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: writerInput, sourcePixelBufferAttributes: nil)
-            self.writter.add(self.writerInput)
-        }
-        
-        public func start() {
-            writter.startWriting()
-            writter.startSession(atSourceTime: CMTime.zero)
-        }
-        
-        public func append(_ pixelBuffer: CVPixelBuffer, time: CMTime) {
-            while !writerInput.isReadyForMoreMediaData {
-                
-            }
-            self.adaptor.append(pixelBuffer, withPresentationTime: time)
-
-        }
-        
-        public func finish(_ complete:@escaping(String)->Void) {
-            writerInput.markAsFinished()
-            let path = self.path
-            writter.finishWriting {
-                complete(path)
-            }
-        }
-    }
-    
-    private let export: Export?
-    
     private let dataDisposable = MetaDisposable()
-    private let fetchDisposable = MetaDisposable()
     private let fileReference: FileMediaReference
     private let context: any AccountContextProtocol
     private let background: Signal<CGImage, NoError>
     private let zoom: CGFloat
     private let offset: CGPoint
-    public init(context: any AccountContextProtocol, background: Signal<CGImage, NoError>, zoom: CGFloat, offset: CGPoint, fileReference: FileMediaReference, codec: String) {
-        self.export = try? Export(codec: codec)
+    public init(context: any AccountContextProtocol, background: Signal<CGImage, NoError>, zoom: CGFloat, offset: CGPoint, fileReference: FileMediaReference, codec: String, cancelled: Atomic<Bool>) {
+        self.export = try? AvatarVideoExport(codec: codec)
+        self.cancelled = cancelled
         self.context = context
         self.background = background
         self.fileReference = fileReference
@@ -154,17 +61,20 @@ private final class StickerToMp4Context {
     
     deinit {
         dataDisposable.dispose()
-        fetchDisposable.dispose()
+        export?.cancel()
+        if let thumbnailPath {
+            try? FileManager.default.removeItem(atPath: thumbnailPath)
+        }
     }
-    
+
     public func start() {
-        let signal = context.account.postbox.mediaBox.resourceData(fileReference.media.resource)
-            |> deliverOn(StickerToMp4Context.queue)
-            |> filter { $0.complete }
-            |> map {
-                $0.path
-            }
-        
+        guard !self.started, !self.cancelled.with({ $0 }) else { return }
+        self.started = true
+        guard self.export != nil else {
+            self.finish(path: nil)
+            return
+        }
+        let signal = avatarMediaResourcePath(context: self.context, fileReference: self.fileReference)
         let type: LottieAnimationType
         if fileReference.media.isWebm {
             type = .webm
@@ -173,99 +83,108 @@ private final class StickerToMp4Context {
         } else {
             type = .lottie
         }
-        
-        dataDisposable.set(combineLatest(signal, background).start(next: { [weak self] path, background in
+        dataDisposable.set((combineLatest(signal, background |> castError(AvatarMediaPreparationError.self) |> then(.fail(.generic)) |> take(1)) |> take(1) |> deliverOn(StickerToMp4Context.queue)).start(next: { [weak self] path, background in
+            guard let self, !self.cancelled.with({ $0 }), !self.completed else { return }
+            self.processingStarted = true
             let data: Data?
             switch type {
             case .webm:
-                data = path.data(using: .utf8)!
+                data = path.data(using: .utf8)
             default:
                 data = try? Data(contentsOf: URL(fileURLWithPath: path))
             }
-            if let data = data {
-                let animation = LottieAnimation(compressed: data, key: .init(key: .bundle("_convert_file_\(path)"), size: NSMakeSize(640, 640)), type: type)
-                self?.process(animation, background: background)
+            guard let data else {
+                self.finish(path: nil)
+                return
             }
+            let animation = LottieAnimation(compressed: data, key: .init(key: .bundle("_convert_file_\(path)"), size: NSMakeSize(640, 640)), type: type)
+            self.process(animation, background: background)
+        }, error: { [weak self] _ in
+            self?.finish(path: nil)
+        }, completed: { [weak self] in
+            guard let self, !self.processingStarted else { return }
+            self.finish(path: nil)
         }))
-        fetchDisposable.set(freeMediaFileInteractiveFetched(context: context, fileReference: fileReference).start())
     }
-    
-    private func process(_ lottie: LottieAnimation, background: CGImage) -> Void {
-                
-        if let renderer = lottie.initialize() {
-            var randomId: Int64 = 0
-            arc4random_buf(&randomId, 8)
-            let thumbPath = NSTemporaryDirectory() + "\(randomId)"
-            let url = URL(fileURLWithPath: thumbPath)
-            
-            let image = renderer.render(at: 0, frames: [], previousFrame: nil)?.image
-            if let image = image {
-                let pixelBuffer = makeImage(from: image, zoom: zoom, offset: offset, background: background)
 
-                if let colorDestination = CGImageDestinationCreateWithURL(url as CFURL, kUTTypeJPEG, 1, nil) {
-                    CGImageDestinationSetProperties(colorDestination, [:] as CFDictionary)
-        
-                    let colorQuality: Float = 0.6
-        
-                    let options = NSMutableDictionary()
-                    options.setObject(colorQuality as NSNumber, forKey: kCGImageDestinationLossyCompressionQuality as NSString)
-        
-                    CGImageDestinationAddImage(colorDestination, pixelBuffer, options as CFDictionary)
-                    CGImageDestinationFinalize(colorDestination)
-                }
-            }
-            
-    
-            self.status = .initializing(thumbPath)
-            export?.start()
-    
-            let fps = renderer.fps
-            let effectiveFps = min(30, fps)
-    
-            let framesCount = renderer.endFrame - renderer.startFrame
-            var frame: Int32 = renderer.startFrame
-            var index: Int32 = 0
-            while true {
-                let image = renderer.render(at: frame, frames: [], previousFrame: nil)?.image
-                if let image = image {
-                    let pixelBuffer = buffer(from: image, zoom: zoom, offset: offset, background: background)!
-        
-                    let frameTime: CMTime  = CMTimeMake(value: 20, timescale: 600);
-                    let lastTime: CMTime = CMTimeMake(value: Int64(index) * 20, timescale: 600);
-                    var presentTime: CMTime = CMTimeAdd(lastTime, frameTime);
-                    if frame == renderer.startFrame {
-                        presentTime = CMTimeMake(value: 0, timescale: 600);
-                    }
-        
-                    export?.append(pixelBuffer, time: presentTime)
-        
-                    if frame % Int32(round(Float(fps) / Float(effectiveFps))) != 0 {
-                        frame += 1
-                    }
-                    frame += 1
-                    index += 1
-                    if frame > framesCount {
-                        break
-                    }
-                } else {
-                    break
-                }
-                self.status = .converting(min((Float(frame) / Float(framesCount)), 1))
-            }
-    
-            export?.finish({ [weak self] path in
-                self?.status = .done(path, thumbPath)
-            })
+    private func process(_ lottie: LottieAnimation, background: CGImage) {
+        guard !self.completed, !self.cancelled.with({ $0 }), let export = self.export, let renderer = lottie.initialize() else {
+            self.finish(path: nil)
+            return
         }
-        
-        
-        
+        let fps: Int
+        switch lottie.type {
+        case .lottie:
+            fps = renderer.mainFps
+        default:
+            fps = renderer.fps
+        }
+        guard var sequence = AvatarVideoFrameSequence(startFrame: renderer.startFrame, endFrame: renderer.endFrame, fps: fps), let firstFrame = renderer.render(at: renderer.startFrame, frames: [], previousFrame: nil), let image = firstFrame.image else {
+            self.finish(path: nil)
+            return
+        }
+        let thumbPath = NSTemporaryDirectory() + "tgs_\(UUID().uuidString).jpg"
+        self.thumbnailPath = thumbPath
+        guard let thumbnail = avatarCompositedImage(from: image, zoom: self.zoom, offset: self.offset, background: background) else {
+            self.finish(path: nil)
+            return
+        }
+        guard let destination = CGImageDestinationCreateWithURL(URL(fileURLWithPath: thumbPath) as CFURL, kUTTypeJPEG, 1, nil) else {
+            self.finish(path: nil)
+            return
+        }
+        CGImageDestinationAddImage(destination, thumbnail, [kCGImageDestinationLossyCompressionQuality: 0.6] as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else {
+            self.finish(path: nil)
+            return
+        }
+        self.status = .initializing(thumbPath)
+        var previousFrame: RenderedFrame? = firstFrame
+        let cancelled = self.cancelled
+        export.start(queue: Self.queue.queue, isCancelled: { cancelled.with { $0 } }, next: { [weak self] in
+            guard let self, !self.completed, !cancelled.with({ $0 }) else { return .failed }
+            guard let sample = sequence.next() else { return .finished(sequence.duration) }
+            let rendered = sample.frame == renderer.startFrame ? firstFrame : renderer.render(at: sample.frame, frames: [], previousFrame: previousFrame)
+            guard let rendered, let image = rendered.image else {
+                if lottie.type == .webm, sample.frame >= renderer.endFrame, sample.time > .zero {
+                    return .finished(sample.time)
+                }
+                return .failed
+            }
+            previousFrame = rendered
+            guard let pixelBuffer = avatarPixelBuffer(from: image, zoom: self.zoom, offset: self.offset, background: background) else { return .failed }
+            self.status = .converting(sample.progress)
+            return .frame(pixelBuffer, sample.time)
+        }, completed: { [weak self] path in
+            self?.finish(path: path)
+        })
     }
-    
+
+    private func finish(path: String?) {
+        guard !self.completed else { return }
+        self.completed = true
+        self.dataDisposable.dispose()
+        if let path, let thumbnailPath = self.thumbnailPath, !self.cancelled.with({ $0 }) {
+            self.thumbnailPath = nil
+            self.status = .done(path, thumbnailPath)
+        } else {
+            if let path {
+                try? FileManager.default.removeItem(atPath: path)
+            }
+            self.export?.cancel()
+            if let thumbnailPath = self.thumbnailPath {
+                self.thumbnailPath = nil
+                try? FileManager.default.removeItem(atPath: thumbnailPath)
+            }
+            self.status = .failed
+        }
+    }
+
     public func cancel() {
-        
+        _ = self.cancelled.swap(true)
+        self.finish(path: nil)
     }
-        
+
 }
 
 
@@ -279,10 +198,12 @@ private final class StickerToMp4 {
         case failed
     }
     
+    private let cancelled = Atomic(value: false)
     private let context:QueueLocalObject<StickerToMp4Context>
     public init(context _context: any AccountContextProtocol, background: Signal<CGImage, NoError>, zoom: CGFloat, offset: CGPoint, fileReference: FileMediaReference, codec: String) {
+        let cancelled = self.cancelled
         self.context = .init(queue: StickerToMp4Context.queue, generate: {
-            return StickerToMp4Context(context: _context, background: background, zoom: zoom, offset: offset, fileReference: fileReference, codec: codec)
+            return StickerToMp4Context(context: _context, background: background, zoom: zoom, offset: offset, fileReference: fileReference, codec: codec, cancelled: cancelled)
         })
     }
     
@@ -294,11 +215,17 @@ private final class StickerToMp4 {
     }
     
     public func cancel() {
+        _ = self.cancelled.swap(true)
         self.context.with {
             $0.cancel()
         }
     }
     
+    deinit {
+        _ = self.cancelled.swap(true)
+        self.context.with { $0.cancel() }
+    }
+
     public var status:Signal<Status, NoError> {
         return self.context.signalWith { context, subscriber in
             return context.statusValue.start(next: { next in
@@ -312,94 +239,88 @@ private final class StickerToMp4 {
 
 
 private final class FetchVideoToFile {
-    
-    private let statusValue: ValuePromise<String> = ValuePromise()
-    public var status:Signal<String, NoError> {
-        return statusValue.get()
+    private let statusValue = ValuePromise<Result<AvatarPreparedVideo, AvatarMediaPreparationError>>()
+    public var status: Signal<Result<AvatarPreparedVideo, AvatarMediaPreparationError>, NoError> {
+        self.statusValue.get() |> take(1)
     }
     private let context: any AccountContextProtocol
     private let file: TelegramMediaFile
-    
     private let disposable = MetaDisposable()
-    private let dataDisposable = MetaDisposable()
-    public init(context: any AccountContextProtocol, file: TelegramMediaFile) {
+    private var started = false
+
+    init(context: any AccountContextProtocol, file: TelegramMediaFile) {
         self.context = context
         self.file = file
     }
-    
+
     deinit {
-        disposable.dispose()
-        dataDisposable.dispose()
+        self.disposable.dispose()
     }
-    
-    public func start() {
-        disposable.set(freeMediaFileInteractiveFetched(context: context, fileReference: FileMediaReference.standalone(media: file)).start())
-        
-        let signal = context.account.postbox.mediaBox.resourceData(file.resource) |> filter {
-            $0.complete
-        } |> map {
-            return $0.path
-        }
-        
-        dataDisposable.set(signal.start(next: { [weak self] path in
-            let temp = NSTemporaryDirectory() + "tgs_\(arc4random()).mp4"
-            try? FileManager.default.copyItem(atPath: path, toPath: temp)
-            self?.statusValue.set(temp)
+
+    func start() {
+        guard !self.started else { return }
+        self.started = true
+        self.disposable.set((avatarMediaResourcePath(context: self.context, fileReference: .standalone(media: self.file)) |> deliverOn(StickerToMp4Context.queue)).start(next: { [weak self] path in
+            guard let self else { return }
+            self.statusValue.set(AvatarPreparedVideo.prepare(path: path))
+        }, error: { [weak self] _ in
+            self?.statusValue.set(.failure(.generic))
         }))
     }
 }
 
 private final class FetchStickerToImage {
-    
-    private let statusValue: ValuePromise<NSImage> = ValuePromise()
-    public var status:Signal<NSImage, NoError> {
-        return statusValue.get()
+    private let statusValue = ValuePromise<Result<NSImage, AvatarMediaPreparationError>>()
+    public var status: Signal<Result<NSImage, AvatarMediaPreparationError>, NoError> {
+        self.statusValue.get() |> take(1)
     }
     private let context: any AccountContextProtocol
     private let file: TelegramMediaFile
-    
     private let disposable = MetaDisposable()
-    private let dataDisposable = MetaDisposable()
-    
     private let background: Signal<CGImage, NoError>
     private let zoom: CGFloat
     private let offset: CGPoint
+    private var started = false
+    private var completed = false
 
-    
-    public init(context: any AccountContextProtocol, background: Signal<CGImage, NoError>, zoom: CGFloat, offset: CGPoint, file: TelegramMediaFile) {
+    init(context: any AccountContextProtocol, background: Signal<CGImage, NoError>, zoom: CGFloat, offset: CGPoint, file: TelegramMediaFile) {
         self.context = context
         self.file = file
         self.background = background
         self.zoom = zoom
         self.offset = offset
     }
-    
+
     deinit {
-        disposable.dispose()
-        dataDisposable.dispose()
+        self.disposable.dispose()
     }
-    
-    public func start() {
-        disposable.set(freeMediaFileInteractiveFetched(context: context, fileReference: FileMediaReference.standalone(media: file)).start())
-        
-        let signal = context.account.postbox.mediaBox.resourceData(file.resource) |> filter {
-            $0.complete
-        } |> map {
-            return $0.path
-        }
-        
-        let zoom = self.zoom
-        let offset = self.offset
-        
-        dataDisposable.set(combineLatest(background, signal).start(next: { [weak self] background, path in
-            if let data = try? Data.init(contentsOf: URL(fileURLWithPath: path)) {
-                let webp = convertFromWebP(data)?._cgImage
-                if let webp = webp {
-                    let image = makeImage(from: webp, zoom: zoom, offset: offset, background: background)
-                    self?.statusValue.set(NSImage(cgImage: image, size: image.size))
-                }
+
+    func start() {
+        guard !self.started else { return }
+        self.started = true
+        let resource = avatarMediaResourcePath(context: self.context, fileReference: .standalone(media: self.file))
+        self.disposable.set((combineLatest(self.background |> castError(AvatarMediaPreparationError.self) |> then(.fail(.generic)) |> take(1), resource) |> take(1) |> deliverOn(StickerToMp4Context.queue)).start(next: { [weak self] background, path in
+            guard let self else { return }
+            guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)), let webp = convertFromWebP(data)?._cgImage else {
+                self.finish(.failure(.generic))
+                return
             }
+            guard let image = avatarCompositedImage(from: webp, zoom: self.zoom, offset: self.offset, background: background) else {
+                self.finish(.failure(.generic))
+                return
+            }
+            self.finish(.success(NSImage(cgImage: image, size: image.size)))
+        }, error: { [weak self] _ in
+            self?.finish(.failure(.generic))
+        }, completed: { [weak self] in
+            self?.finish(.failure(.generic))
         }))
+    }
+
+    private func finish(_ result: Result<NSImage, AvatarMediaPreparationError>) {
+        guard !self.completed else { return }
+        self.completed = true
+        self.statusValue.set(result)
     }
 }
 
@@ -458,7 +379,6 @@ public final class MediaObjectToAvatar {
     public let object: Object
     private let context: any AccountContextProtocol
     
-    private var holder: MediaObjectToAvatar?
     private let codec: String
     
     public init(context: any AccountContextProtocol, object: Object, codec: String = AVVideoCodecType.h264.rawValue) {
@@ -467,39 +387,56 @@ public final class MediaObjectToAvatar {
         self.codec = codec
     }
   
-    deinit {
-        var bp = 0
-        bp += 1
-    }
-    
     public func start() -> Signal<Result, NoError> {
-        
-        holder = self
-        
+        let context = self.context
+        let object = self.object
+        let codec = self.codec
+        return Signal { subscriber in
+            let operation = MediaObjectToAvatar(context: context, object: object, codec: codec)
+            let signal = operation.generate() |> then(.single(Result(status: .failed, result: nil))) |> take(until: { value in
+                let terminal: Bool
+                if case .failed = value.status {
+                    terminal = true
+                } else {
+                    terminal = value.result != nil
+                }
+                return SignalTakeAction(passthrough: true, complete: terminal)
+            })
+            let disposable = signal.start(next: { subscriber.putNext($0) }, completed: { subscriber.putCompletion() })
+            return ActionDisposable {
+                disposable.dispose()
+                withExtendedLifetime(operation) {}
+            }
+        }
+    }
+
+    private func generate() -> Signal<Result, NoError> {
+        guard avatarDrawingFrame(size: CGSize(width: 640, height: 640), zoom: self.object.foreground.zoom, offset: self.object.foreground.offset) != nil else {
+            return .single(.init(status: .failed, result: nil))
+        }
         let background: Signal<CGImage, NoError>
-        
+
         switch object.background {
         case let .colors(colors):
             background = Signal { subscriber in
-                let image = generateImage(NSMakeSize(640, 640), contextGenerator: { size, ctx in
+                let image = avatarDrawingImage(size: CGSize(width: 640, height: 640)) { size, ctx in
                     ctx.clear(size.bounds)
                     let imageRect = size.bounds
                     if colors.count == 1, let color = colors.first {
                         ctx.setFillColor(color.cgColor)
                         ctx.fill(imageRect)
                     } else if colors.count > 1 {
-                        let gradient = CGGradient.evenlySpaced(colors)!
+                        guard let gradient = CGGradient.evenlySpaced(colors) else { return false }
                                             
                         ctx.drawLinearGradient(gradient, start: CGPoint(x: 0.0, y: 0.0), end: CGPoint(x: 0.0, y: imageRect.height), options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
                     }
-                })!
-                
-                subscriber.putNext(image)
+                    return true
+                }
+                if let image {
+                    subscriber.putNext(image)
+                }
                 subscriber.putCompletion()
-                
-                return ActionDisposable(action: {
-                    
-                })
+                return EmptyDisposable
             }
         case let .pattern(wallpaper, palette):
             let emptyColor: TransformImageEmptyColor
@@ -530,9 +467,7 @@ public final class MediaObjectToAvatar {
 
                 let updateImageSignal = chatWallpaper(account: context.account, representations: representations, file: file, mode: .thumbnail, isPattern: true, autoFetchFullSize: true, scale: 2, isBlurred: false, synchronousLoad: false, drawPatternOnly: false, palette: palette)
 
-                background = updateImageSignal |> map { value in
-                    return value.execute(arguments, value.data)!.generateImage()!
-                }
+                background = avatarPatternBackground(updateImageSignal, arguments: arguments)
                 
             default:
                 background = .complete()
@@ -551,7 +486,7 @@ public final class MediaObjectToAvatar {
                 case let .initializing(path):
                     return .init(status: .initializing(path), result: nil)
                 case .failed:
-                    return .init(status: nil, result: nil)
+                    return .init(status: .failed, result: nil)
                 case let .done(path, thumb):
                     return .init(status: .done(path, thumb), result: .video(path, thumb))
                 case let .converting(progress):
@@ -561,7 +496,7 @@ public final class MediaObjectToAvatar {
             stickerToMp4.start()
         case let .emoji(text, color):
             signal = background |> mapToSignal { value in
-                let emoji = generateImage(NSMakeSize(640, 640), scale: 1.0, rotatedContext: { size, ctx in
+                let emoji = avatarDrawingImage(size: CGSize(width: 640, height: 640), flipped: true) { size, ctx in
                     ctx.clear(size.bounds)
                     
                     ctx.setFillColor(.white)
@@ -575,31 +510,38 @@ public final class MediaObjectToAvatar {
                     rect.origin.y += 4
                     textNode.1.draw(rect, in: ctx, backingScaleFactor: 1.0, backgroundColor: .white)
                     
-                })!
+                    return true
+                }
+                guard let emoji else { return .single(.init(status: .failed, result: nil)) }
                 return .single(.init(status: nil, result: .image(NSImage(cgImage: emoji, size: emoji.size))))
             }
             
         case let .gif(file):
             let fetch_v = FetchVideoToFile(context: context, file: file)
             self.fetch_v = fetch_v
-            signal = fetch_v.status |> map {
-                .init(status: nil, result: .video($0, ""))
+            signal = fetch_v.status |> map { result in
+                switch result {
+                case let .success(video):
+                    let files = video.takeFiles()
+                    return .init(status: nil, result: .video(files.video, files.thumbnail))
+                case .failure:
+                    return .init(status: .failed, result: nil)
+                }
             }
             fetch_v.start()
         case let .sticker(file):
             let fetch_i = FetchStickerToImage(context: context, background: background, zoom: object.foreground.zoom, offset: object.foreground.offset, file: file)
             self.fetch_i = fetch_i
-            signal = fetch_i.status |> map {
-                .init(status: nil, result: .image($0))
+            signal = fetch_i.status |> map { result in
+                switch result {
+                case let .success(image):
+                    return .init(status: nil, result: .image(image))
+                case .failure:
+                    return .init(status: .failed, result: nil)
+                }
             }
             fetch_i.start()
         }
-        return signal |> afterNext { [weak self] value in
-            if value.result != nil {
-                DispatchQueue.main.async {
-                    self?.holder = nil
-                }
-            }
-        }
+        return signal
     }
 }

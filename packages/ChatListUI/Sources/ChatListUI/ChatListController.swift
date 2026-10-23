@@ -585,7 +585,11 @@ fileprivate func prepareEntries(from:[AppearanceWrapperEntry<UIChatListEntry>]?,
         
         
         let (deleted,inserted,updated) = proccessEntries(from, right: to, { entry -> TableRowItem in
-            return makeItem(entry)
+            let item = makeItem(entry)
+            if type(of: item) == ChatListRowItem.self {
+                item.premeasuredWidth = initialSize.width
+            }
+            return item
         })
         
         let animated = animated
@@ -601,6 +605,41 @@ fileprivate func prepareEntries(from:[AppearanceWrapperEntry<UIChatListEntry>]?,
 }
 
 
+
+struct ChatListStateProjection: Equatable {
+    struct Filter: Equatable {
+        let filter: ChatListFilter
+        let tabs: [ChatListFilter]
+        let showTags: Bool
+        let requestTimestamp: TimeInterval
+    }
+    let activities: PeerListState.InputActivities
+    let appear: PeerListState.AppearMode
+    let controllerAppear: PeerListState.AppearMode
+    let forumPeer: PeerListState.ForumData?
+    let hiddenItems: PeerListHiddenItems
+    let mode: PeerListMode
+    let selectedForum: PeerId?
+    let splitState: SplitViewState
+    let filterData: Filter
+
+    init(_ state: PeerListState) {
+        self.activities = PeerListState.InputActivities(activities: state.activities.activities.filter { space, _ in
+            if case .voiceChat = space.category {
+                return false
+            }
+            return true
+        })
+        self.appear = state.appear
+        self.controllerAppear = state.controllerAppear
+        self.forumPeer = state.forumPeer
+        self.hiddenItems = state.hiddenItems
+        self.mode = state.mode
+        self.selectedForum = state.selectedForum
+        self.splitState = state.splitState
+        self.filterData = Filter(filter: state.filterData.filter, tabs: state.filterData.tabs, showTags: state.filterData.showTags, requestTimestamp: state.filterData.requestTimestamp)
+    }
+}
 
 public struct FilterData : Equatable {
     public let filter: ChatListFilter
@@ -704,6 +743,7 @@ public class ChatListController<Context: AccountContextProtocol> : PeersListCont
     private let animated = Atomic(value: false)
     private let removePeerIdGroupDisposable = MetaDisposable()
     private let downloadsDisposable = MetaDisposable()
+    private let removalUndoDisposable = MetaDisposable()
     private let disposable = MetaDisposable()
     private let reorderDisposable = MetaDisposable()
     private let globalPeerDisposable = MetaDisposable()
@@ -937,7 +977,7 @@ public class ChatListController<Context: AccountContextProtocol> : PeersListCont
         
         
         
-        let list:Signal<TableUpdateTransition, NoError> = combineLatest(queue: prepareQueue, chatHistoryView, appearanceSignal, stateUpdater, appNotificationSettings(accountManager: context.sharedContext.accountManager), additionalSettings(accountManager: context.sharedContext.accountManager), storyState, suspiciousSession, suggestions, birthdays, myBirthday, subState, appConfiguration, context.giftAuctionsManager.state) |> mapToQueue { value, appearance, state, inAppSettings, additionalSettings, storyState, suspiciousSession, suggestionsAndCrashReport, birthdays, myBirthday, missingBalanceState, appConfiguration, activeAuctions -> Signal<TableUpdateTransition, NoError> in
+        let list:Signal<TableUpdateTransition, NoError> = combineLatest(queue: prepareQueue, chatHistoryView, appearanceSignal, stateUpdater |> map(ChatListStateProjection.init) |> distinctUntilChanged, appNotificationSettings(accountManager: context.sharedContext.accountManager), additionalSettings(accountManager: context.sharedContext.accountManager), storyState, suspiciousSession, suggestions, birthdays, myBirthday, subState, appConfiguration, context.giftAuctionsManager.state, PendingChatRemovals.get(context).hiddenPeerIds) |> mapToQueue { value, appearance, state, inAppSettings, additionalSettings, storyState, suspiciousSession, suggestionsAndCrashReport, birthdays, myBirthday, missingBalanceState, appConfiguration, activeAuctions, pendingRemovals -> Signal<TableUpdateTransition, NoError> in
             let (suggestions, crashReportCard) = suggestionsAndCrashReport
                                 
             let filterData = value.1
@@ -970,6 +1010,14 @@ public class ChatListController<Context: AccountContextProtocol> : PeersListCont
                 for (i, current) in items.enumerated() {
                     prepare.append((current.item, UIChatAdditionalItem(item: current, index: i + update.list.groupItems.count)))
                 }
+            }
+            if !pendingRemovals.isEmpty, !state.mode.isSavedMessages {
+                prepare.removeAll(where: { item in
+                    if case let .chatList(peerId) = item.0.id {
+                        return pendingRemovals.contains(peerId)
+                    }
+                    return false
+                })
             }
             var mapped: [UIChatListEntry] = prepare.map { item in
                 let space: PeerActivitySpace
@@ -1289,6 +1337,13 @@ public class ChatListController<Context: AccountContextProtocol> : PeersListCont
             downloadsDisposable.set(self.downloadsSummary.state.start(next: { [weak self] state in
                 self?.genericView.updateDownloads(state, context: context, arguments: downloadArguments, animated: true)
             }))
+
+            let pendingRemovals = PendingChatRemovals.get(context)
+            removalUndoDisposable.set(pendingRemovals.toast.start(next: { [weak self] toast in
+                self?.genericView.updateRemovalUndo(toast, undo: { [weak pendingRemovals] in
+                    pendingRemovals?.undo()
+                }, animated: true)
+            }))
         default:
             break
         }
@@ -1340,8 +1395,11 @@ public class ChatListController<Context: AccountContextProtocol> : PeersListCont
     
     
     private func enqueueTransition(_ transition: TableUpdateTransition) {
-        self.genericView.tableView.merge(with: transition)
+        let applied = self.genericView.tableView.merge(with: transition)
         self.readyOnce()
+        if !applied {
+            return
+        }
         
         self.afterTransaction(transition)
                 
@@ -1858,6 +1916,8 @@ public class ChatListController<Context: AccountContextProtocol> : PeersListCont
                 if filters.isEmpty {
                     self?._openChat(index)
                 } else if filters.list.count > index {
+                    if self?.filterValue.filter != filters.list[index] {
+                    }
                     self?.updateFilter {
                         $0.withUpdatedFilter(filters.list[index])
                     }
@@ -1898,6 +1958,7 @@ public class ChatListController<Context: AccountContextProtocol> : PeersListCont
         filterDisposable.dispose()
         suggestAutoarchiveDisposable.dispose()
         downloadsDisposable.dispose()
+        removalUndoDisposable.dispose()
         folderUpdatesDisposable.dispose()
         preloadStorySubscriptionsDisposable?.dispose()
         for (_, disposable) in preloadStoryResourceDisposables {

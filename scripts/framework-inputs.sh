@@ -105,6 +105,65 @@ framework_outputs_consistent() {
     esac
 }
 
+framework_required_outputs() {
+    local BUILD_DIR="$(framework_build_dir "$1" "$2")"
+    case "$2" in
+        OpenH264)
+            printf '%s\n' "$BUILD_DIR/output/lib/libopenh264.a" "$BUILD_DIR/output/include/include/wels/codec_api.h"
+            ;;
+        OpenSSL)
+            printf '%s\n' "$BUILD_DIR/openssl/lib/libcrypto.a" "$BUILD_DIR/openssl/lib/libssl.a" "$BUILD_DIR/openssl/include/openssl/ssl.h"
+            ;;
+        libopus)
+            printf '%s\n' "$BUILD_DIR/libopus/lib/libopus.a" "$BUILD_DIR/libopus/include/opus/opus.h"
+            ;;
+        libvpx)
+            printf '%s\n' "$BUILD_DIR/libvpx/lib/libvpx.a" "$BUILD_DIR/libvpx/include/vpx/vpx_codec.h"
+            ;;
+        mozjpeg)
+            printf '%s\n' "$BUILD_DIR/libjpeg.a" "$BUILD_DIR/jconfig.h" "$BUILD_DIR/jconfigint.h" "$BUILD_DIR/jpeglib.h"
+            ;;
+        libwebp)
+            printf '%s\n' "$BUILD_DIR/libwebp/lib/"{libwebp,libwebpdecoder,libwebpdemux,libsharpyuv}.a "$BUILD_DIR/libwebp/include/"{decode,encode,types,demux,mux,mux_types}.h
+            ;;
+        dav1d)
+            printf '%s\n' "$BUILD_DIR/dav1d/lib/libdav1d.a" "$BUILD_DIR/dav1d/include/dav1d/dav1d.h"
+            ;;
+        ffmpeg)
+            printf '%s\n' "$BUILD_DIR/ffmpeg/lib/"{libavcodec,libavformat,libavutil,libswresample}.a "$BUILD_DIR/ffmpeg/include/libavcodec/avcodec.h"
+            ;;
+        webrtc)
+            printf '%s\n' "$BUILD_DIR/webrtc/libmac_framework_objc_static.a" "$BUILD_DIR/src/api/peer_connection_interface.h"
+            ;;
+        tde2e)
+            printf '%s\n' "$BUILD_DIR/tde2e/lib/"{libtde2e,libtdutils}.a
+            ;;
+        wallet-engine)
+            local XCFRAMEWORK="$1/packages/WalletEngine/wallet_engineFFI.xcframework"
+            printf '%s\n' "$BUILD_DIR/libwallet_engine.a" "$BUILD_DIR/WalletEngineFFI.swift" \
+                "$XCFRAMEWORK/Info.plist" "$XCFRAMEWORK/macos-arm64_x86_64/libwallet_engine.a" \
+                "$XCFRAMEWORK/macos-arm64_x86_64/Headers/"{wallet_engineFFI.h,module.modulemap}
+            ;;
+        mtproto-engine)
+            local XCFRAMEWORK="$1/submodules/telegram-ios/submodules/MTProtoRustEngine/MTProtoEngineFFI.xcframework"
+            printf '%s\n' "$BUILD_DIR/libmtproto_engine_ffi.a" "$XCFRAMEWORK/Info.plist" \
+                "$XCFRAMEWORK/macos-arm64_x86_64/libmtproto_engine_ffi.a" \
+                "$XCFRAMEWORK/macos-arm64_x86_64/Headers/MTProtoEngineFFI/"{mtproto_engine.h,module.modulemap}
+            ;;
+        *) return 1 ;;
+    esac
+}
+
+framework_outputs_present() {
+    local OUTPUT
+    local OUTPUTS
+    OUTPUTS="$(framework_required_outputs "$1" "$2")" || return 1
+    [ -n "$OUTPUTS" ] || return 1
+    while IFS= read -r OUTPUT; do
+        [ -s "$OUTPUT" ] || return 1
+    done <<< "$OUTPUTS"
+}
+
 framework_path_fingerprint() {
     TARGET="$1"
     if [ ! -e "$TARGET" ]; then
@@ -118,6 +177,28 @@ framework_path_fingerprint() {
     if git -C "$TARGET" rev-parse --show-toplevel >/dev/null 2>&1; then
         TREE="$(git -C "$TARGET" rev-parse 'HEAD:./' 2>/dev/null || echo untracked)"
         DIRTY="$(git -C "$TARGET" status --porcelain -- . 2>/dev/null | shasum -a 256 | cut -d' ' -f1)"
+        if [ "$DIRTY" != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" ]; then
+            DIRTY="$(python3 - "$TARGET" <<'PY'
+import hashlib
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+root = Path(sys.argv[1])
+digest = hashlib.sha256(subprocess.check_output(["git", "diff", "HEAD", "--binary", "--", "."], cwd=root))
+untracked = subprocess.check_output(["git", "ls-files", "--others", "--exclude-standard", "-z", "--", "."], cwd=root)
+for name in sorted(untracked.split(b"\0")):
+    if not name:
+        continue
+    path = root / os.fsdecode(name)
+    digest.update(name + b"\0")
+    digest.update(os.fsencode(os.readlink(path)) if path.is_symlink() else path.read_bytes())
+    digest.update(b"\0")
+print(digest.hexdigest())
+PY
+)" || return 1
+        fi
         echo "$TREE.${DIRTY:0:12}"
         return
     fi
@@ -130,7 +211,7 @@ framework_stamp() {
     CACHE_DIR="$3"
     echo "schema=$FRAMEWORK_STAMP_SCHEMA"
     echo "lib=$LIB"
-    echo "xcode=$(xcodebuild -version 2>/dev/null | tr '\n' ' ')"
+    echo "xcode=${FRAMEWORK_XCODE_VERSION:-$(xcodebuild -version 2>/dev/null | tr '\n' ' ')}"
     echo "deployment=${MACOSX_DEPLOYMENT_TARGET:-default}"
     framework_extra_fingerprint "$LIB"
     while IFS= read -r INPUT; do

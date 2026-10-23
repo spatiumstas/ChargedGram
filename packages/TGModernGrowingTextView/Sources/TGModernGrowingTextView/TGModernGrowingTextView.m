@@ -993,6 +993,12 @@ NSString *const TGEmojiHolderAttributeName = @"TGEmojiHolderAttributeName";
 -(NSUndoManager *)undoManagerForTextView:(NSTextView *)view {
     return self._undo;
 }
+
+-(void)discardUndoAfterProgrammaticChange {
+    if (!self._undo.isUndoing && !self._undo.isRedoing) {
+        [self._undo removeAllActions];
+    }
+}
     
 -(void)setCursorColor:(NSColor *)cursorColor {
     _cursorColor = cursorColor;
@@ -1179,6 +1185,7 @@ NSString *const TGEmojiHolderAttributeName = @"TGEmojiHolderAttributeName";
         NSMutableAttributedString *attr = [[NSMutableAttributedString alloc] initWithAttributedString: string];
         NSRange selectedRange = _textView.selectedRange;
         [_textView.textStorage setAttributedString:attr];
+        [self discardUndoAfterProgrammaticChange];
         [self update:notification != nil];
         [self setSelectedRange:NSMakeRange(MIN(selectedRange.location, string.length), 0)];
         if ([self.delegate respondsToSelector:@selector(textViewDidReachedLimit:)])
@@ -1738,7 +1745,11 @@ NSString *const TGEmojiHolderAttributeName = @"TGEmojiHolderAttributeName";
     if (selectedRange.location == self.textView.string.length) {
         selectedRange = NSMakeRange(attr.length, 0);
     }
+    BOOL textChanged = ![attr.string isEqualToString:_textView.string];
     [_textView.textStorage setAttributedString:attr];
+    if (textChanged) {
+        [self discardUndoAfterProgrammaticChange];
+    }
     
 
     BOOL o = self.animates;
@@ -1764,6 +1775,7 @@ NSString *const TGEmojiHolderAttributeName = @"TGEmojiHolderAttributeName";
     BOOL o = self.animates;
     self.animates = animated;
     [_textView setString:string];
+    [self discardUndoAfterProgrammaticChange];
     [self update:animated];
     self.animates = o;
 }

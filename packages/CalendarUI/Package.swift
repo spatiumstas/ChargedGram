@@ -17,6 +17,8 @@ let package = Package(
         .package(name: "TelegramTheme", path: "../TelegramTheme"),
         .package(name: "GeneralRows", path: "../GeneralRows"),
         .package(name: "CalendarUtils", path: "../CalendarUtils"),
+        .package(name: "TelegramContext", path: "../TelegramContext"),
+        .package(name: "TelegramMediaUtils", path: "../TelegramMediaUtils"),
     ],
     targets: [
         .target(
@@ -30,6 +32,8 @@ let package = Package(
                 .product(name: "TelegramTheme", package: "TelegramTheme", condition: nil),
                 .product(name: "GeneralRows", package: "GeneralRows", condition: nil),
                 .product(name: "CalendarUtils", package: "CalendarUtils", condition: nil),
+                .product(name: "TelegramContext", package: "TelegramContext"),
+                .product(name: "TelegramMediaUtils", package: "TelegramMediaUtils"),
             ],
             path: "Sources/CalendarUI"),
     ]

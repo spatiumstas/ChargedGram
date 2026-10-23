@@ -84,7 +84,8 @@ public final class CalendarMonthStruct {
         
 //        calendar.timeZone = TimeZone(abbreviation: "UTC")!
         let components = calendar.dateComponents([.year, .month, .day], from: month)
-        self.currentStartDay = CalendarUtils.weekDay(Date(timeIntervalSince1970: month.timeIntervalSince1970 - TimeInterval(components.day! * 24*60*60)))
+        let firstDay = calendar.date(from: DateComponents(year: components.year, month: components.month, day: 1))!
+        self.currentStartDay = (calendar.component(.weekday, from: firstDay) + 5) % 7 + 1
         
         if selectDayAnyway {
             selectedDay = components.day!
@@ -93,6 +94,22 @@ public final class CalendarMonthStruct {
         }
         
         self.components = components
+    }
+
+    public func isDayEnabled(_ day: Int, now: Date = Date()) -> Bool {
+        guard (1 ... self.lastDayOfMonth).contains(day) else { return false }
+        let calendar = Calendar(identifier: .gregorian)
+        let selected = calendar.startOfDay(for: CalendarUtils.monthDay(day, date: self.month))
+        let today = calendar.startOfDay(for: now)
+        if self.onlyFuture {
+            guard let maximum = calendar.date(byAdding: .year, value: 1, to: today), selected >= today, selected <= maximum else { return false }
+        } else if selected > today {
+            return false
+        }
+        if let limitedBy = self.limitedBy, selected > calendar.startOfDay(for: limitedBy) {
+            return false
+        }
+        return true
     }
 }
 
@@ -167,23 +184,7 @@ open class CalendarMonthView : View {
             } else {
                 current = (i + 1) - month.currentStartDay + 1
                 
-                var skipDay: Bool = false
-                
-                let calendar = Calendar(identifier: .gregorian)
-//                calendar.timeZone = TimeZone(abbreviation: "UTC")!
-                let components = calendar.dateComponents([.day, .year, .month], from: Date())
-                
-                if month.onlyFuture, CalendarUtils.isSameDate(month.month, date: Date(), checkDay: false) {
-                    if current < components.day! {
-                        skipDay = true
-                    }
-                } else if month.onlyFuture, components.year! + 1 == month.components.year! && components.month! == month.components.month!  {
-                    if current > components.day! {
-                        skipDay = true
-                    }
-                } else if CalendarUtils.isSameDate(month.month, date: Date(), checkDay: false), current > components.day! {
-                    skipDay = true
-                }
+                let skipDay = !month.isDayEnabled(current)
                 let dayTimeinterval = CalendarUtils.monthDay(current, date: month.month).timeIntervalSince1970
                 
                 let dayPreview = self.dayPreviews[current] ?? month.dayPreview(Int(dayTimeinterval))
@@ -193,12 +194,6 @@ open class CalendarMonthView : View {
                 }
                 day.contextObject = current
                 
-                if let limitedBy = month.limitedBy {
-                    let limited = calendar.dateComponents([.year, .month, .day], from: limitedBy)
-                    if limited.year! < month.components.year! || limited.month! < month.components.month! || limited.day! < current {
-                        skipDay = true
-                    }
-                }
                 if !skipDay {
                     day.set(color: theme.colors.underSelectedColor, for: .Highlight)
                     if (i + 1) % 7 == 0 || (i + 2) % 7 == 0 {
@@ -252,6 +247,43 @@ open class CalendarMonthView : View {
         self.needsLayout = true
     }
     
+    public func updateDayPreviews(animated: Bool) {
+        guard let month else { return }
+        layoutSubtreeIfNeeded()
+        let animated = animated && window != nil && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        for case let day as TextButton in dayViews.subviews {
+            guard let current = day.contextObject as? Int, month.isDayEnabled(current), dayPreviews[current] == nil else { continue }
+            let timestamp = Int(CalendarUtils.monthDay(current, date: month.month).timeIntervalSince1970)
+            guard let preview = month.dayPreview(timestamp) else { continue }
+            let previous: View?
+            if animated, let bitmap = day.bitmapImageRepForCachingDisplay(in: day.bounds) {
+                day.cacheDisplay(in: day.bounds, to: bitmap)
+                let snapshot = View(frame: day.frame)
+                snapshot.isEventLess = true
+                snapshot.layer?.contents = bitmap.cgImage
+                dayViews.addSubview(snapshot)
+                previous = snapshot
+            } else {
+                previous = nil
+            }
+            dayPreviews[current] = preview
+            dayPreviewsViews.addSubview(preview)
+            preview.setFrameOrigin(day.frame.midX - preview.frame.width / 2, day.frame.midY - preview.frame.height / 2)
+            day.set(background: .clear, for: .Normal)
+            day.set(background: .clear, for: .Highlight)
+            day.set(color: .white, for: .Normal)
+            day.set(font: .medium(.text), for: .Normal)
+            day.layoutSubtreeIfNeeded()
+            if animated {
+                preview.layer?.animateAlpha(from: 0, to: 1, duration: 0.2)
+                day.layer?.animateAlpha(from: 0, to: 1, duration: 0.16)
+                previous?.layer?.animateAlpha(from: 1, to: 0, duration: 0.2, removeOnCompletion: false, completion: { [weak previous] _ in
+                    previous?.removeFromSuperview()
+                })
+            }
+        }
+    }
+
     open override func layout() {
         super.layout()
 
@@ -309,14 +341,14 @@ open class CalendarMonthController: GenericViewController<CalendarMonthView> {
     public let limitedBy: Date?
     public let lowYear: Int
     public let date: Date
-    public init(_ month:Date, onlyFuture: Bool, limitedBy: Date?, selectDayAnyway: Bool, interactions:CalendarMonthInteractions, lowYear: Int = 2013) {
+    public init(_ month:Date, onlyFuture: Bool, limitedBy: Date?, selectDayAnyway: Bool, interactions:CalendarMonthInteractions, lowYear: Int = 2013, dayPreview: @escaping (Int) -> NSView? = { _ in nil }) {
         self.onlyFuture = onlyFuture
         self.limitedBy = limitedBy
         self.lowYear = lowYear
         self.date = month
         self.month = CalendarMonthStruct(month: month, selectDayAnyway: selectDayAnyway, onlyFuture: self.onlyFuture, limitedBy: self.limitedBy, dayHandler: { day in
             interactions.selectAction(CalendarUtils.monthDay(day, date: month))
-        })
+        }, dayPreview: dayPreview)
         self.interactions = interactions
         
         super.init()
@@ -326,11 +358,12 @@ open class CalendarMonthController: GenericViewController<CalendarMonthView> {
     open override func getCenterBarViewOnce() -> TitledBarView {
         let formatter:DateFormatter = DateFormatter()
         formatter.locale = Locale(identifier: appAppearance.language.languageCode)
+        formatter.calendar = Calendar(identifier: .gregorian)
         formatter.dateFormat = "LLLL"
         let monthString:String = formatter.string(from: month.month)
         formatter.dateFormat = "yyyy"
         let yearString:String
-        if month.components.year == 1 {
+        if CalendarUtils.isYearHidden(month.components.year!) {
             yearString = "—"
         } else {
             yearString = formatter.string(from: month.month)
@@ -360,7 +393,7 @@ open class CalendarMonthController: GenericViewController<CalendarMonthView> {
                     guard let `self` = self else {
                         return
                     }
-                    self.interactions.changeYear(1, self.month.month)
+                    self.interactions.changeYear(Int32(CalendarUtils.yearForNoYear), self.month.month)
                 }))
             }
             
@@ -387,32 +420,26 @@ open class CalendarMonthController: GenericViewController<CalendarMonthView> {
     }
     
     open var isNextEnabled:Bool {
+        let monthStart: Date = CalendarUtils.monthDay(1, date: month.month)
+        let currentMonth: Date = CalendarUtils.monthDay(1, date: Date())
         if self.onlyFuture {
-            
             let calendar = Calendar(identifier: .gregorian)
-            
-//            calendar.timeZone = TimeZone(abbreviation: "UTC")!
-            let components = calendar.dateComponents([.year, .month, .day], from: Date())
-
-            
-            if month.components.year! == components.year! {
-                return true
-            } else if components.year! + 1 == month.components.year! {
-                return month.components.month! < components.month!
-            }
-            return true
+            guard let maximum = calendar.date(byAdding: .year, value: 1, to: currentMonth) else { return false }
+            return monthStart < maximum
         }
-        if month.components.year! == 1, month.components.month! == 12 {
-            return false
+        if CalendarUtils.isYearHidden(month.components.year!) {
+            return month.components.month! < 12
         }
-        return !CalendarUtils.isSameDate(month.month, date: Date(), checkDay: false)
+        return monthStart < currentMonth
     }
-    
+
     open var isPrevEnabled:Bool {
         if self.onlyFuture {
-            return !CalendarUtils.isSameDate(month.month, date: Date(), checkDay: false)
+            let monthStart: Date = CalendarUtils.monthDay(1, date: month.month)
+            let currentMonth: Date = CalendarUtils.monthDay(1, date: Date())
+            return monthStart > currentMonth
         }
-        return month.components.year! > lowYear || ((month.components.year == lowYear || month.components.year! == 1) && month.components.month! > 1)
+        return month.components.year! > lowYear || ((month.components.year == lowYear || CalendarUtils.isYearHidden(month.components.year!)) && month.components.month! > 1)
     }
     
     open override func getLeftBarViewOnce() -> BarView {

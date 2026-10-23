@@ -64,6 +64,10 @@ class MediaGroupPreviewRowItem: TableRowItem {
     override func viewClass() -> AnyClass {
         return MediaGroupPreviewRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return layout.messages.compactMap { $0.media.first }.map { previewSenderAccessibilityLabel(for: $0) }.joined(separator: ", ")
+    }
     
 }
 
@@ -343,7 +347,8 @@ class MediaGroupPreviewRowView : TableRowView, ModalPreviewRowViewProtocol {
         for i in 0 ..< item.layout.count {
             let rect = item.layout.frame(at: i).offsetBy(dx: offset.x, dy: offset.y)
             if rect.contains(location) {
-                self.editControl.canEdit = item.layout.messages[i].media[0] is TelegramMediaImage
+                self.editControl.isVideo = canEditPreviewVideo(item.layout.messages[i].media[0])
+                self.editControl.canEdit = item.layout.messages[i].media[0] is TelegramMediaImage || self.editControl.isVideo
                 
                 self.editControl.set(edit: { [weak item] in
                     guard let item = item else {return}

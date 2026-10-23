@@ -45,6 +45,14 @@ private final class JoinLinkPreviewHeaderRowItem: GeneralRowItem {
         return 20 + 70 + 10 + titleLayout.layoutSize.height + 10
     }
 
+    public override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
     public override func viewClass() -> AnyClass {
         return JoinLinkPreviewHeaderRowView.self
     }
@@ -102,6 +110,22 @@ private final class JoinLinkPreviewParticipantsRowItem: GeneralRowItem {
 
     public override var height: CGFloat {
         return 50 + 20
+    }
+
+    public override var accessibilityLabel: String? {
+        return strings().voiceOverCommonMembers
+    }
+
+    public override var accessibilityValue: String? {
+        var names = participants.map { $0.compactDisplayTitle }
+        if additionCount > 0 {
+            names.append("+\(additionCount)")
+        }
+        return names.joined(separator: ", ")
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
     }
 
     public override func viewClass() -> AnyClass {
@@ -207,8 +231,10 @@ private func joinLinkPreviewEntries(context: any AccountContextProtocol, peer: T
     return entries
 }
 
+
 public func JoinLinkPreviewModalController(_ context: any AccountContextProtocol, hash: String, join: ExternalJoiningChatState, interaction: @escaping (Peer) -> Void) -> InputDataModalController {
-    let actionsDisposable = DisposableSet()
+    let action = InviteJoinAction()
+    let request = MetaDisposable()
 
     var close: (() -> Void)? = nil
 
@@ -231,49 +257,32 @@ public func JoinLinkPreviewModalController(_ context: any AccountContextProtocol
     let controller = InputDataController(dataSignal: signal, title: " ")
 
     controller.onDeinit = {
-        actionsDisposable.dispose()
+        action.close()
+        request.dispose()
     }
 
     let modalInteractions = ModalInteractions(acceptTitle: strings().joinLinkJoin, accept: { [weak controller] in
-        guard let window = controller?.window else { return }
-        let signal = context.engine.peers.joinChatInteractively(with: hash) |> deliverOnMainQueue
-        _ = showModalProgress(signal: signal, for: window).start(next: { outcome in
-            switch outcome {
-            case let .joined(peer):
-                if let peer = peer?._asPeer() {
-                    interaction(peer)
-                }
-                close?()
-            case let .webView(webView):
-                close?()
-                FeatureNavigationHooks.shared.openJoinChatBotWebView(context, webView.botPeer.id, webView.url, webView.queryId, nil)
-            }
-        }, error: { error in
-            let text: String
-            switch error {
-            case .generic:
-                text = strings().unknownError
-            case .tooMuchJoined:
-                FeatureNavigationHooks.shared.showInactiveChannels(context, .join)
-                return
-            case .tooMuchUsers:
-                text = strings().groupUsersTooMuchError
-            case .requestSent:
-                text = strings().unknownError
-            case .flood:
-                text = strings().joinLinkFloodError
-            }
-            alert(for: context.window, info: text)
-        })
+        guard let window = controller?.window, let attempt = action.begin() else { return }
+        let subscription = MetaDisposable()
+        request.set(subscription)
+        subscription.set(performInviteJoin(context: context, hash: hash, window: window, requestSentAsSuccess: false, takeResult: { terminal in
+            action.take(attempt, terminal: terminal)
+        }, close: { close?() }, interaction: interaction))
     }, singleButton: true)
 
-    let modalController = InputDataModalController(controller, modalInteractions: modalInteractions, size: NSMakeSize(300, 0))
+    let modalController = InputDataModalController(controller, modalInteractions: modalInteractions, closeHandler: { finish in
+        action.close()
+        request.dispose()
+        finish()
+    }, size: NSMakeSize(300, 0))
 
     controller.leftModalHeader = ModalHeaderData(image: theme.icons.modalClose, handler: { [weak modalController] in
         modalController?.close()
     })
 
     close = { [weak modalController] in
+        action.close()
+        request.dispose()
         modalController?.modal?.close()
     }
 

@@ -104,6 +104,10 @@ private final class CollectionRowItem : TableStickItem {
     override func viewClass() -> AnyClass {
         return CollectionFilterRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return strings().voiceOverCommonFilter
+    }
 }
 
 private final class CollectionFilterRowView : TableStickView, TableViewDelegate {
@@ -120,7 +124,6 @@ private final class CollectionFilterRowView : TableStickView, TableViewDelegate 
     func isSelectable(row: Int, item: TableRowItem) -> Bool {
         return true
     }
-    private var ignoreNextAnimation: Bool = false
     private let tableView = HorizontalTableView(frame: .zero)
     required init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -143,7 +146,6 @@ private final class CollectionFilterRowView : TableStickView, TableViewDelegate 
     override func set(item: TableRowItem, animated: Bool) {
         super.set(item: item, animated: animated)
         
-        let animated = animated && !ignoreNextAnimation
         
         guard let item = item as? CollectionRowItem else {
             return
@@ -161,10 +163,35 @@ private final class CollectionFilterRowView : TableStickView, TableViewDelegate 
         })
         
 
-        tableView.resortController = .init(resortRange: NSMakeRange(1, items.count - 2), start: { _ in }, resort: { _ in }, complete: { [weak self] from, to in
-            self?.ignoreNextAnimation = true
-            arguments.resort(from, to)
-        })
+        let albumIndices = items.indices.filter { index in
+            if case .collection = items[index].value { return true }
+            return false
+        }
+        if arguments.state()?.access(arguments.context.peerId) == true, let first = albumIndices.first, albumIndices.count > 1 {
+            tableView.resortController = .init(resortRange: NSMakeRange(first, albumIndices.count), start: { _ in }, resort: { _ in }, complete: { [weak self] from, to in
+                guard let self else { return }
+                let matchesSnapshot = self.items.map(\.stableId) == items.map(\.stableId)
+                let validIndices = albumIndices.contains(from) && albumIndices.contains(to)
+                if matchesSnapshot && validIndices {
+                    self.items.move(at: from, to: to)
+                    self.items = self.items.enumerated().map { index, item in
+                        CollectionRowItem.Item(value: item.value, index: index, selected: item.selected)
+                    }
+                } else {
+                    self.tableView.removeAll()
+                    self.items.removeAll()
+                }
+                if let currentItem = self.item {
+                    self.set(item: currentItem, animated: false)
+                }
+                guard matchesSnapshot, validIndices, from != to,
+                      case let .collection(source) = items[from].value,
+                      case let .collection(target) = items[to].value else { return }
+                arguments.resort(source.id, target.id)
+            })
+        } else {
+            tableView.resortController = nil
+        }
         
     }
     
@@ -348,9 +375,9 @@ private final class Arguments {
     let collection:(State.Collection, StoryListContextState.Item?)->Void
     let addToCollection:(State.Collection, StoryListContextState.Item?)->Void
     let collectionContextMenu:(State.Collection)->[ContextMenuItem]
-    let resort:(Int, Int)->Void
+    let resort:(Int64, Int64)->Void
     let state:()->State?
-    init(context: any AccountContextProtocol, standalone: Bool, isArchive: Bool, isMy: Bool, openStory: @escaping(StoryInitialIndex?)->Void, toggleSelected:@escaping(StoryId)->Void, showArchive:@escaping()->Void, archiveSelected:@escaping()->Void, toggleStory: @escaping(EngineStoryItem)->Void, deleteStory:@escaping(EngineStoryItem)->Void, deleteSelected:@escaping()->Void, togglePinned:@escaping(EngineStoryItem)->Void, togglePinSelected:@escaping()->Void, collection:@escaping(State.Collection, StoryListContextState.Item?)->Void, addToCollection: @escaping(State.Collection, StoryListContextState.Item?)->Void, collectionContextMenu:@escaping(State.Collection)->[ContextMenuItem], resort:@escaping(Int, Int)->Void, state:@escaping()->State?) {
+    init(context: any AccountContextProtocol, standalone: Bool, isArchive: Bool, isMy: Bool, openStory: @escaping(StoryInitialIndex?)->Void, toggleSelected:@escaping(StoryId)->Void, showArchive:@escaping()->Void, archiveSelected:@escaping()->Void, toggleStory: @escaping(EngineStoryItem)->Void, deleteStory:@escaping(EngineStoryItem)->Void, deleteSelected:@escaping()->Void, togglePinned:@escaping(EngineStoryItem)->Void, togglePinSelected:@escaping()->Void, collection:@escaping(State.Collection, StoryListContextState.Item?)->Void, addToCollection: @escaping(State.Collection, StoryListContextState.Item?)->Void, collectionContextMenu:@escaping(State.Collection)->[ContextMenuItem], resort:@escaping(Int64, Int64)->Void, state:@escaping()->State?) {
         self.context = context
         self.standalone = standalone
         self.isArchive = isArchive
@@ -409,14 +436,15 @@ private struct State : Equatable {
     }
     
     func contains(collectionId: Int64, story: EngineStoryItem) -> Bool {
-        let contains = collectionStates[collectionId]?.items.contains(where: { $0.id.id == story.id }) == true
-        if contains {
-            return true
-        } else {
-            return story.folderIds?.contains(collectionId) == true
+        if let album = collectionStates[collectionId] {
+            if album.items.contains(where: { $0.id.id == story.id }) { return true }
+            if !album.isCached, album.loadMoreToken == nil { return false }
         }
+        let currentStory = mainState?.items.first(where: { $0.id.id == story.id })?.storyItem ?? story
+        return currentStory.folderIds?.contains(collectionId) == true
     }
     
+
     var selected:Set<StoryId>? = nil
     var perRowCount: Int
     var peer: EnginePeer?
@@ -601,6 +629,9 @@ public final class StoryMediaView : View {
             self.pin.setGlassEffect(size: iconSize)
             self.archive.setGlassEffect()
             self.delete.setGlassEffect(size: iconSize)
+
+            self.pin.setAccessibilityLabel(strings().voiceOverCommonPin)
+            self.delete.setAccessibilityLabel(strings().voiceOverCommonDelete)
 
             delete.set(handler: { [weak self] _ in
                 self?.arguments?.deleteSelected()
@@ -817,6 +848,19 @@ public final class StoryMediaController<Context: AccountContextProtocol> : Teleg
     }
     
     private let actionsDisposable = DisposableSet()
+    private let deleteStoriesDisposable = MetaDisposable()
+    private var deleteStoriesOperationId: UUID?
+    private var acceptsStoryDeletion = true
+    private let pinStoriesDisposable = MetaDisposable()
+    private var pinStoriesOperationId: UUID?
+    private var acceptsStoryPinning = true
+    private let profileStoriesDisposable = MetaDisposable()
+    private var profileStoriesOperationId: UUID?
+    private var acceptsStoryProfileChanges = true
+    private let collectionMutationDisposable = MetaDisposable()
+    private var collectionMutationOperationId: UUID?
+    private var acceptsCollectionMutation = true
+    private var collectionMutationGeneration = UUID()
     private let collectionsDisposable = DisposableDict<Int64>()
     private var collectionsContexts:[Int64: PeerStoryListContext] = [:]
 
@@ -867,6 +911,8 @@ public final class StoryMediaController<Context: AccountContextProtocol> : Teleg
     }
     
     private func addCollection(_ story: PeerStoryListContext.State.Item?) {
+        guard self.acceptsCollectionMutation, self.collectionMutationOperationId == nil else { return }
+        let generation = self.collectionMutationGeneration
         var text: String = ""
 
         var footer: ModalAlertData.Footer = .init(id: "footer", value: { initialSize, stableId, presentation, updateData in
@@ -908,28 +954,90 @@ public final class StoryMediaController<Context: AccountContextProtocol> : Teleg
 
         if let window = self.window {
             showModalAlert(for: window, data: data, completion: { [weak self] result in
-                guard let peerListContext = self?.peerListContext else {
-                    return
-                }
-                self?.actionsDisposable.add(
-                    peerListContext.addFolder(title: text, items: story.flatMap { [$0.storyItem] } ?? [], completion: { id in
-                        if let id {
-                            self?.updateState { current in
-                                var current = current
-                                current.selectedCollection = id
-                                return current
-                            }
-                        }
-                    })
-                )
+                guard let self, self.collectionMutationGeneration == generation else { return }
+                self.createCollection(title: text, story: story)
             })
         }
     }
-    
+
+    private func createCollection(title: String, story: PeerStoryListContext.State.Item?) {
+        guard self.acceptsCollectionMutation, self.collectionMutationOperationId == nil,
+              let peerListContext = self.peerListContext, let window = self.window else { return }
+        if let story, story.id.peerId != self.peerId || story.id.id != story.storyItem.id {
+            alert(for: window, info: strings().unknownError)
+            return
+        }
+        guard !title.isEmpty else { return }
+        let operationId = UUID()
+        self.collectionMutationOperationId = operationId
+        let requestDisposable = MetaDisposable()
+        self.collectionMutationDisposable.set(requestDisposable)
+        let signal = Signal<Int64?, NoError> { subscriber in
+            return peerListContext.addFolder(title: title, items: story.map { [$0.storyItem] } ?? [], completion: { id in
+                subscriber.putNext(id)
+                subscriber.putCompletion()
+            })
+        }
+        |> deliverOnMainQueue
+        |> afterDisposed { [weak self] in
+            if self?.collectionMutationOperationId == operationId {
+                self?.collectionMutationOperationId = nil
+            }
+        }
+        requestDisposable.set(showModalProgress(signal: signal, for: window).start(next: { [weak self] id in
+            guard let self, self.acceptsCollectionMutation, self.collectionMutationOperationId == operationId else { return }
+            if let id {
+                self.updateState { current in
+                    var current = current
+                    current.selectedCollection = id
+                    return current
+                }
+            } else {
+                alert(for: window, info: strings().unknownError)
+            }
+        }))
+    }
+
+    private func updateCollection(id: Int64, title: String?) {
+        guard self.acceptsCollectionMutation, self.collectionMutationOperationId == nil,
+              let peerListContext = self.peerListContext else { return }
+        if let title {
+            self.actionsDisposable.add(peerListContext.renameFolder(id: id, title: title))
+        } else {
+            self.actionsDisposable.add(peerListContext.removeFolder(id: id))
+        }
+    }
+
+    private func updateCollectionStories(id: Int64, added: [EngineStoryItem], removed: [Int32], successText: String?) {
+        guard self.acceptsCollectionMutation, self.collectionMutationOperationId == nil,
+              let folderContext = self.collectionsContexts[id] else { return }
+        if !added.isEmpty {
+            self.actionsDisposable.add(folderContext.addToFolder(id: id, items: added))
+        }
+        if !removed.isEmpty {
+            self.actionsDisposable.add(folderContext.removeFromFolder(id: id, itemIds: removed))
+        }
+    }
+
+    private func reorderCollections(from: Int64, to: Int64) {
+        guard self.acceptsCollectionMutation, self.collectionMutationOperationId == nil,
+              let peerListContext = self.peerListContext else { return }
+        let state = self.stateValue.with { $0 }
+        guard state.access(self.context.peerId), from != to else { return }
+        var ids = state.collections.compactMap { collection -> Int64? in
+            if case let .collection(value) = collection { return value.id }
+            return nil
+        }
+        guard let source = ids.firstIndex(of: from), let target = ids.firstIndex(of: to) else { return }
+        ids.move(at: source, to: target)
+        self.actionsDisposable.add(peerListContext.reorderFolders(ids: ids))
+    }
+
     public override func getRightBarViewOnce() -> BarView {
         let back = BarView(70, controller: self) //MajorBackNavigationBar(self, account: account, excludePeerId: peerId)
         
         let editButton = ImageButton()
+        editButton.setAccessibilityLabel(strings().voiceOverCommonMore)
        // editButton.disableActions()
         back.addSubview(editButton)
         
@@ -1136,7 +1244,9 @@ public final class StoryMediaController<Context: AccountContextProtocol> : Teleg
             
             switch collection {
             case let .collection(value):
-                var text: String = ""
+                guard self.acceptsCollectionMutation, self.collectionMutationOperationId == nil else { return }
+                let generation = self.collectionMutationGeneration
+                var text: String = value.title
 
                 var footer: ModalAlertData.Footer = .init(id: "footer", value: { initialSize, stableId, presentation, updateData in
                     return InputDataRowItem(
@@ -1177,11 +1287,10 @@ public final class StoryMediaController<Context: AccountContextProtocol> : Teleg
 
                 if let window = self.window {
                     showModalAlert(for: window, data: data, completion: { [weak self, weak window] result in
-                        guard let peerListContext = self?.peerListContext, let window else {
+                        guard let self, window != nil, self.collectionMutationGeneration == generation else {
                             return
                         }
-                        self?.actionsDisposable.add(peerListContext.renameFolder(id: value.id, title: text))
-                        showModalText(for: window, text: strings().storyMediaAlbumUpdateSuccess)
+                        self.updateCollection(id: value.id, title: text)
                     })
                 }
 
@@ -1207,60 +1316,141 @@ public final class StoryMediaController<Context: AccountContextProtocol> : Teleg
         
         
         let addToCollection:(State.Collection, StoryListContextState.Item?)->Void = { [weak self] collection, story in
-            
-            guard let self, let window = self.window else {
-                return
-            }
-            
+            guard let self, self.acceptsCollectionMutation, self.collectionMutationOperationId == nil, let window = self.window else { return }
             switch collection {
             case let .collection(value):
-                
-                let state = self.stateValue.with { $0 }
-                
-                let folderContext = self.collectionsContexts[value.id]
-
+                guard self.collectionsContexts[value.id] != nil else { return }
                 if let story {
-                    let contains = state.contains(collectionId: value.id, story: story.storyItem)
-                    if let folderContext {
-                        if contains {
-                            self.actionsDisposable.add(folderContext.removeFromFolder(id: value.id, itemIds: [story.id.id]))
-                            showModalText(for: window, text: strings().storyMediaAlbumAlertRemoved(value.title))
-                        } else {
-                            self.actionsDisposable.add(folderContext.addToFolder(id: value.id, items: [story.storyItem]))
-                            showModalText(for: window, text: strings().storyMediaAlbumAlertAdded(value.title))
-                        }
+                    guard story.id.peerId == peerId, story.id.id == story.storyItem.id else {
+                        alert(for: window, info: strings().unknownError)
+                        return
                     }
+                    let contains = self.stateValue.with { $0.contains(collectionId: value.id, story: story.storyItem) }
+                    self.updateCollectionStories(id: value.id, added: contains ? [] : [story.storyItem], removed: contains ? [story.id.id] : [], successText: contains ? strings().storyMediaAlbumAlertRemoved(value.title) : strings().storyMediaAlbumAlertAdded(value.title))
                 } else {
-                    
-                    if let folderContext = self.collectionsContexts[collection.stableId] {
-                        showModal(with: SelectStoryModalController(context: context, folderId: collection.stableId, peerId: peerId, listContext: self.peerListContext, callback: { [weak folderContext, weak self] selected, unselected in
-                            
-                            guard let folderContext else {
-                                return
-                            }
-                            
-                            if !selected.isEmpty {
-                                self?.actionsDisposable.add(folderContext.addToFolder(id: collection.stableId, items: selected))
-                            }
-                            if !unselected.isEmpty {
-                                self?.actionsDisposable.add(folderContext.removeFromFolder(id: collection.stableId, itemIds: unselected.map(\.id)))
-                            }
-                            
-                        }), for: context.window)
-                    }
+                    let generation = self.collectionMutationGeneration
+                    var submitted = false
+                    showModal(with: SelectStoryModalController(context: context, folderId: value.id, peerId: peerId, listContext: self.peerListContext, albumContext: self.collectionsContexts[value.id], callback: { [weak self] selected, unselected in
+                        guard let self, self.acceptsCollectionMutation, self.collectionMutationGeneration == generation, !submitted else { return }
+                        submitted = true
+                        self.updateCollectionStories(id: value.id, added: selected, removed: unselected.map(\.id), successText: nil)
+                    }), for: window)
                 }
-                
             default:
                 break
             }
         }
 
-                
         self.setCenterTitle(isArchived ? strings().storyMediaTitleArchive : peerId == context.peerId ? strings().storyMediaTitleMyStories : "")
         
+        let setProfileStories: ([Int32: EngineStoryItem], Set<StoryId>?, Bool) -> Void = { [weak self] stories, selected, single in
+            guard let self, self.acceptsStoryProfileChanges, self.profileStoriesOperationId == nil,
+                  self.pinStoriesOperationId == nil, self.deleteStoriesOperationId == nil, !stories.isEmpty else { return }
+            let operationId = UUID()
+            self.profileStoriesOperationId = operationId
+            let requestDisposable = MetaDisposable()
+            self.profileStoriesDisposable.set(requestDisposable)
+            let signal = context.engine.messages.updateStoriesArePinned(peerId: peerId, ids: stories, isPinned: isArchived)
+            |> deliverOnMainQueue
+            |> afterDisposed { [weak self] in
+                if self?.profileStoriesOperationId == operationId { self?.profileStoriesOperationId = nil }
+            }
+            requestDisposable.set(showModalProgress(signal: signal, for: context.window).start(error: { [weak self] _ in
+                guard let self, self.acceptsStoryProfileChanges, self.profileStoriesOperationId == operationId else { return }
+                alert(for: context.window, info: strings().unknownError)
+            }, completed: { [weak self] in
+                guard let self, self.acceptsStoryProfileChanges, self.profileStoriesOperationId == operationId else { return }
+                if let selected {
+                    self.updateState { current in
+                        var current = current
+                        if let currentSelection = current.selected {
+                            current.selected = currentSelection.subtracting(selected)
+                        }
+                        return current
+                    }
+                    guard self.acceptsStoryProfileChanges, self.profileStoriesOperationId == operationId else { return }
+                    if self.stateValue.with({ $0.selected?.isEmpty == true }) {
+                        self.toggleSelection()
+                    }
+                }
+                guard self.acceptsStoryProfileChanges, self.profileStoriesOperationId == operationId else { return }
+                let text: String
+                let title: String?
+                if isArchived {
+                    text = peerId.namespace == Namespaces.Peer.CloudChannel ? strings().storyTooltipSavedToProfileChannel : strings().storyTooltipSavedToProfile
+                    title = single ? strings().storyTooltipSavedTitle : nil
+                } else {
+                    text = peerId.namespace == Namespaces.Peer.CloudChannel ? strings().storyTooltipRemovedFromProfileChannel : strings().storyTooltipRemovedFromProfile
+                    title = single ? strings().storyTooltipRemovedTitle : nil
+                }
+                showModalText(for: context.window, text: text, title: title)
+            }))
+        }
+
+        let pinStories: ([Int32], String, Set<StoryId>?) -> Void = { [weak self] ids, text, selected in
+            guard let self, self.acceptsStoryPinning, self.pinStoriesOperationId == nil, self.profileStoriesOperationId == nil, self.deleteStoriesOperationId == nil else { return }
+            guard ids.count <= maxPinLimit else {
+                showModalText(for: context.window, text: strings().storyMediaTooltipLimitOther(Int(maxPinLimit)))
+                return
+            }
+            let operationId = UUID()
+            self.pinStoriesOperationId = operationId
+            let requestDisposable = MetaDisposable()
+            self.pinStoriesDisposable.set(requestDisposable)
+            let signal = context.engine.messages.updatePinnedToTopStories(peerId: peerId, ids: ids)
+            |> deliverOnMainQueue
+            |> afterDisposed { [weak self] in
+                if self?.pinStoriesOperationId == operationId { self?.pinStoriesOperationId = nil }
+            }
+            requestDisposable.set(showModalProgress(signal: signal, for: context.window).start(error: { [weak self] _ in
+                guard let self, self.acceptsStoryPinning, self.pinStoriesOperationId == operationId else { return }
+                alert(for: context.window, info: strings().unknownError)
+            }, completed: { [weak self] in
+                guard let self, self.acceptsStoryPinning, self.pinStoriesOperationId == operationId else { return }
+                self.updateState { current in
+                    var current = current
+                    for collectionId in current.collectionStates.keys {
+                        current.collectionStates[collectionId]?.pinnedIds = ids
+                    }
+                    if let selected, let currentSelection = current.selected {
+                        current.selected = currentSelection.subtracting(selected)
+                    }
+                    return current
+                }
+                guard self.acceptsStoryPinning, self.pinStoriesOperationId == operationId else { return }
+                if selected != nil, self.stateValue.with({ $0.selected?.isEmpty == true }) {
+                    self.toggleSelection()
+                }
+                guard self.acceptsStoryPinning, self.pinStoriesOperationId == operationId else { return }
+                showModalText(for: context.window, text: text)
+            }))
+        }
+
+        let deleteStories: ([Int32], (() -> Void)?) -> Void = { [weak self] ids, completion in
+            guard let self, self.acceptsStoryDeletion, self.deleteStoriesOperationId == nil, self.profileStoriesOperationId == nil, self.pinStoriesOperationId == nil, !ids.isEmpty else { return }
+            let operationId = UUID()
+            self.deleteStoriesOperationId = operationId
+            let requestDisposable = MetaDisposable()
+            self.deleteStoriesDisposable.set(requestDisposable)
+            let signal = context.engine.messages.deleteStories(peerId: peerId, ids: ids)
+            |> deliverOnMainQueue
+            |> afterDisposed { [weak self] in
+                if self?.deleteStoriesOperationId == operationId { self?.deleteStoriesOperationId = nil }
+            }
+            requestDisposable.set(showModalProgress(signal: signal, for: context.window).start(error: { [weak self] _ in
+                guard let self, self.acceptsStoryDeletion, self.deleteStoriesOperationId == operationId else { return }
+                alert(for: context.window, info: strings().unknownError)
+            }, completed: { [weak self] in
+                guard let self, self.acceptsStoryDeletion, self.deleteStoriesOperationId == operationId else { return }
+                _ = showModalSuccess(for: context.window, icon: theme.icons.successModalProgress, delay: 3).startStandalone()
+                completion?()
+            }))
+        }
+
         let arguments = Arguments(context: context, standalone: standalone, isArchive: isArchived, isMy: peerId == context.peerId || isArchived, openStory: { [weak self] initialId in
-            if let list = self?.currentContext {
-                StoriesHooks.shared.showListStory(context, list, peerId, initialId)
+            if let self {
+                let list = self.currentContext
+                StoriesHooks.shared.showListStoryObserved(context, list, peerId, initialId)
             }
         }, toggleSelected: { [weak self] storyId in
             
@@ -1286,75 +1476,67 @@ public final class StoryMediaController<Context: AccountContextProtocol> : Teleg
         }, showArchive: { [weak self] in
             self?.openArchive()
         }, archiveSelected: { [weak self] in
-            let selected = self?.stateValue.with { $0.selected } ?? Set()
-            let list = self?.stateValue.with { $0.state?.items } ?? []
-            var stories: [Int32 : EngineStoryItem] = [:]
-            for selected in selected {
-                if let story = list.first(where: { $0.storyItem.id == selected.id }) {
-                    stories[story.storyItem.id] = story.storyItem
+            guard let self, self.acceptsStoryProfileChanges, self.profileStoriesOperationId == nil,
+                  self.pinStoriesOperationId == nil, self.deleteStoriesOperationId == nil else { return }
+            let state = self.stateValue.with { $0 }
+            guard let selected = state.selected, !selected.isEmpty else { return }
+            let list = (state.state?.items ?? []) + (state.mainState?.items ?? [])
+            var stories: [Int32: EngineStoryItem] = [:]
+            for selectedId in selected {
+                guard selectedId.peerId == peerId, let story = list.first(where: { $0.id == selectedId }) else {
+                    alert(for: context.window, info: strings().unknownError)
+                    return
                 }
+                stories[story.storyItem.id] = story.storyItem
             }
-            _ = context.engine.messages.updateStoriesArePinned(peerId: peerId, ids: stories, isPinned: isArchived).start()
-            if isArchived {
-                let text: String = peerId.namespace == Namespaces.Peer.CloudChannel ? strings().storyTooltipSavedToProfileChannel : strings().storyTooltipSavedToProfile
-                showModalText(for: context.window, text: text)
-            } else {
-                let text: String = peerId.namespace == Namespaces.Peer.CloudChannel ? strings().storyTooltipRemovedFromProfileChannel : strings().storyTooltipRemovedFromProfile
-                showModalText(for: context.window, text: text)
-            }
-            self?.updateState({ current in
-                var current = current
-                current.selected = nil
-                return current
-            })
+            setProfileStories(stories, selected, false)
         }, toggleStory: { story in
-            _ = context.engine.messages.updateStoriesArePinned(peerId: peerId, ids: [story.id : story], isPinned: isArchived).start()
-            
-            if isArchived {
-                let text: String = peerId.namespace == Namespaces.Peer.CloudChannel ? strings().storyTooltipSavedToProfileChannel : strings().storyTooltipSavedToProfile
-                showModalText(for: context.window, text: text, title: strings().storyTooltipSavedTitle)
-            } else {
-                let text: String = peerId.namespace == Namespaces.Peer.CloudChannel ? strings().storyTooltipRemovedFromProfileChannel : strings().storyTooltipRemovedFromProfile
-                showModalText(for: context.window, text: text, title: strings().storyTooltipRemovedTitle)
-            }
+            setProfileStories([story.id: story], nil, true)
         }, deleteStory: { story in
             verifyAlert_button(for: context.window, information: strings().storyConfirmDelete, ok: strings().modalDelete, successHandler: { _ in
-                _ = context.engine.messages.deleteStories(peerId: peerId, ids: [story.id]).startStandalone()
-                _ = showModalSuccess(for: context.window, icon: theme.icons.successModalProgress, delay: 3).startStandalone()
+                deleteStories([story.id], nil)
             })
         }, deleteSelected: { [weak self] in
-            let ids:[Int32] = self?.stateValue.with { state in
-                return state.selected?.map { $0.id }
-            } ?? []
+            let ids: [Int32] = self?.stateValue.with { state in state.selected?.map { $0.id } } ?? []
+            guard !ids.isEmpty else { return }
             verifyAlert_button(for: context.window, information: strings().storyMediaDeleteConfirmOther(ids.count), ok: strings().modalDelete, successHandler: { _ in
-                _ = context.engine.messages.deleteStories(peerId: peerId, ids: ids).startStandalone()
-                _ = showModalSuccess(for: context.window, icon: theme.icons.successModalProgress, delay: 3).startStandalone()
-                self?.toggleSelection()
+                deleteStories(ids, { [weak self] in
+                    guard let self else { return }
+                    self.updateState { current in
+                        var current = current
+                        if let selected = current.selected {
+                            current.selected = Set(selected.filter { !ids.contains($0.id) })
+                        }
+                        return current
+                    }
+                    if self.stateValue.with({ $0.selected?.isEmpty == true }) {
+                        self.toggleSelection()
+                    }
+                })
             })
-            
+
         }, togglePinned: { [weak self] story in
-            var pinned = Array(self?.stateValue.with ({ $0.state?.pinnedIds }) ?? [])
-            if let index = pinned.firstIndex(where: { $0 == story.id }) {
+            guard let self, let state = self.stateValue.with({ $0.mainState }) else { return }
+            var pinned = state.pinnedIds
+            let text: String
+            if let index = pinned.firstIndex(of: story.id) {
                 pinned.remove(at: index)
-                showModalText(for: context.window, text: strings().storyMediaTooltipUnpinnedOther(1))
+                text = strings().storyMediaTooltipUnpinnedOther(1)
             } else {
                 pinned.append(story.id)
-                showModalText(for: context.window, text: strings().storyMediaTooltipPinnedOther(1))
+                text = strings().storyMediaTooltipPinnedOther(1)
             }
-            _ = context.engine.messages.updatePinnedToTopStories(peerId: peerId, ids: pinned).startStandalone()
-            
+            pinStories(pinned, text, nil)
         }, togglePinSelected: { [weak self] in
-            let ids:[Int32] = self?.stateValue.with { state in
-                return state.selected?.map { $0.id }
-            } ?? []
-            
-            if ids.count <= maxPinLimit {
-                _ = context.engine.messages.updatePinnedToTopStories(peerId: peerId, ids: ids).startStandalone()
-                showModalText(for: context.window, text: strings().storyMediaTooltipPinnedOther(ids.count))
-            } else {
-                showModalText(for: context.window, text: strings().storyMediaTooltipLimitOther(Int(maxPinLimit)))
+            guard let self else { return }
+            let state = self.stateValue.with { $0 }
+            guard let list = state.mainState, let selected = state.selected, !selected.isEmpty,
+                  selected.allSatisfy({ $0.peerId == peerId }) else { return }
+            var pinned = list.pinnedIds
+            for id in selected.map({ $0.id }).sorted() where !pinned.contains(id) {
+                pinned.append(id)
             }
-            self?.toggleSelection()
+            pinStories(pinned, strings().storyMediaTooltipPinnedOther(selected.count), selected)
         }, collection: { [weak self] collection, story in
             if collection == .add {
                 self?.addCollection(story)
@@ -1419,14 +1601,14 @@ public final class StoryMediaController<Context: AccountContextProtocol> : Teleg
                     items.append(ContextMenuItem(
                         strings().storyMediaAlbumContextMenuDelete,
                         handler: { [weak self] in
-                            if let window = self?.window {
+                            if let self, self.acceptsCollectionMutation, self.collectionMutationOperationId == nil, let window = self.window {
+                                let generation = self.collectionMutationGeneration
                                 verifyAlert(
                                     for: window,
                                     information: strings().storyMediaAlbumContextMenuDeleteConfirm(value.title),
-                                    successHandler: { _ in
-                                        if let peerListContext = self?.peerListContext {
-                                            self?.actionsDisposable.add(peerListContext.removeFolder(id: value.id))
-                                        }
+                                    successHandler: { [weak self] _ in
+                                        guard let self, self.collectionMutationGeneration == generation else { return }
+                                        self.updateCollection(id: value.id, title: nil)
                                     }
                                 )
                             }
@@ -1439,21 +1621,7 @@ public final class StoryMediaController<Context: AccountContextProtocol> : Teleg
                 return items
             }
         }, resort: { [weak self] from, to in
-            guard let self, let peerListContext = self.peerListContext else {
-                return
-            }
-            
-            var list = self.stateValue.with { $0.collections }
-            list.move(at: from, to: to)
-            
-            self.actionsDisposable.add(peerListContext.reorderFolders(ids: list.compactMap { value in
-                switch value {
-                case let .collection(value):
-                    return value.id
-                default:
-                    return nil
-                }
-            }))
+            self?.reorderCollections(from: from, to: to)
         }, state: { [weak self] in
             let state = self?.stateValue.with { $0 }
             return state
@@ -1478,6 +1646,11 @@ public final class StoryMediaController<Context: AccountContextProtocol> : Teleg
                 current.collectionStates[State.Collection.all.stableId] = state
                 current.peer = peer
                 if !isArchived {
+                    let validFolderIds = Set(state.availableFolders.map(\.id))
+                    current.collectionStates = current.collectionStates.filter { key, _ in
+                        key == State.Collection.all.stableId || validFolderIds.contains(key)
+                    }
+                    current.collections = []
                     if !state.availableFolders.isEmpty {
                         current.collections = [.all] + state.availableFolders.map { .collection(value: $0) }
                         if current.access(context.peerId), current.folderCount < foldersLimit  {
@@ -1601,15 +1774,36 @@ public final class StoryMediaController<Context: AccountContextProtocol> : Teleg
     }
     
     public override func viewWillDisappear(_ animated: Bool) {
-        super.viewWillDisappear(animated)        
+        self.acceptsStoryPinning = false
+        self.pinStoriesOperationId = nil
+        self.acceptsStoryProfileChanges = false
+        self.profileStoriesOperationId = nil
+        self.acceptsStoryDeletion = false
+        self.deleteStoriesOperationId = nil
+        self.acceptsCollectionMutation = false
+        self.collectionMutationGeneration = UUID()
+        self.collectionMutationOperationId = nil
+        self.collectionMutationDisposable.set(nil)
+        self.pinStoriesDisposable.set(nil)
+        self.profileStoriesDisposable.set(nil)
+        self.deleteStoriesDisposable.set(nil)
+        super.viewWillDisappear(animated)
     }
     
     public override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        self.acceptsStoryDeletion = true
+        self.acceptsStoryPinning = true
+        self.acceptsStoryProfileChanges = true
+        self.acceptsCollectionMutation = true
     }
     
     deinit {
+        collectionMutationDisposable.dispose()
         collectionsDisposable.dispose()
+        deleteStoriesDisposable.dispose()
+        pinStoriesDisposable.dispose()
+        profileStoriesDisposable.dispose()
         actionsDisposable.dispose()
     }
 }

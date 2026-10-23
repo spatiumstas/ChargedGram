@@ -200,7 +200,7 @@ open class SelectivePrivacySettingsPeersController<Context: AccountContextProtoc
     private let premiumUsers: Bool?
     private let enableForBots: Bool?
     private let actionsDisposable = DisposableSet()
-    public init(_ context: Context, title: String, initialPeers: [PeerId: SelectivePrivacyPeer], premiumUsers: Bool?, enableForBots: Bool?, updated: @escaping ([PeerId: SelectivePrivacyPeer]) -> Void) {
+    public init(_ context: Context, title: String, initialPeers: [PeerId: SelectivePrivacyPeer], premiumUsers: Bool?, enableForBots: Bool?, feeExceptions: Bool = false, updated: @escaping ([PeerId: SelectivePrivacyPeer]) -> Void) {
         self.title = title
         self.initialPeers = initialPeers
         self.updated = updated
@@ -292,11 +292,14 @@ open class SelectivePrivacySettingsPeersController<Context: AccountContextProtoc
                     |> take(1)
                     |> mapToSignal { peers -> Signal<[SelectivePrivacyPeer], NoError> in
                         return context.account.postbox.transaction { transaction -> [SelectivePrivacyPeer] in
-                            var updatedPeers = peers
+                            let selectedPeerIds = Set(peerIds)
+                            var updatedPeers = peers.filter { selectedPeerIds.contains($0.peer.id) }
                             var existingIds = Set(updatedPeers.map { $0.peer.id })
                             for peerId in peerIds {
-                                if let peer = transaction.getPeer(peerId), !existingIds.contains(peerId) {
-                                    existingIds.insert(peerId)
+                                guard existingIds.insert(peerId).inserted else {
+                                    continue
+                                }
+                                if let peer = transaction.getPeer(peerId) {
                                     var participantCount: Int32?
                                     if let channel = peer as? TelegramChannel, case .group = channel.info {
                                         if let cachedData = transaction.getPeerCachedData(peerId: peerId) as? CachedChannelData {

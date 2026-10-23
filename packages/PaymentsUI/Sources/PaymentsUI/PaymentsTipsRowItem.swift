@@ -7,6 +7,7 @@ import CurrencyFormat
 import InAppSettings
 import TelegramMediaUtils
 import TelegramTheme
+import Localization
 import TelegramContext
 import TelegramUtils
 import GeneralRows
@@ -152,6 +153,14 @@ public final class PaymentsTipsRowItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return PaymentsTipRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return strings().paymentsTipLabel
+    }
+
+    public override var accessibilityValue: String? {
+        return layouts.first(where: { $0.1 == current })?.0.attributedString.string
+    }
 }
 
 private final class PaymentsTipView : Control {
@@ -170,6 +179,7 @@ private final class PaymentsTipView : Control {
             layer?.animateBackground()
         }
         textView.update(text.text)
+        setAccessibilityLabel(selected ? "\(text.text.attributedString.string), \(strings().voiceOverCommonSelected)" : text.text.attributedString.string)
         
         self.removeAllHandlers()
         self.set(handler: { _ in

@@ -8,6 +8,7 @@ import Accelerate
 import QuartzCore
 import CoreMedia
 import RLottie
+import TLottie
 import libwebp
 import AppKit
 
@@ -21,6 +22,10 @@ public protocol SE_R_LottieBridge: NSObject {
 
 extension RLottieBridge : SE_R_LottieBridge {
    
+}
+
+extension TLottieBridge : SE_R_LottieBridge {
+
 }
 
 final class SE_RenderAtomic<T> {
@@ -1195,7 +1200,13 @@ public final class SE_LottieAnimation : Equatable {
                 }
                
                 if let json = String(data: modified, encoding: .utf8) {
-                    if let bridge = RLottieBridge(json: json, key: self.cacheKey) {
+                    let bridge: SE_R_LottieBridge?
+                    if LottieBackend.usesTLottie {
+                        bridge = TLottieBridge(json: json)
+                    } else {
+                        bridge = RLottieBridge(json: json, key: self.cacheKey)
+                    }
+                    if let bridge = bridge {
                         for color in self.colors {
                             bridge.setColor(color.color, forKeyPath: color.keyPath)
                         }

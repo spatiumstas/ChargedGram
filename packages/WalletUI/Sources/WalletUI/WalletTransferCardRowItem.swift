@@ -2,6 +2,8 @@ import Cocoa
 import TGUIKit
 import TelegramTheme
 import GeneralRows
+import CurrencyFormat
+import Localization
 
 @available(macOS 10.15, *)
 final class WalletTransferCardRowItem: GeneralRowItem {
@@ -37,6 +39,34 @@ final class WalletTransferCardRowItem: GeneralRowItem {
 
     override func viewClass() -> AnyClass {
         return WalletTransferCardRowView.self
+    }
+
+    override var accessibilityLabel: String? {
+        if let amountText, !amountText.isEmpty {
+            return amountText
+        }
+        return walletTonAccessibilityText(formatTonAmountText(amount, maxDecimalPositions: 9))
+    }
+
+    override var accessibilityValue: String? {
+        let parts = [fiatText, recipientText].compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .staticText
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        let action = infoAction
+        return [NSAccessibilityCustomAction(name: strings().voiceOverCommonInfo, handler: {
+            action()
+            return true
+        })]
     }
 }
 

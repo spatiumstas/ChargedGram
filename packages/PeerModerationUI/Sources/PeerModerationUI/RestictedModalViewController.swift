@@ -450,6 +450,9 @@ private func restrictedInputDataEntries(_ entries: [RestrictedEntry], arguments:
 }
 
 public func RestrictedModalController(_ context: any AccountContextProtocol, peerId: PeerId, memberId: PeerId, initialParticipant: ChannelParticipant?, updated: @escaping (TelegramChatBannedRights) -> Void) -> InputDataModalController {
+    let updated: (TelegramChatBannedRights) -> Void = { [updated] rights in
+        updated(rights)
+    }
 
     let initialState = RestrictedControllerState(referenceTimestamp: Int32(Date().timeIntervalSince1970), updatedFlags: nil, updatedTimeout: nil, updating: false)
 

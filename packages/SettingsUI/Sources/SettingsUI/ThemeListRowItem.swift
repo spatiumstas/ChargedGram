@@ -33,6 +33,9 @@ private final class HorizontalThemeFirstItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return HorizontalRowView.self
     }
+    public override var accessibilityIsSpacer: Bool {
+        return true
+    }
 }
 
 private final class ThemeCachedItem {
@@ -74,6 +77,26 @@ private final class HorizontalThemeItem : GeneralRowItem {
     
     public override func viewClass() -> AnyClass {
         return HorizontalThemeView.self
+    }
+    
+    public override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+    
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .radioButton
+    }
+    
+    public override var accessibilityToggleState: Bool? {
+        return selected
+    }
+    
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+    
+    public override func accessibilityPerformPress() -> Bool {
+        return (view as? HorizontalThemeView)?.accessibilityPressOverlay() ?? false
     }
     
     public override var width: CGFloat {
@@ -119,6 +142,11 @@ private final class HorizontalThemeView : HorizontalRowView {
         holderView.layer?.cornerRadius = 10
     }
     
+    fileprivate func accessibilityPressOverlay() -> Bool {
+        overlay.send(event: .Click)
+        return true
+    }
+    
     public override func set(item: TableRowItem, animated: Bool) {
         
         
@@ -129,6 +157,7 @@ private final class HorizontalThemeView : HorizontalRowView {
         }
         
         overlay.removeAllHandlers()
+        overlay.setAccessibilityLabel(item.titleLayout.attributedString.string)
         let key = PhotoCacheKeyEntry.theme(item.themeType, item.theme.bubbled, .general)
         var cachedData: InstallThemeSource? = cache.object(forKey: .init(value: key.hashValue))?.source
         
@@ -252,6 +281,10 @@ public class ThemeListRowItem: GeneralRowItem {
     
     public override func viewClass() -> AnyClass {
         return ThemeListRowView.self
+    }
+    
+    public override var accessibilityLabel: String? {
+        return strings().voiceOverCommonTheme
     }
 }
 

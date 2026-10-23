@@ -9,6 +9,10 @@ public final class StarSceneRowItem : GeneralRowItem {
     public init(_ initialSize: NSSize, stableId: AnyHashable) {
         super.init(initialSize, height: 100, stableId: stableId)
     }
+    public override var accessibilityIsSpacer: Bool {
+        return true
+    }
+
     public override func viewClass() -> AnyClass {
         return StarSceneRowView.self
     }

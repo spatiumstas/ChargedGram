@@ -7,6 +7,7 @@ import TelegramTheme
 import TelegramMedia
 import TelegramMediaUtils
 import ObjcUtils
+import Localization
 import TGVideoCameraMovie
 import AVFoundation
 
@@ -20,7 +21,7 @@ private enum Metrics {
     public static let dimAlpha: CGFloat = 0.5
     public static let cropInset: CGFloat = 0.15
     public static let minAspect: CGFloat = 0.66
-    public static let waveInset: CGFloat = handleWidth + 2
+    public static let waveInset: CGFloat = handleWidth
     public static let sampleWidth: CGFloat = 2
     public static let sampleGap: CGFloat = 1
     public static let sampleMaxHeight: CGFloat = 11
@@ -52,9 +53,10 @@ private final class TrimWaveformLayer: SimpleLayer {
     public required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     public override func draw(in ctx: CGContext) {
-        guard let waveform, bounds.width > 0, bounds.height > 0 else { return }
+        guard let waveform, bounds.width.isFinite, bounds.height.isFinite, bounds.width > 0, bounds.height > 0 else { return }
         let step = Metrics.sampleWidth + Metrics.sampleGap
-        let peaks = waveform.peaks(count: max(1, Int(bounds.width / step)))
+        guard let count = Int(exactly: max(1, floor(bounds.width / step))), count <= 4096 else { return }
+        let peaks = waveform.peaks(count: count)
         guard !peaks.isEmpty else { return }
         func fill(_ path: CGPath, _ color: NSColor) {
             ctx.setFillColor(color.cgColor)
@@ -198,6 +200,7 @@ private final class TrimThumbnailsView: View {
     private func makeThumb() -> ImageView {
         let view = ImageView()
         view.isEventLess = true
+        view.isAccessibilityDecorative = true
         view.contentGravity = .resizeAspectFill
         view.layer?.masksToBounds = true
         view.layer?.contentsRect = CGRect(x: Metrics.cropInset, y: Metrics.cropInset, width: 1 - Metrics.cropInset * 2, height: 1 - Metrics.cropInset * 2)
@@ -210,12 +213,8 @@ private final class TrimThumbnailsView: View {
 
     public override func layout() {
         super.layout()
-        guard let first = subviews.first as? ImageView else { return }
-        var aspect = Metrics.minAspect
-        if let image = first.image, image.height > 0 {
-            aspect = max(aspect, CGFloat(image.width) / CGFloat(image.height))
-        }
-        let width = max(1, floorToScreenPixels(backingScaleFactor, frame.height * aspect))
+        guard !subviews.isEmpty, frame.size.width.isFinite, frame.size.height.isFinite, frame.size.width >= 0, frame.size.height >= 0 else { return }
+        let width = frame.size.width / CGFloat(subviews.count)
         for (i, view) in subviews.enumerated() {
             view.frame = CGRect(x: CGFloat(i) * width, y: 0, width: width, height: frame.height)
             view.subviews.first?.frame = CGRect(x: width - .borderSize, y: 0, width: .borderSize, height: frame.height)
@@ -247,7 +246,8 @@ public final class RecordingTrimScrubberView: View {
     private var durationText = ""
     private var videoPath: String?
     private var videoPlaceholder: CGImage?
-    private var thumbnailsRequest: (path: String, count: Int)?
+    private var thumbnailsRequest: (path: String, count: Int, size: NSSize)?
+    private var thumbnailsGeneration = UUID()
     private var drag: DragState?
     private let thumbnailsDisposable = MetaDisposable()
 
@@ -259,6 +259,7 @@ public final class RecordingTrimScrubberView: View {
         public var origin: NSPoint
         public var range: Range<Double>
         public var isEnd: Bool
+        public var width: CGFloat
     }
 
     public required init(frame frameRect: NSRect) {
@@ -279,6 +280,9 @@ public final class RecordingTrimScrubberView: View {
             dim.backgroundColor = .black.withAlphaComponent(Metrics.dimAlpha)
         }
         playIcon.isEventLess = true
+        playIcon.isAccessibilityDecorative = true
+        playPill.setAccessibilityLabel(strings().voiceOverCommonPlay)
+        seekArea.setAccessibilityLabel(strings().voiceOverCommonPlaybackPosition)
         durationView.isEventLess = true
         durationView.isSelectable = false
         durationView.userInteractionEnabled = false
@@ -305,35 +309,43 @@ public final class RecordingTrimScrubberView: View {
     }
 
     private func performSeek(from control: Control) {
-        guard duration > 0, selectionFrame.width > 0 else { return }
-        let point = convert(control.window?.mouseLocationOutsideOfEventStream ?? .zero, from: nil)
+        guard duration > 0, trackWidth(frame.width) > 0, let location = control.window?.mouseLocationOutsideOfEventStream else { return }
+        let point = convert(location, from: nil)
+        guard point.x.isFinite else { return }
         seek?(value(forX: point.x))
     }
 
     private func beginDrag(from control: Control, isEnd: Bool) {
-        guard let point = control.window?.mouseLocationOutsideOfEventStream else {
+        guard duration >= Metrics.trimmableDuration, trackWidth(frame.width) > 0, let point = control.window?.mouseLocationOutsideOfEventStream, point.x.isFinite else {
             drag = nil
             return
         }
-        drag = DragState(origin: point, range: trimRange, isEnd: isEnd)
+        drag = DragState(origin: point, range: trimRange, isEnd: isEnd, width: frame.width)
     }
 
     private func endDrag() {
-        guard let state = drag else { return }
+        guard let state = drag, state.width == frame.width else {
+            drag = nil
+            return
+        }
         drag = nil
         trimUpdated?(trimRange, state.isEnd, true)
     }
 
     private func moveDrag(from control: Control, isEnd: Bool) {
-        guard var state = drag, let current = control.window?.mouseLocationOutsideOfEventStream, duration > 0 else { return }
-        state.isEnd = isEnd
-        drag = state
+        guard let state = drag, state.isEnd == isEnd, state.width == frame.width, let current = control.window?.mouseLocationOutsideOfEventStream, current.x.isFinite, duration > 0, trackWidth(frame.width) > 0 else {
+            drag = nil
+            return
+        }
         let delta = Double((current.x - state.origin.x) / trackWidth(frame.width)) * duration
+        guard delta.isFinite else { return }
         let range: Range<Double>
         if isEnd {
-            range = state.range.lowerBound ..< min(duration, max(state.range.lowerBound + minimumTrimDuration, state.range.upperBound + delta))
+            let minimum = min(minimumTrimDuration, state.range.upperBound - state.range.lowerBound)
+            range = state.range.lowerBound ..< min(duration, max(state.range.lowerBound + minimum, state.range.upperBound + delta))
         } else {
-            range = max(0, min(state.range.upperBound - minimumTrimDuration, state.range.lowerBound + delta)) ..< state.range.upperBound
+            let minimum = min(minimumTrimDuration, state.range.upperBound - state.range.lowerBound)
+            range = max(0, min(state.range.upperBound - minimum, state.range.lowerBound + delta)) ..< state.range.upperBound
         }
         guard range != trimRange else { return }
         trimRange = range
@@ -341,9 +353,12 @@ public final class RecordingTrimScrubberView: View {
         trimUpdated?(range, isEnd, false)
     }
 
-    private func trackWidth(_ width: CGFloat) -> CGFloat { max(1, width - Metrics.handleWidth) }
+    private func trackWidth(_ width: CGFloat) -> CGFloat {
+        guard width.isFinite else { return 0 }
+        return max(0, width - Metrics.handleWidth * 2)
+    }
     private var minimumTrimDuration: Double {
-        guard duration > 0 else { return 1 }
+        guard duration > 0, trackWidth(frame.width) > 0 else { return duration }
         return min(duration, max(1, Double(Metrics.minTrimWidth / trackWidth(frame.width)) * duration))
     }
     private func clamp01(_ value: Double) -> Double { min(1, max(0, value)) }
@@ -353,8 +368,15 @@ public final class RecordingTrimScrubberView: View {
         return snap(trackWidth(width) * CGFloat(clamp01(value / duration)))
     }
     private func value(forX x: CGFloat) -> Double {
-        guard selectionFrame.width > 0 else { return trimRange.lowerBound }
-        return trimRange.lowerBound + clamp01(Double((x - selectionFrame.minX) / selectionFrame.width)) * (trimRange.upperBound - trimRange.lowerBound)
+        guard x.isFinite, trackWidth(frame.width) > 0 else { return trimRange.lowerBound }
+        if x <= Metrics.handleWidth + handleOriginX(for: trimRange.lowerBound, width: frame.width) {
+            return trimRange.lowerBound
+        }
+        if x >= Metrics.handleWidth + handleOriginX(for: trimRange.upperBound, width: frame.width) {
+            return trimRange.upperBound
+        }
+        let value = clamp01(Double((x - Metrics.handleWidth) / trackWidth(frame.width))) * duration
+        return min(trimRange.upperBound, max(trimRange.lowerBound, value))
     }
 
     public override func updateLocalizationAndTheme(theme: PresentationTheme) {
@@ -392,7 +414,8 @@ public final class RecordingTrimScrubberView: View {
     }
 
     private func updateDurationText(force: Bool = false) {
-        let value = isPlaying ? Int(max(0, position - trimRange.lowerBound)) : Int(round(max(0, trimRange.upperBound - trimRange.lowerBound)))
+        let elapsed = isPlaying ? max(0, position - trimRange.lowerBound).rounded(.down) : max(0, trimRange.upperBound - trimRange.lowerBound).rounded()
+        let value = Int(exactly: elapsed) ?? 0
         let text = String.durationTransformed(elapsed: value)
         guard force || text != durationText else { return }
         durationText = text
@@ -404,12 +427,17 @@ public final class RecordingTrimScrubberView: View {
     public func update(duration: Double, waveform: AudioWaveform?, trimRange: Range<Double>, position: Double, isPlaying: Bool, isVideo: Bool) {
         let wasPlaying = self.isPlaying
         let wasVideo = self.isVideo
-        self.duration = duration
-        self.trimRange = trimRange
-        self.position = position
+        let state = RecordingTrimState(duration: duration, range: trimRange)
+        if self.duration != state.duration || self.trimRange != state.range || wasVideo != isVideo {
+            drag = nil
+        }
+        self.duration = state.duration
+        self.trimRange = state.range
+        self.position = state.position(position)
         self.isPlaying = isPlaying
         self.isVideo = isVideo
-        let canTrim = duration >= Metrics.trimmableDuration
+        playPill.setAccessibilityLabel(isPlaying ? strings().voiceOverCommonPause : strings().voiceOverCommonPlay)
+        let canTrim = state.duration >= Metrics.trimmableDuration
         waveformView.waveform = waveform
         waveformView.isHidden = waveform == nil
         thumbnails.isHidden = !isVideo
@@ -419,37 +447,64 @@ public final class RecordingTrimScrubberView: View {
             handle.isHidden = !canTrim
         }
         if wasPlaying != isPlaying { refreshPlayIcon() }
-        if wasVideo != isVideo { selection.backgroundColor = isVideo ? .clear : theme.colors.accent }
+        if wasVideo != isVideo {
+            selection.backgroundColor = isVideo ? .clear : theme.colors.accent
+            if !isVideo {
+                invalidateThumbnails(clear: true)
+            }
+        }
         updateDurationText()
         needsLayout = true
     }
 
-    public func setVideo(path: String?, placeholder: CGImage?) {
-        videoPath = path
-        videoPlaceholder = placeholder
+    private func invalidateThumbnails(clear: Bool) {
+        thumbnailsGeneration = UUID()
+        thumbnailsDisposable.set(nil)
         thumbnailsRequest = nil
-        if path == nil {
-            thumbnailsDisposable.set(nil)
+        if clear {
             thumbnails.render([])
         }
+    }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            drag = nil
+            invalidateThumbnails(clear: false)
+        } else {
+            needsLayout = true
+        }
+    }
+
+    public func setVideo(path: String?, placeholder: CGImage?) {
+        drag = nil
+        invalidateThumbnails(clear: true)
+        videoPath = path
+        videoPlaceholder = placeholder
         needsLayout = true
     }
 
     private func updateThumbnails(size: NSSize) {
-        guard let path = videoPath, size.width > 0, size.height > 0 else { return }
-        let count = max(1, Int(ceil(size.width / size.height)))
-        if let request = thumbnailsRequest, request.path == path, request.count == count {
+        guard window != nil, isVideo, let path = videoPath, size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else { return }
+        let thumbnailSize = NSMakeSize(size.height, size.height)
+        let pixelSize = thumbnailSize.multipliedByScreenScale()
+        guard pixelSize.width.isFinite, pixelSize.height.isFinite, pixelSize.width > 0, pixelSize.height > 0, pixelSize.width <= 4096, pixelSize.height <= 4096, let count = Int(exactly: ceil(size.width / size.height)), count > 0, count <= 4096 else { return }
+        if let request = thumbnailsRequest, request.path == path, request.count == count, request.size == pixelSize {
             return
         }
-        thumbnailsRequest = (path, count)
+        thumbnailsGeneration = UUID()
+        let generation = thumbnailsGeneration
+        thumbnailsRequest = (path, count, pixelSize)
+        let request = MetaDisposable()
+        thumbnailsDisposable.set(request)
         if let placeholder = videoPlaceholder, thumbnails.isEmpty {
             thumbnails.render(Array(repeating: placeholder.blurred, count: count))
         }
         let asset = AVURLAsset(url: URL(fileURLWithPath: path))
-        thumbnailsDisposable.set((generateVideoScrubberThumbs(for: asset, composition: nil, size: NSMakeSize(size.height, size.height), count: count, gradually: true, blur: true) |> deliverOnMainQueue).start(next: { [weak self] value in
-            guard let self, !value.0.isEmpty else { return }
-            thumbnails.render(value.0)
-            needsLayout = true
+        request.set((generateVideoScrubberThumbs(for: asset, composition: nil, size: thumbnailSize, count: count, gradually: true, blur: true) |> deliverOnMainQueue).start(next: { [weak self] value in
+            guard let self, self.window != nil, self.isVideo, self.thumbnailsGeneration == generation, !value.0.isEmpty else { return }
+            self.thumbnails.render(value.0)
+            self.needsLayout = true
         }))
     }
 
@@ -459,11 +514,13 @@ public final class RecordingTrimScrubberView: View {
     }
 
     public func updateLayout(size: NSSize, transition: ContainedViewLayoutTransition) {
+        guard size.width.isFinite, size.height.isFinite, size.width >= 0, size.height >= 0 else { return }
         let radius = size.height / 2
+        let handleWidth = min(Metrics.handleWidth, size.width / 2)
         let leftX = handleOriginX(for: trimRange.lowerBound, width: size.width)
-        let rightX = max(leftX, handleOriginX(for: trimRange.upperBound, width: size.width))
-        let left = CGRect(x: leftX, y: 0, width: Metrics.handleWidth, height: size.height)
-        let right = CGRect(x: rightX, y: 0, width: Metrics.handleWidth, height: size.height)
+        let rightX = handleWidth + max(leftX, handleOriginX(for: trimRange.upperBound, width: size.width))
+        let left = CGRect(x: leftX, y: 0, width: handleWidth, height: size.height)
+        let right = CGRect(x: rightX, y: 0, width: handleWidth, height: size.height)
         transition.updateFrame(view: leftHandle, frame: left.insetBy(dx: -Metrics.hitSlop, dy: 0))
         transition.updateFrame(view: rightHandle, frame: right.insetBy(dx: -Metrics.hitSlop, dy: 0))
         selectionFrame = CGRect(x: left.minX, y: 0, width: max(0, right.maxX - left.minX), height: size.height)
@@ -478,13 +535,8 @@ public final class RecordingTrimScrubberView: View {
         transition.updateFrame(view: dimLeft, frame: CGRect(x: 0, y: 0, width: max(0, dimL), height: size.height))
         transition.updateFrame(view: dimRight, frame: CGRect(x: dimR, y: 0, width: max(0, size.width - dimR), height: size.height))
         transition.updateFrame(view: waveformView, frame: CGRect(x: Metrics.waveInset, y: 0, width: max(0, size.width - Metrics.waveInset * 2), height: size.height))
-        let played: CGFloat
-        if trimRange.upperBound > trimRange.lowerBound {
-            played = selectionFrame.minX + selectionFrame.width * CGFloat(clamp01((position - trimRange.lowerBound) / (trimRange.upperBound - trimRange.lowerBound)))
-        } else {
-            played = selectionFrame.minX
-        }
-        waveformView.update(trimRange: selectionFrame.minX - Metrics.waveInset ..< selectionFrame.maxX - Metrics.waveInset, progressWidth: played - Metrics.waveInset)
+        let played = handleWidth + handleOriginX(for: position, width: size.width)
+        waveformView.update(trimRange: left.maxX - Metrics.waveInset ..< right.minX - Metrics.waveInset, progressWidth: played - Metrics.waveInset)
         let gap = max(0, right.minX - left.maxX)
         transition.updateFrame(view: seekArea, frame: CGRect(x: left.maxX, y: 0, width: gap, height: size.height))
         layoutPlayPill(gap: gap, leftX: left.maxX, height: size.height, transition: transition)

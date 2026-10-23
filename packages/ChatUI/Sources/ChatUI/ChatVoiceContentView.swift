@@ -69,6 +69,13 @@ public class ChatVoiceContentView: ChatAudioContentView {
         }
     }
     
+    public override var initialFetchStatus: MediaResourceStatus {
+        if let parent = parent, parent.flags.isSending {
+            return .Fetching(isActive: true, progress: 0)
+        }
+        return .Local
+    }
+
     public var wBackgroundColor:NSColor {
         if let parameters = parameters {
             return parameters.presentation.grayText.withAlphaComponent(0.4)
@@ -93,7 +100,7 @@ public class ChatVoiceContentView: ChatAudioContentView {
                     case let .playing(current, _, progress):
                         waveformView.set(foregroundColor: wForegroundColor, backgroundColor: wBackgroundColor)
                         let width = floorToScreenPixels(backingScaleFactor, parameters.waveformWidth * CGFloat(progress))
-                        waveformView.foregroundClipingView.change(size: NSMakeSize(width, waveformView.frame.height), animated: animated && !acceptDragging)
+                        waveformView.updateForegroundClip(size: NSMakeSize(width, waveformView.frame.height), animated: animated && !acceptDragging)
                         let layout = parameters.duration(for: current)
                         layout.measure(width: frame.width - 50)
                         durationView.update(layout)
@@ -101,16 +108,16 @@ public class ChatVoiceContentView: ChatAudioContentView {
                     case let .fetching(progress):
                         waveformView.set(foregroundColor: wForegroundColor, backgroundColor: wBackgroundColor)
                         let width = floorToScreenPixels(backingScaleFactor, parameters.waveformWidth * CGFloat(progress))
-                        waveformView.foregroundClipingView.change(size: NSMakeSize(width, waveformView.frame.height), animated: animated && !acceptDragging)
+                        waveformView.updateForegroundClip(size: NSMakeSize(width, waveformView.frame.height), animated: animated && !acceptDragging)
                         durationView.update(parameters.durationLayout)
                     case .stoped, .waiting:
                         waveformView.set(foregroundColor: isIncomingConsumed ? wBackgroundColor : wForegroundColor, backgroundColor: wBackgroundColor)
-                        waveformView.foregroundClipingView.change(size: NSMakeSize(parameters.waveformWidth, waveformView.frame.height), animated: false)
+                        waveformView.updateForegroundClip(size: NSMakeSize(parameters.waveformWidth, waveformView.frame.height), animated: false)
                         durationView.update(parameters.durationLayout)
                     case let .paused(current, _, progress):
                         waveformView.set(foregroundColor: wForegroundColor, backgroundColor: wBackgroundColor)
                         let width = floorToScreenPixels(backingScaleFactor, parameters.waveformWidth * CGFloat(progress))
-                        waveformView.foregroundClipingView.change(size: NSMakeSize(width, waveformView.frame.height), animated: animated && !acceptDragging)
+                        waveformView.updateForegroundClip(size: NSMakeSize(width, waveformView.frame.height), animated: animated && !acceptDragging)
                         let layout = parameters.duration(for: current)
                         layout.measure(width: frame.width - 50)
                         durationView.update(layout)
@@ -118,12 +125,12 @@ public class ChatVoiceContentView: ChatAudioContentView {
                     
                 } else {
                     waveformView.set(foregroundColor: isIncomingConsumed ? wBackgroundColor : wForegroundColor, backgroundColor: wBackgroundColor)
-                    waveformView.foregroundClipingView.change(size: NSMakeSize(parameters.waveformWidth, waveformView.frame.height), animated: false)
+                    waveformView.updateForegroundClip(size: NSMakeSize(parameters.waveformWidth, waveformView.frame.height), animated: false)
                     durationView.update(parameters.durationLayout)
                 }
             } else {
                 waveformView.set(foregroundColor: isIncomingConsumed ? wBackgroundColor : wForegroundColor, backgroundColor: wBackgroundColor)
-                waveformView.foregroundClipingView.change(size: NSMakeSize(parameters.waveformWidth, waveformView.frame.height), animated: false)
+                waveformView.updateForegroundClip(size: NSMakeSize(parameters.waveformWidth, waveformView.frame.height), animated: false)
                 parameters.durationLayout.measure(width: frame.width - 50)
                 durationView.update(parameters.durationLayout)
             }
@@ -178,16 +185,13 @@ public class ChatVoiceContentView: ChatAudioContentView {
         
         let file:TelegramMediaFile = media as! TelegramMediaFile
         
-      //  self.progressView.state = .None
- 
-        if let parent = parent, parent.flags.contains(.Unsent) && !parent.flags.contains(.Failed) {
-            updatedStatusSignal = combineLatest(chatMessageFileStatus(context: context, message: parent, file: file), context.account.pendingMessageManager.pendingMessageStatus(parent.id))
-                |> map { resourceStatus, pendingStatus -> MediaResourceStatus in
-                    if let pendingStatus = pendingStatus.0 {
-                        return .Fetching(isActive: true, progress: pendingStatus.progress.progress)
-                    } else {
-                        return resourceStatus
+        if let parent = parent, parent.flags.isSending {
+            updatedStatusSignal = context.account.pendingMessageManager.pendingMessageStatus(parent.id)
+                |> mapToSignal { pendingStatus -> Signal<MediaResourceStatus, NoError> in
+                    guard let status = pendingStatus.0 else {
+                        return .complete()
                     }
+                    return .single(.Fetching(isActive: true, progress: status.progress.progress))
                 }
         } else if let parent = parent {
             updatedStatusSignal = chatMessageFileStatus(context: context, message: parent, file: file, approximateSynchronousValue: approximateSynchronousValue)

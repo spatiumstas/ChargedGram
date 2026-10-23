@@ -11,6 +11,10 @@ import GeneralRows
 import InlineStickerLayer
 
 
+final class ReplyMarkupContainerView: View {
+    var accountIdentity: ObjectIdentifier?
+}
+
 public class ReplyMarkupButtonLayout {
 
     public private(set) var width:CGFloat = 0
@@ -151,45 +155,49 @@ public class ReplyMarkupNode: Node {
     }
     
     public func redraw() {
-        view?.removeAllSubviews()
+        guard let view else { return }
+        let previousSubviews = view.subviews
+        let container = view as? ReplyMarkupContainerView
+        let accountIdentity = ObjectIdentifier(interactions.context.account)
+        let canReuse = container?.accountIdentity == accountIdentity && NSEvent.pressedMouseButtons == 0
+        var updatedSubviews: [NSView] = []
+        updatedSubviews.reserveCapacity(markup.reduce(0) { $0 + $1.count })
         for row in markup {
             for button in row {
-                var urlView:ImageView?
+                var actionImage: CGImage?
                 switch button.button.action {
                 case let .url(url):
                     if !url.isSingleEmoji, !isPostSuggest {
-                        urlView = ImageView()
-                        urlView?.image = theme.chat.chatActionUrl(theme: theme)
-                        urlView?.sizeToFit()
+                        actionImage = theme.chat.chatActionUrl(theme: theme)
                     }
                     
                 case .payment:
                     if !xtr {
-                        urlView = ImageView()
-                        urlView?.image = theme.chat.chatInvoiceAction(theme: theme)
-                        urlView?.sizeToFit()
+                        actionImage = theme.chat.chatInvoiceAction(theme: theme)
                     }
                 case .switchInline:
-                    urlView = ImageView()
-                    urlView?.image = theme.chat.chatActionShare(theme: theme)
-                    urlView?.sizeToFit()
+                    actionImage = theme.chat.chatActionShare(theme: theme)
                 case .openUserProfile:
-                    urlView = ImageView()
-                    urlView?.image = theme.chat.chatActionProfile(theme: theme)
-                    urlView?.sizeToFit()
+                    actionImage = theme.chat.chatActionProfile(theme: theme)
                 case .openWebApp, .openWebView:
-                    urlView = ImageView()
-                    urlView?.image = theme.chat.chatActionWebUrl(theme: theme)
-                    urlView?.sizeToFit()
+                    actionImage = theme.chat.chatActionWebUrl(theme: theme)
                 case .copyText:
-                    urlView = ImageView()
-                    urlView?.image = theme.chat.chatActionCopy(theme: theme)
-                    urlView?.sizeToFit()
+                    actionImage = theme.chat.chatActionCopy(theme: theme)
                 default:
                     break
                 }
-                
-                let btnView = InteractiveTextView()
+                let btnView: InteractiveTextView
+                let index = updatedSubviews.count
+                if canReuse, index < previousSubviews.count, let current = previousSubviews[index] as? InteractiveTextView,
+                   current.controlState != .Highlight, current.layer?.animationKeys()?.isEmpty != false {
+                    btnView = current
+                    btnView.removeAllHandlers()
+                    btnView.controlState = .Normal
+                    btnView.layer?.mask = nil
+                    btnView.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+                } else {
+                    btnView = InteractiveTextView()
+                }
                 btnView.set(handler: { [weak self, weak button] control in
                     if let button = button {
                         self?.proccess(control, button.button)
@@ -217,13 +225,25 @@ public class ReplyMarkupNode: Node {
                 }
                 btnView.set(text: button.text, context: self.interactions.context)
                 
-                if let urlView = urlView {
-                    btnView.addSubview(urlView)
+                if let actionImage {
+                    let urlView = btnView.subviews.first(where: { $0 is ImageView }) as? ImageView ?? ImageView()
+                    urlView.image = actionImage
+                    urlView.sizeToFit()
+                    urlView.isAccessibilityDecorative = true
+                    if urlView.superview !== btnView { btnView.addSubview(urlView) }
+                } else {
+                    for child in btnView.subviews where child is ImageView { child.removeFromSuperview() }
                 }
-                
-                view?.addSubview(btnView)
+                updatedSubviews.append(btnView)
             }
         }
+        if previousSubviews.count != updatedSubviews.count || !zip(previousSubviews, updatedSubviews).allSatisfy({ $0 === $1 }) {
+            for previous in previousSubviews where !updatedSubviews.contains(where: { $0 === previous }) {
+                (previous as? Control)?.removeAllHandlers()
+            }
+            view.subviews = updatedSubviews
+        }
+        container?.accountIdentity = accountIdentity
     }
     
     public func proccess(_ control:Control, _ button:ReplyMarkupButton) {

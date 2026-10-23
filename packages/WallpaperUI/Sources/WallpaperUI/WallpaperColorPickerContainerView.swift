@@ -240,6 +240,7 @@ public final class WallpaperColorPickerContainerView : View {
                 
         addColor.set(image: theme.icons.wallpaper_color_add, for: .Normal)
         _ = addColor.sizeToFit()
+        addColor.setAccessibilityLabel(strings().voiceOverCommonAdd)
     }
     
     public func updateMode(_ mode: WallpaperColorSelectMode, animated: Bool) {

@@ -18,6 +18,13 @@ public final class ChatCalendarMonthRowItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return ChatCalendarMonthRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: appAppearance.language.languageCode)
+        formatter.dateFormat = "LLLL yyyy"
+        return formatter.string(from: month.month)
+    }
 }
 
 

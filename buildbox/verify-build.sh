@@ -14,6 +14,8 @@ fail() {
 
 [ -d "$APP" ] || fail "$APP was not built"
 
+python3 "$SOURCE_DIR/buildbox/verify-no-labs.py" "$APP"
+
 expected_version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$SOURCE_DIR/Telegram-Mac/Info.plist")
 built_version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Contents/Info.plist")
 [ "$built_version" = "$expected_version" ] || fail "the built app is $built_version but this commit is $expected_version, so another build wrote into $BUILD_DIR"

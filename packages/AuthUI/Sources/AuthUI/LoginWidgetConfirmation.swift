@@ -283,6 +283,10 @@ private final class LoginWidgetHeaderItem: GeneralRowItem {
         return LoginWidgetHeaderView.self
     }
 
+    override var accessibilityLabel: String? {
+        return bot?._asPeer().displayTitle ?? strings().loginWidgetLogIn
+    }
+
     override var height: CGFloat {
         return showLogo ? 100 : 50
     }
@@ -302,6 +306,10 @@ private final class LoginWidgetHeaderView: GeneralRowView {
         super.init(frame: frameRect)
         
         self.layer?.masksToBounds = false
+
+        dismissButton.setAccessibilityLabel(strings().voiceOverCommonClose)
+        logoImageView.isAccessibilityDecorative = true
+        accountChevron.isAccessibilityDecorative = true
 
         dismissButton.setFrameSize(30, 30)
         dismissButton.autohighlight = false
@@ -376,6 +384,7 @@ private final class LoginWidgetHeaderView: GeneralRowView {
 
         if let selectedAccount = item.accounts.first(where: { $0.account.id == item.selectedAccountId }) ?? item.accounts.first {
             accountAvatar.setPeer(account: selectedAccount.account, peer: selectedAccount.peer)
+            accountButton.setAccessibilityLabel(selectedAccount.peer.displayTitle)
         }
 
         accountChevron.image = TelegramThemeHooks.shared.image(.iconDoubleChevron).precomposed(theme.colors.grayIcon)
@@ -447,6 +456,14 @@ private final class LoginWidgetDomainItem: GeneralRowItem {
         return LoginWidgetDomainView.self
     }
 
+    override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
     override var height: CGFloat {
         return titleLayout.layoutSize.height + 5
     }
@@ -514,6 +531,14 @@ private final class LoginWidgetNumbersItem: GeneralRowItem {
         return LoginWidgetNumbersView.self
     }
 
+    override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    override var accessibilityValue: String? {
+        return subtitleLayout.attributedString.string
+    }
+
     override var height: CGFloat {
         return titleLayout.layoutSize.height + 5 + subtitleLayout.layoutSize.height + 15 + 60
     }
@@ -571,6 +596,7 @@ private final class LoginWidgetNumbersView: GeneralRowView {
             let layout = TextViewLayout(text, alignment: .center)
             layout.measure(width: .greatestFiniteMagnitude)
             label.set(text: layout, context: context)
+            setAccessibilityLabel(code)
 
 
             needsLayout = true
@@ -653,6 +679,10 @@ private final class LoginWidgetButtonsItem: GeneralRowItem {
 
     override func viewClass() -> AnyClass {
         return LoginWidgetButtonsView.self
+    }
+
+    override var accessibilityLabel: String? {
+        return cancelOnly ? strings().loginWidgetCancel : strings().loginWidgetLogIn
     }
 
     override var height: CGFloat {
@@ -934,6 +964,9 @@ public func LoginWidgetConfirmationController(context: any AccountContextProtoco
     getController = { [weak controller] in
         return controller
     }
+
+
+
 
     controller.onDeinit = {
         actionsDisposable.dispose()

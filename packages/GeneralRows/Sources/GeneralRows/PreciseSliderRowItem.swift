@@ -2,6 +2,7 @@ import Cocoa
 import TGUIKit
 import TelegramTheme
 import ColorPalette
+import Localization
 
 
 
@@ -29,6 +30,53 @@ public final class PrecieSliderRowItem : GeneralRowItem {
     
     public override func viewClass() -> AnyClass {
         return PrecieSliderRowView.self
+    }
+
+    private var accessibilityCurrentValue: String {
+        return showValue ?? "\(Int((current * 100).rounded()))%"
+    }
+
+    public override var accessibilityLabel: String? {
+        if markers.count >= 2, let first = markers.first, let last = markers.last {
+            return "\(first) – \(last)"
+        }
+        return accessibilityCurrentValue
+    }
+
+    public override var accessibilityValue: String? {
+        return markers.count >= 2 ? accessibilityCurrentValue : nil
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .slider
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    private var accessibilityLiveValue: CGFloat?
+
+    private func accessibilityStep(_ delta: CGFloat) -> Bool {
+        let value = min(1, max(minValue, (accessibilityLiveValue ?? current) + delta))
+        accessibilityLiveValue = value
+        update(value)
+        return true
+    }
+
+    public override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        return [
+            NSAccessibilityCustomAction(name: strings().voiceOverCommonUp, handler: { [weak self] in
+                return self?.accessibilityStep(0.1) ?? false
+            }),
+            NSAccessibilityCustomAction(name: strings().voiceOverCommonDown, handler: { [weak self] in
+                return self?.accessibilityStep(-0.1) ?? false
+            })
+        ]
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        return false
     }
 }
 

@@ -52,6 +52,17 @@ private final class EmptyRowItem: GeneralRowItem {
     public override var height: CGFloat {
         return 270
     }
+
+    public override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    public override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        return [NSAccessibilityCustomAction(name: clearLayout.attributedString.string, handler: { [weak self] in
+            self?.arguments.clearFilters()
+            return true
+        })]
+    }
     
     public override func viewClass() -> AnyClass {
         return EmptyRowView.self
@@ -291,6 +302,15 @@ private final class HeaderItem : GeneralRowItem {
     public override var height: CGFloat {
         return 105
     }
+
+    public override var accessibilityLabel: String? {
+        return headerLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        let balance = balanceLayout.attributedString.string.replacingOccurrences(of: clown, with: "")
+        return [infoLayout.attributedString.string, balance].joined(separator: ", ")
+    }
     
     public override func viewClass() -> AnyClass {
         return HeaderItemView.self
@@ -322,6 +342,8 @@ private class HeaderItemView: GeneralRowView {
             
             textView.userInteractionEnabled = false
             textView.isSelectable = false
+            textView.isAccessibilityDecorative = true
+            imageView.isAccessibilityDecorative = true
             
             
             imageView.image = TelegramThemeHooks.shared.image(.iconAffiliateExpand).precomposed(theme.colors.darkGrayText)
@@ -334,6 +356,7 @@ private class HeaderItemView: GeneralRowView {
         
         public func set(item: HeaderItem.AttributeItem, arguments: Arguments, animated: Bool) {
             self.textView.update(item.text)
+            self.setAccessibilityLabel(item.text.attributedString.string)
             
             
             self.contextMenu = {
@@ -348,6 +371,7 @@ private class HeaderItemView: GeneralRowView {
                     current = view
                 } else {
                     current = ImageView()
+                    current.isAccessibilityDecorative = true
                     addSubview(current)
                     self.leftIconView = current
                 }
@@ -396,6 +420,7 @@ private class HeaderItemView: GeneralRowView {
         dismiss.set(image: theme.icons.glass_close, for: .Normal)
         dismiss.setGlassEffect(size: NSMakeSize(36, 36))
         dismiss.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
         
         headerView.userInteractionEnabled = false
         headerView.isSelectable = false
@@ -629,6 +654,18 @@ private final class SectionHeaderItem: GeneralRowItem {
         return 30
     }
 
+    public override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .staticText
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
     public override func viewClass() -> AnyClass {
         return SectionHeaderView.self
     }
@@ -676,6 +713,10 @@ private final class CraftGiftsRowItem: GeneralRowItem {
         return 120
     }
 
+    public override var accessibilityLabel: String? {
+        return strings().voiceOverCommonGift
+    }
+
     public override func viewClass() -> AnyClass {
         return CraftGiftsRowView.self
     }
@@ -690,6 +731,26 @@ private final class CraftGiftsRowView: GeneralRowView {
         private var backgroundContext: (any AccountContextProtocol)?
         private var badgeView: ImageView?
         private let chanceTextView = TextView()
+        private var accessibilityGift: StarGift.UniqueGift?
+        private var isAccessibilityLocked: Bool = false
+
+        public override var accessibilityDefaultLabel: String? {
+            guard let gift = accessibilityGift else {
+                return nil
+            }
+            return "\(gift.title) #\(gift.number)"
+        }
+
+        public override func accessibilityValue() -> Any? {
+            var parts: [String] = []
+            if let text = chanceTextView.textLayout?.attributedString.string, !text.isEmpty {
+                parts.append(text)
+            }
+            if isAccessibilityLocked {
+                parts.append(strings().voiceOverCommonLocked)
+            }
+            return parts.isEmpty ? nil : parts.joined(separator: ", ")
+        }
 
         public required init(frame frameRect: NSRect) {
             super.init(frame: frameRect)
@@ -699,6 +760,7 @@ private final class CraftGiftsRowView: GeneralRowView {
             (modelView as? View)?.userInteractionEnabled = false
             chanceTextView.userInteractionEnabled = false
             chanceTextView.isSelectable = false
+            chanceTextView.isAccessibilityDecorative = true
 
             scaleOnClick = true
             layer?.cornerRadius = 14
@@ -728,6 +790,8 @@ private final class CraftGiftsRowView: GeneralRowView {
             }, for: .Click)
 
             self.alphaValue = isCraftLocked ? 0.8 : 1.0
+            self.isAccessibilityLocked = isCraftLocked
+            self.accessibilityGift = gift.gift.unique
 
             guard let unique = gift.gift.unique else { return }
 
@@ -756,6 +820,7 @@ private final class CraftGiftsRowView: GeneralRowView {
                 badge = existing
             } else {
                 badge = ImageView()
+                badge.isAccessibilityDecorative = true
                 addSubview(badge)
                 badgeView = badge
             }
@@ -874,6 +939,10 @@ private final class FilterRowItem: TableStickItem {
         return 40
     }
 
+    public override var accessibilityLabel: String? {
+        return strings().voiceOverCommonFilter
+    }
+
     public override func viewClass() -> AnyClass {
         return FilterRowView.self
     }
@@ -894,6 +963,8 @@ private final class FilterRowView: TableStickView {
             scaleOnClick = true
             textView.userInteractionEnabled = false
             textView.isSelectable = false
+            textView.isAccessibilityDecorative = true
+            imageView.isAccessibilityDecorative = true
             imageView.image = TelegramThemeHooks.shared.image(.iconAffiliateExpand).precomposed(theme.colors.darkGrayText)
             imageView.sizeToFit()
         }
@@ -904,6 +975,7 @@ private final class FilterRowView: TableStickView {
 
         public func set(item: HeaderItem.AttributeItem, arguments: Arguments, animated: Bool) {
             self.textView.update(item.text)
+            self.setAccessibilityLabel(item.text.attributedString.string)
             self.contextMenu = {
                 let menu = ContextMenu()
                 menu.items = arguments.getMenuItems(item.attribute)
@@ -916,6 +988,7 @@ private final class FilterRowView: TableStickView {
                     current = view
                 } else {
                     current = ImageView()
+                    current.isAccessibilityDecorative = true
                     addSubview(current)
                     self.leftIconView = current
                 }

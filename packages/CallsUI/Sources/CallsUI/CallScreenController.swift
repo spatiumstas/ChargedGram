@@ -243,6 +243,9 @@ public func callScreen(_ result:PCallResult, source: CallWindowSource? = nil) {
             }
         }, endcall: { [weak session] state in
             
+            if case .ringing = state.state {
+            }
+            
             switch state.state {
             case let .terminated(reason):
                 if let reason = reason, reason.recall {
@@ -263,6 +266,8 @@ public func callScreen(_ result:PCallResult, source: CallWindowSource? = nil) {
                 callScreen(result)
             })
         }, acceptcall: { [weak session] in
+            if let session {
+            }
             session?.acceptCallSession()
         }, video: { [weak session] isIncoming in
             return session?.makeVideo(isIncoming: isIncoming).map { MetalVideoMakeSource(videoStreamSignal: $0) }
@@ -355,8 +360,8 @@ private func observeCallTermination(_ session: PCallSession) {
         return .complete()
     }
     |> take(1)
-    |> deliverOnMainQueue
-    callTerminationDisposable.set(outcome.startStandalone(next: { outcome in
+    let terminated = outcome |> deliverOnMainQueue
+    callTerminationDisposable.set(terminated.startStandalone(next: { outcome in
         guard let accountContext = CallsCoreHooks.shared.accountContext(accountId) else {
             return
         }

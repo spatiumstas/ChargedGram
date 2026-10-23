@@ -14,7 +14,9 @@ public final class ActionButton : Control {
 
         self.imageView.animates = true
         imageView.isEventLess = true
+        imageView.isAccessibilityDecorative = true
         textView.isEventLess = true
+        textView.isAccessibilityDecorative = true
         textView.userInteractionEnabled = false
         textView.isSelectable = false
 
@@ -38,6 +40,7 @@ public final class ActionButton : Control {
     }
 
     public func updateAndLayout(item: ActionItem, bgColor: NSColor, useGlass: Bool) {
+        self.setAccessibilityLabel(item.text)
         if useGlass {
             let foreground: NSColor = bgColor.lightness > 0.8 ? NSColor.black : NSColor.white
             self.imageView.image = item.image.highlight(color: foreground)

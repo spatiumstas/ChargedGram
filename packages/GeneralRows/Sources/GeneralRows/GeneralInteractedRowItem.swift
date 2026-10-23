@@ -1,6 +1,7 @@
 import Cocoa
 import TGUIKit
 import SwiftSignalKit
+import Localization
 #if SHARE
 import TelegramThemeShare
 import TelegramContextShare
@@ -196,6 +197,107 @@ open class GeneralInteractedRowItem: GeneralRowItem {
             }
         } else {
             return super.menuItems(in: location)
+        }
+    }
+
+    open override var accessibilityLabel: String? {
+        let title = nameAttributed?.string ?? name
+        return title.isEmpty ? nil : title
+    }
+
+    open override var accessibilityValue: String? {
+        switch type {
+        case let .context(value), let .contextColored(value, _), let .nextContext(value), let .imageContext(_, value), let .badge(value, _):
+            return value.isEmpty ? nil : value
+        case let .twoLinesContext(first, second):
+            return [first, second].filter { !$0.isEmpty }.joined(separator: ", ")
+        #if !SHARE
+        case let .contextSelector(value, _):
+            return value.isEmpty ? nil : value
+        #endif
+        case let .switchable(value), let .selectableLeft(value):
+            guard accessibilityHasSeparateSwitch else {
+                return nil
+            }
+            return value ? strings().voiceOverCommonChecked : strings().voiceOverCommonUnchecked
+        default:
+            return nil
+        }
+    }
+
+    private var accessibilityHasSeparateSwitch: Bool {
+        guard switchAction != nil else {
+            return false
+        }
+        switch type {
+        case .switchable, .selectableLeft:
+            return true
+        default:
+            return false
+        }
+    }
+
+    open override var accessibilityRole: NSAccessibility.Role? {
+        if accessibilityHasSeparateSwitch {
+            return .button
+        }
+        switch type {
+        case .switchable:
+            return .checkBox
+        case .selectable, .selectableLeft:
+            return .radioButton
+        case .loading:
+            return .busyIndicator
+        default:
+            return .button
+        }
+    }
+
+    open override var accessibilityHelp: String? {
+        guard let text = descLayout?.attributedString.string, !text.isEmpty else {
+            return nil
+        }
+        return text
+    }
+
+    open override var accessibilityIsEnabled: Bool {
+        return enabled
+    }
+
+    open override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    open override func accessibilityPerformPress() -> Bool {
+        #if !SHARE
+        if case let .contextSelector(_, items) = type, let view = view as? GeneralInteractedRowView {
+            return enabled && view.showAccessibilityContextSelector(items)
+        }
+        #endif
+        if let view = view as? GeneralInteractedRowView {
+            view.invokeAction(self)
+            return true
+        }
+        if enabled {
+            if case let .switchable(value) = type, autoswitch, switchAction == nil {
+                type = .switchable(!value)
+            }
+            action()
+        } else {
+            disabledAction?()
+        }
+        return true
+    }
+
+    open override var accessibilityToggleState: Bool? {
+        if accessibilityHasSeparateSwitch {
+            return nil
+        }
+        switch type {
+        case let .switchable(value), let .selectable(value), let .selectableLeft(value):
+            return value
+        default:
+            return nil
         }
     }
 }

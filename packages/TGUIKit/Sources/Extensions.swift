@@ -139,9 +139,20 @@ public extension NSAttributedString {
     }
     
     static func initialize(string:String?, color:NSColor? = nil, font:NSFont? = .normal(.text)) -> NSAttributedString {
-        let attr:NSMutableAttributedString = NSMutableAttributedString()
-        _ = attr.append(string: string, color: color, font: font)
-        
+        guard let string, !string.isEmpty else {
+            return NSAttributedString(string: "")
+        }
+        if color == nil, font == nil {
+            return NSAttributedString(string: string)
+        }
+        let attr = NSMutableAttributedString(string: string)
+        let range = NSRange(location: 0, length: attr.length)
+        if let color {
+            attr.addAttribute(.foregroundColor, value: color, range: range)
+        }
+        if let font {
+            attr.addAttribute(.font, value: font, range: range)
+        }
         return attr.copy() as! NSAttributedString
     }
     convenience init(string: String, font: NSFont? = nil, textColor: NSColor = NSColor.black, paragraphAlignment: NSTextAlignment? = nil) {
@@ -489,9 +500,7 @@ public extension CALayer {
 
     
     func disableActions() -> Void {
-        
-        self.actions = ["onOrderIn":NSNull(),"sublayers":NSNull(),"bounds":NSNull(),"frame":NSNull(), "background":NSNull(), "position":NSNull(),"contents":NSNull(),"backgroundColor":NSNull(),"border":NSNull(), "shadowOffset": NSNull()]
-        removeAllAnimations()
+        TGDisableLayerActions(self)
     }
     
     
@@ -1143,6 +1152,118 @@ public extension CGSize {
     }
 }
 
+private final class PrecomposedImageTintCache {
+    static let shared = PrecomposedImageTintCache()
+
+    private struct Key: Hashable {
+        let source: ObjectIdentifier
+        let color: CGColor
+        let colorHash: CFHashCode
+        let width: CGFloat
+        let height: CGFloat
+        let scale: CGFloat
+        let flipVertical: Bool
+        let flipHorizontal: Bool
+
+        static func ==(lhs: Key, rhs: Key) -> Bool {
+            lhs.source == rhs.source && lhs.width == rhs.width && lhs.height == rhs.height && lhs.scale == rhs.scale && lhs.flipVertical == rhs.flipVertical && lhs.flipHorizontal == rhs.flipHorizontal && CFEqual(lhs.color, rhs.color)
+        }
+
+        func hash(into hasher: inout Hasher) {
+            hasher.combine(source)
+            hasher.combine(width)
+            hasher.combine(height)
+            hasher.combine(scale)
+            hasher.combine(flipVertical)
+            hasher.combine(flipHorizontal)
+            hasher.combine(colorHash)
+        }
+    }
+
+    private struct Entry {
+        weak var source: CGImage?
+        let output: CGImage
+        let cost: Int
+
+        init(source: CGImage, output: CGImage) {
+            self.source = source
+            self.output = output
+            self.cost = output.bytesPerRow * output.height
+        }
+    }
+
+    private let lock = NSLock()
+    private var settings: DeviceGraphicsContextSettings?
+    private var entries: [Key: Entry] = [:]
+    private var order: [Key?] = Array(repeating: nil, count: 64)
+    private var first = 0
+    private var count = 0
+    private var retainedBytes = 0
+
+    func image(_ source: NSImage, color: NSColor? = nil, bottomColor: NSColor? = nil, flipVertical: Bool = false, flipHorizontal: Bool = false, scale: CGFloat = System.backingScale, zoom: CGFloat = 1) -> CGImage {
+        let size = source.size
+        guard let color = color, bottomColor == nil, zoom == 1, color.type == .componentBased, size.width <= 64, size.height <= 64 else {
+            return source.precomposedWithoutTintCache(color, bottomColor: bottomColor, flipVertical: flipVertical, flipHorizontal: flipHorizontal, scale: scale, zoom: zoom)
+        }
+        let resolvedScale = scale.isZero ? System.backingScale : scale
+        var imageRect = CGRect(origin: .zero, size: size)
+        let bitmap = source.cgImage(forProposedRect: &imageRect, context: nil, hints: nil)!
+        let resolvedColor = color.cgColor
+        let key = Key(source: ObjectIdentifier(bitmap), color: resolvedColor, colorHash: CFHash(resolvedColor), width: size.width, height: size.height, scale: resolvedScale, flipVertical: flipVertical, flipHorizontal: flipHorizontal)
+        let settings = DeviceGraphicsContextSettings.shared
+        lock.lock()
+        if self.settings != settings {
+            entries.removeAll(keepingCapacity: true)
+            order = Array(repeating: nil, count: 64)
+            first = 0
+            count = 0
+            retainedBytes = 0
+            self.settings = settings
+        }
+        if let entry = entries[key], entry.source === bitmap {
+            lock.unlock()
+            return entry.output
+        }
+        lock.unlock()
+
+        let drawingContext = DrawingContext(size: size, scale: resolvedScale, clear: true)
+        drawingContext.withFlippedContext(horizontal: flipHorizontal, vertical: flipVertical) { context in
+            let rect = CGRect(origin: .zero, size: drawingContext.size)
+            context.interpolationQuality = .high
+            context.clip(to: rect, mask: bitmap)
+            context.setFillColor(key.color)
+            context.fill(rect)
+        }
+        let image = drawingContext.generateImage()!
+        let cost = image.bytesPerRow * image.height
+        guard cost <= 64 * 1024 else { return image }
+        lock.lock()
+        defer { lock.unlock() }
+        guard self.settings == settings, DeviceGraphicsContextSettings.shared == settings else { return image }
+        if let entry = entries[key] {
+            if entry.source === bitmap { return entry.output }
+            retainedBytes -= entry.cost
+            entries[key] = Entry(source: bitmap, output: image)
+            retainedBytes += cost
+            while retainedBytes > 1024 * 1024 { evictFirst() }
+            return image
+        }
+        while count >= 64 || retainedBytes + cost > 1024 * 1024 { evictFirst() }
+        entries[key] = Entry(source: bitmap, output: image)
+        order[(first + count) % order.count] = key
+        count += 1
+        retainedBytes += cost
+        return image
+    }
+
+    private func evictFirst() {
+        if let key = order[first], let entry = entries.removeValue(forKey: key) { retainedBytes -= entry.cost }
+        order[first] = nil
+        first = (first + 1) % order.count
+        count -= 1
+    }
+}
+
 public extension NSImage {
     
     func precomposed(_ colors:[NSColor], flipVertical:Bool = false, flipHorizontal:Bool = false, scale: CGFloat = System.backingScale) -> CGImage {
@@ -1189,6 +1310,10 @@ public extension NSImage {
     
     
     func precomposed(_ color:NSColor? = nil, bottomColor: NSColor? = nil, flipVertical:Bool = false, flipHorizontal:Bool = false, scale: CGFloat = System.backingScale, zoom: CGFloat = 1) -> CGImage {
+        return PrecomposedImageTintCache.shared.image(self, color: color, bottomColor: bottomColor, flipVertical: flipVertical, flipHorizontal: flipHorizontal, scale: scale, zoom: zoom)
+    }
+
+    fileprivate func precomposedWithoutTintCache(_ color:NSColor? = nil, bottomColor: NSColor? = nil, flipVertical:Bool = false, flipHorizontal:Bool = false, scale: CGFloat = System.backingScale, zoom: CGFloat = 1) -> CGImage {
         
         let drawContext:DrawingContext = DrawingContext(size: NSMakeSize(size.width * zoom, size.height * zoom), scale: scale, clear: true)
         

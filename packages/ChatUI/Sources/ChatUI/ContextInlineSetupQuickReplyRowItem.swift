@@ -25,6 +25,23 @@ public class ContextInlineSetupQuickReplyRowItem: TableRowItem {
     public override func viewClass() -> AnyClass {
         return ContextInlineSetupQuickReplyRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return layout.attributedString.string
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        callback()
+        return true
+    }
     
     public override var height: CGFloat {
         return 40

@@ -1,5 +1,6 @@
 import Cocoa
 import TGUIKit
+import Localization
 #if SHARE
 import TelegramThemeShare
 import ColorPalette
@@ -78,6 +79,34 @@ open class SearchEmptyRowItem: GeneralRowItem {
     open override func viewClass() -> AnyClass {
         return SearchEmptyRowView.self
     }
+
+    open override var accessibilityLabel: String? {
+        if isLoading {
+            return strings().voiceOverCommonLoading
+        }
+        if let header = header?.attributedString.string, !header.isEmpty {
+            return header
+        }
+        if let text = text?.attributedString.string, !text.isEmpty {
+            return text
+        }
+        return strings().requestJoinListSearchEmptyHeader
+    }
+
+    open override var accessibilityValue: String? {
+        guard !isLoading, header != nil, let text = text?.attributedString.string, !text.isEmpty else {
+            return nil
+        }
+        return text
+    }
+
+    open override var accessibilityRole: NSAccessibility.Role? {
+        return isLoading ? .busyIndicator : .staticText
+    }
+
+    open override var accessibilityIncludesChildren: Bool {
+        return !isLoading && buttonAction != nil
+    }
 }
 
 
@@ -93,6 +122,8 @@ open class SearchEmptyRowView : TableRowView {
         addSubview(imageView)
         addSubview(textView)
         textView.isSelectable = false
+        textView.isAccessibilityDecorative = true
+        imageView.isAccessibilityDecorative = true
         
     }
     
@@ -180,6 +211,10 @@ open class SearchEmptyRowView : TableRowView {
                 current.set(handler: { _ in
                     action.click()
                 }, for: .Click)
+            } else if let action = self.action {
+                action.removeAllHandlers()
+                action.removeFromSuperview()
+                self.action = nil
             }
             
             if let header = item.header {
@@ -188,6 +223,7 @@ open class SearchEmptyRowView : TableRowView {
                     current = view
                 } else {
                     current = TextView()
+                    current.isAccessibilityDecorative = true
                     current.isSelectable = false
                     current.userInteractionEnabled = false
                     addSubview(current)

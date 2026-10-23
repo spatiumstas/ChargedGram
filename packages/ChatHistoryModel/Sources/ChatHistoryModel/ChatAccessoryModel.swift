@@ -8,7 +8,130 @@ import TelegramTheme
 import TelegramContext
 import TelegramUtils
 import InlineStickerLayer
+import Localization
 
+
+final class ChatAccessoryTextContent {
+    private(set) var nativeView: TextView?
+    private(set) var textLayout: TextViewLayout?
+    private(set) var frame: NSRect = .zero
+    private(set) var drawingLayer: TextViewLayer?
+
+    static func needsNativeText(_ layout: TextViewLayout?) -> Bool {
+        return layout.map {
+            !$0.embeddedItems.isEmpty || Self.hasSpoiler($0.attributedString) || !$0.toolTipRects.isEmpty
+                || $0.hasBlockQuotes || $0.hasBlock || $0.maskBlockImage.1 != nil
+        } ?? false
+    }
+
+    func update(_ layout: TextViewLayout?, in host: View, layer hostLayer: CALayer?, scale: CGFloat) {
+        textLayout = layout
+        let needsNative = Self.needsNativeText(layout)
+        if needsNative {
+            drawingLayer?.removeFromSuperlayer()
+            drawingLayer = nil
+            let view: TextView
+            if let current = nativeView {
+                view = current
+            } else {
+                view = TextView()
+                view.userInteractionEnabled = false
+                view.isSelectable = false
+                view.frame = frame
+                view.layer?.zPosition = 1
+                host.addSubview(view)
+                nativeView = view
+            }
+            view.update(layout)
+            frame = view.frame
+        } else {
+            nativeView?.removeFromSuperview()
+            nativeView = nil
+            if let layout {
+                let drawing: TextViewLayer
+                if let current = drawingLayer {
+                    drawing = current
+                } else {
+                    drawing = TextViewLayer()
+                    drawing.anchorPoint = .zero
+                    drawing.zPosition = 1
+                    hostLayer?.addSublayer(drawing)
+                    drawingLayer = drawing
+                }
+                drawing.update(layout)
+                frame.size = drawing.textSize
+                updateDrawingGeometry(transition: .immediate)
+            } else {
+                frame.size = .zero
+                drawingLayer?.removeFromSuperlayer()
+                drawingLayer = nil
+            }
+        }
+        updateScale(scale)
+    }
+
+    func updateFrame(_ frame: NSRect, transition: ContainedViewLayoutTransition) {
+        self.frame = frame
+        if let nativeView { transition.updateFrame(view: nativeView, frame: frame) }
+        updateDrawingGeometry(transition: transition)
+    }
+
+    func updateScale(_ scale: CGFloat) {
+        if let drawingLayer, drawingLayer.contentsScale != scale {
+            drawingLayer.contentsScale = scale
+            drawingLayer.setNeedsDisplay()
+        }
+    }
+
+    private static func hasSpoiler(_ text: NSAttributedString) -> Bool {
+        var found = false
+        text.enumerateAttribute(TextInputAttributes.spoiler, in: NSRange(location: 0, length: text.length)) { value, _, stop in
+            if value != nil {
+                found = true
+                stop.pointee = true
+            }
+        }
+        return found
+    }
+
+    private func updateDrawingGeometry(transition: ContainedViewLayoutTransition) {
+        guard let drawingLayer else { return }
+        let drawingBounds = CGRect(origin: .zero, size: frame.size).insetBy(dx: -2, dy: -3)
+        let drawingPosition = CGPoint(x: frame.minX - 2, y: frame.minY - 3)
+        switch transition {
+        case .immediate:
+            if drawingLayer.bounds != drawingBounds { drawingLayer.bounds = drawingBounds }
+            if drawingLayer.position != drawingPosition { drawingLayer.position = drawingPosition }
+        case let .animated(duration, curve):
+            if drawingLayer.bounds != drawingBounds {
+                let previous = drawingLayer.presentation()?.bounds ?? drawingLayer.bounds
+                drawingLayer.bounds = drawingBounds
+                drawingLayer.animateBounds(from: previous, to: drawingBounds, duration: duration, timingFunction: curve.timingFunction)
+            }
+            if drawingLayer.position != drawingPosition {
+                let previous = drawingLayer.presentation()?.position ?? drawingLayer.position
+                drawingLayer.position = drawingPosition
+                drawingLayer.animatePosition(from: previous, to: drawingPosition, duration: duration, timingFunction: curve.timingFunction)
+            }
+        }
+    }
+}
+
+final class ChatAccessoryIconLayer: SimpleLayer {
+    override init() {
+        super.init()
+        anchorPoint = .zero
+    }
+
+    override init(layer: Any) { super.init(layer: layer) }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func update(_ image: CGImage) {
+        contents = image
+        if bounds.size != image.backingSize { bounds.size = image.backingSize }
+        zPosition = 2
+    }
+}
 
 private final class StarsView: View {
     private let staticEmitterLayer = CAEmitterLayer()
@@ -103,11 +226,146 @@ private final class StarsView: View {
 }
 
 
+public protocol ChatAccessoryImageHost: AnyObject {
+    func setAccessoryCachedSignal(_ signal: Signal<TransformImageResult?, NoError>)
+    func setAccessorySignal(_ signal: Signal<ImageDataTransformation, NoError>, cacheImage: @escaping (TransformImageResult) -> Void)
+    func setAccessoryArguments(_ arguments: TransformImageArguments)
+    var accessoryImageFrame: NSRect { get set }
+    var accessoryImageCornerRadius: CGFloat { get set }
+}
+
+extension TransformImageView: ChatAccessoryImageHost {
+    public func setAccessoryCachedSignal(_ signal: Signal<TransformImageResult?, NoError>) {
+        self.setSignal(signal: signal, clearInstantly: false)
+    }
+    public func setAccessorySignal(_ signal: Signal<ImageDataTransformation, NoError>, cacheImage: @escaping (TransformImageResult) -> Void) {
+        self.setSignal(signal, animate: true, synchronousLoad: true, cacheImage: cacheImage)
+    }
+    public func setAccessoryArguments(_ arguments: TransformImageArguments) {
+        self.set(arguments: arguments)
+    }
+    public var accessoryImageFrame: NSRect {
+        get { frame }
+        set {
+            setFrameSize(newValue.size)
+            setFrameOrigin(newValue.origin)
+        }
+    }
+    public var accessoryImageCornerRadius: CGFloat {
+        get { layer?.cornerRadius ?? 0 }
+        set { layer?.cornerRadius = newValue }
+    }
+}
+
+extension TransformImageLayer: ChatAccessoryImageHost {
+    public func setAccessoryCachedSignal(_ signal: Signal<TransformImageResult?, NoError>) {
+        self.setSignal(signal: signal, clearInstantly: false)
+    }
+    public func setAccessorySignal(_ signal: Signal<ImageDataTransformation, NoError>, cacheImage: @escaping (TransformImageResult) -> Void) {
+        self.setSignal(signal, animate: true, synchronousLoad: true, cacheImage: cacheImage)
+    }
+    public func setAccessoryArguments(_ arguments: TransformImageArguments) {
+        self.set(arguments: arguments)
+    }
+    public var accessoryImageFrame: NSRect {
+        get { frame }
+        set { frame = newValue }
+    }
+    public var accessoryImageCornerRadius: CGFloat {
+        get { cornerRadius }
+        set { cornerRadius = newValue }
+    }
+}
+
 public class ChatAccessoryView : Button {
     public var imageView: TransformImageView?
-    public let headerView = TextView()
-    public var textView: TextView?
-    public var pollIconView: ImageView?
+    public private(set) var imageLayer: TransformImageLayer?
+    private let externalLayer: CALayer?
+    public weak var visibilityView: NSView?
+    public var layerHostScale: CGFloat = System.backingScale
+    public var layerHostFallback: (() -> Void)?
+    public var layerHostSizeDidChange: ((NSSize) -> Void)?
+
+    public override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        if changed, isLayerHosted {
+            layerHostSizeDidChange?(newSize)
+        }
+    }
+
+    public var isLayerHosted: Bool {
+        return externalLayer != nil
+    }
+
+    public var accessoryScale: CGFloat {
+        return isLayerHosted ? layerHostScale : backingScaleFactor
+    }
+
+    private var contentLayer: CALayer? {
+        return externalLayer ?? layer
+    }
+
+    public var accessoryImage: ChatAccessoryImageHost? {
+        return imageView ?? imageLayer
+    }
+
+    public func makeAccessoryImage() -> ChatAccessoryImageHost {
+        if let current = accessoryImage {
+            return current
+        }
+        if isLayerHosted {
+            let image = TransformImageLayer()
+            image.visibilityView = visibilityView
+            contentLayer?.addSublayer(image)
+            imageLayer = image
+            return image
+        } else {
+            let image = TransformImageView()
+            imageView = image
+            addSubview(image)
+            return image
+        }
+    }
+
+    public func removeAccessoryImage() {
+        imageView?.removeFromSuperview()
+        imageView = nil
+        imageLayer?.removeFromSuperlayer()
+        imageLayer = nil
+    }
+
+    #if DEBUG
+    public static var debugRejectsLayerUpdates: Bool = false
+    #endif
+
+    public static func canHostInLayer(_ model: ChatAccessoryModel) -> Bool {
+        guard let reply = model as? ReplyModel, type(of: model) == ReplyModel.self else { return false }
+        if reply.replyMessage?.isCopyProtected() == true {
+            return false
+        }
+        if model.isSummarize || model.shimm.1 != nil {
+            return false
+        }
+        return !ChatAccessoryTextContent.needsNativeText(model.header) && !ChatAccessoryTextContent.needsNativeText(model.message)
+    }
+
+    public init(layerHost: CALayer) {
+        self.externalLayer = layerHost
+        super.init(frame: .zero)
+        initialize()
+    }
+
+    public func layerHostScaleDidChange(_ scale: CGFloat) {
+        guard isLayerHosted, layerHostScale != scale else { return }
+        layerHostScale = scale
+        updateTextScale()
+    }
+    private let headerContent = ChatAccessoryTextContent()
+    private let messageContent = ChatAccessoryTextContent()
+    public var headerView: TextView? { headerContent.nativeView }
+    public var textView: TextView? { messageContent.nativeView }
+    private var pollIconLayer: ChatAccessoryIconLayer?
     
     private var shimmerEffect: ShimmerView?
     private var shimmerMask: SimpleLayer?
@@ -124,27 +382,31 @@ public class ChatAccessoryView : Button {
     
     private let backgroundView = SimpleLayer()
     
-    private var quoteView: ImageView?
+    private var quoteLayer: ChatAccessoryIconLayer?
     private var starsView: StarsView?
     private var infoButton: ImageButton?
 
     private let borderLayer = DashLayer()
+
+    public override var accessibilityDefaultLabel: String? {
+        let parts = [headerContent.textLayout?.attributedString.string, messageContent.textLayout?.attributedString.string].compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: ". ")
+    }
+
     public required init(frame frameRect: NSRect) {
+        self.externalLayer = nil
         super.init(frame: frameRect)
         initialize()
     }
     
     private func initialize() {
-        headerView.userInteractionEnabled = false
-        headerView.isSelectable = false
-        addSubview(headerView)
-                
-        self.layer?.addSublayer(backgroundView)
-        self.layer?.addSublayer(borderLayer)
+        contentLayer?.addSublayer(backgroundView)
+        contentLayer?.addSublayer(borderLayer)
         
     }
     
     public override init() {
+        self.externalLayer = nil
         super.init(frame: .zero)
         initialize()
     }
@@ -167,33 +429,40 @@ public class ChatAccessoryView : Button {
         
         let x: CGFloat = model.leftInset// + (model.isSideAccessory ? 10 : 0)
 
-        let headerRect = CGRect(origin: NSMakePoint(x + model.mediaInset,  model.topOffset + 2), size: headerView.frame.size)
-        transition.updateFrame(view: headerView, frame: headerRect)
+        let headerRect = CGRect(origin: NSMakePoint(x + model.mediaInset,  model.topOffset + 2), size: headerContent.frame.size)
+        headerContent.updateFrame(headerRect, transition: transition)
         
-        if let textView = textView {
-            var textX = x
-            if let pollIconView = pollIconView {
-                let iconY = headerRect.height + model.topOffset + 2 + floorToScreenPixels(backingScaleFactor, (textView.frame.height - pollIconView.frame.height) / 2) + 1
-                transition.updateFrame(view: pollIconView, frame: NSMakeRect(x + model.mediaInset, iconY, pollIconView.frame.width, pollIconView.frame.height))
-                textX += pollIconView.frame.width + 4
-            }
-            let textRect = CGRect(origin: NSMakePoint(textX, headerRect.height + model.topOffset + 2), size: textView.frame.size)
-            transition.updateFrame(view: textView, frame: textRect)
-            if let view = shimmerEffect {
-                let rect = CGRect(origin: textRect.origin, size: view.frame.size)
-                transition.updateFrame(view: view, frame: rect.offsetBy(dx: -5, dy: -1))
-            }
+        var textX = x
+        if let pollIconLayer {
+            let iconY = headerRect.height + model.topOffset + 2 + floorToScreenPixels(backingScaleFactor, (messageContent.frame.height - pollIconLayer.frame.height) / 2) + 1
+            transition.updateFrame(layer: pollIconLayer, frame: NSMakeRect(x + model.mediaInset, iconY, pollIconLayer.frame.width, pollIconLayer.frame.height))
+            textX += pollIconLayer.frame.width + 4
         }
-        
-        if let quoteView = quoteView {
-            transition.updateFrame(view: quoteView, frame: NSMakeRect(size.width - quoteView.frame.width - 2, 2, quoteView.frame.width, quoteView.frame.height))
+        let textRect = CGRect(origin: NSMakePoint(textX, headerRect.height + model.topOffset + 2), size: messageContent.frame.size)
+        messageContent.updateFrame(textRect, transition: transition)
+        if let view = shimmerEffect {
+            let rect = CGRect(origin: textRect.origin, size: view.frame.size)
+            transition.updateFrame(view: view, frame: rect.offsetBy(dx: -5, dy: -1))
         }
-        
+
+        if let quoteLayer {
+            transition.updateFrame(layer: quoteLayer, frame: NSMakeRect(size.width - quoteLayer.frame.width - 2, 2, quoteLayer.frame.width, quoteLayer.frame.height))
+        }
+
         transition.updateFrame(layer: backgroundView, frame: size.bounds)
                 
     }
     
     public func updateModel(_ model: ChatAccessoryModel, animated: Bool) {
+        #if DEBUG
+        let rejected = ChatAccessoryView.debugRejectsLayerUpdates
+        #else
+        let rejected = false
+        #endif
+        if isLayerHosted, rejected || !ChatAccessoryView.canHostInLayer(model) {
+            layerHostFallback?()
+            return
+        }
         self.model = model
         
         var cornerRadius: CGFloat = 0
@@ -207,7 +476,7 @@ public class ChatAccessoryView : Button {
         borderLayer.colors = model.presentation.colors
 
         borderLayer.opacity = model.drawLine ? 1 : 0
-        self.layer?.cornerRadius = cornerRadius
+        contentLayer?.cornerRadius = cornerRadius
        
         
         if model.drawLine {
@@ -234,51 +503,42 @@ public class ChatAccessoryView : Button {
             borderLayer.cornerRadius = cornerRadius
         }
                 
-        headerView.update(model.header)
-        
-        if let view = self.textView {
-            view.update(model.message)
-        } else {
-            if let view = self.textView {
-                performSubviewRemoval(view, animated: animated)
-            }
-            let previous = self.textView != nil
-            let current: TextView = TextView()
-            current.update(model.message)
-            current.userInteractionEnabled = false
-            current.isSelectable = false
-            addSubview(current)
-            self.textView = current
-            self.updateLayout(self.frame.size, transition: .immediate)
-            if animated, previous {
-                current.layer?.animateAlpha(from: 0, to: 1, duration: 0.2)
-            }
-        }
-     
+        headerContent.update(model.header, in: self, layer: contentLayer, scale: accessoryScale)
+        messageContent.update(model.message, in: self, layer: contentLayer, scale: accessoryScale)
+
         if let message = model.message, let view = self.textView {
             updateInlineStickers(context: model.context, view: view, textLayout: message, itemViews: &text_inlineStickerItemViews)
-            updateAnimatableContent()
+        } else {
+            for layer in text_inlineStickerItemViews.values {
+                layer.isPlayable = false
+                layer.removeFromSuperlayer()
+            }
+            text_inlineStickerItemViews.removeAll()
         }
 
         if let replyModel = model as? ReplyModel, let icon = replyModel.pollIcon {
-            let current: ImageView
-            if let existing = self.pollIconView {
+            let current: ChatAccessoryIconLayer
+            if let existing = pollIconLayer {
                 current = existing
             } else {
-                current = ImageView()
-                addSubview(current)
-                self.pollIconView = current
+                current = ChatAccessoryIconLayer()
+                contentLayer?.addSublayer(current)
+                pollIconLayer = current
             }
-            current.image = icon
-            current.setFrameSize(icon.backingSize)
+            current.update(icon)
         } else {
-            self.pollIconView?.removeFromSuperview()
-            self.pollIconView = nil
+            pollIconLayer?.removeFromSuperlayer()
+            pollIconLayer = nil
         }
-        
-        if let textLayout = model.header {
-            updateInlineStickers(context: model.context, view: self.headerView, textLayout: textLayout, itemViews: &header_inlineStickerItemViews)
-            updateAnimatableContent()
+
+        if let textLayout = model.header, let headerView {
+            updateInlineStickers(context: model.context, view: headerView, textLayout: textLayout, itemViews: &header_inlineStickerItemViews)
+        } else {
+            for layer in header_inlineStickerItemViews.values {
+                layer.isPlayable = false
+                layer.removeFromSuperlayer()
+            }
+            header_inlineStickerItemViews.removeAll()
         }
         
         if let blockImage = model.shimm.1 {
@@ -289,6 +549,7 @@ public class ChatAccessoryView : Button {
             } else {
                 current = ShimmerView()
                 self.shimmerEffect = current
+                current.layer?.zPosition = 2
                 self.addSubview(current, positioned: .above, relativeTo: textView)
                 
                 if animated {
@@ -325,20 +586,18 @@ public class ChatAccessoryView : Button {
         }
         
         if let quote = model.quoteIcon {
-            let current: ImageView
-            if let view = self.quoteView {
-                current = view
+            let current: ChatAccessoryIconLayer
+            if let existing = quoteLayer {
+                current = existing
             } else {
-                current = ImageView()
-                addSubview(current)
-                self.quoteView = current
+                current = ChatAccessoryIconLayer()
+                contentLayer?.addSublayer(current)
+                quoteLayer = current
             }
-            current.image = quote
-            current.sizeToFit()
-            
-        } else if let view = self.quoteView {
-            performSubviewRemoval(view, animated: animated)
-            self.quoteView = nil
+            current.update(quote)
+        } else if let quoteLayer {
+            performSublayerRemoval(quoteLayer, animated: animated)
+            self.quoteLayer = nil
         }
 
         if model.isSummarize {
@@ -360,6 +619,7 @@ public class ChatAccessoryView : Button {
                 } else {
                     infoButton = ImageButton()
                     infoButton.autohighlight = false
+                    infoButton.setAccessibilityLabel(strings().voiceOverCommonInfo)
                     self.infoButton = infoButton
                     self.addSubview(infoButton)
                 }
@@ -425,7 +685,7 @@ public class ChatAccessoryView : Button {
                     patternContentLayer = self.patternContentLayers[maxIndex]
                 } else {
                     patternContentLayer = SimpleLayer()
-                    self.layer?.addSublayer(patternContentLayer)
+                    contentLayer?.addSublayer(patternContentLayer)
                     self.patternContentLayers.append(patternContentLayer)
                 }
                 patternContentLayer.layerTintColor = tintColor
@@ -461,7 +721,7 @@ public class ChatAccessoryView : Button {
                 })
                 patternTarget?.noDelayBeforeplay = true
                 patternTarget?.isPlayable = true
-                patternTarget?.superview = self
+                patternTarget?.superview = visibilityView ?? self
             }
         } else {
             patternTarget = nil
@@ -481,7 +741,7 @@ public class ChatAccessoryView : Button {
                 giftEmojiLayer = .init(account: model.context.account, inlinePacksContext: model.context.inlinePacksContext, emoji: .init(fileId: giftEmojiFileId, file: nil, emoji: ""), size: NSMakeSize(20, 20), playPolicy: .playCount(2), textColor: model.presentation.colors.main)
                 giftEmojiLayer.opacity = 0.6
                 self.giftEmojiLayer = giftEmojiLayer
-                self.layer?.addSublayer(giftEmojiLayer)
+                contentLayer?.addSublayer(giftEmojiLayer)
                 giftEmojiLayer.frame = giftLayerFrame
             }
             
@@ -501,6 +761,7 @@ public class ChatAccessoryView : Button {
         updateLayout(frame.size, transition: transition)
         
         self.updateListeners()
+        self.updateAnimatableContent()
         
         self.updateTheme()
 
@@ -526,14 +787,28 @@ public class ChatAccessoryView : Button {
             } else {
                 self.backgroundColor = .clear
             }
+            if let externalLayer {
+                externalLayer.backgroundColor = self.backgroundColor.cgColor
+            }
         }
     }
     
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        updateTextScale()
         self.updateListeners()
         self.updateAnimatableContent()
     }
+    public override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        updateTextScale()
+    }
+
+    private func updateTextScale() {
+        headerContent.updateScale(accessoryScale)
+        messageContent.updateScale(accessoryScale)
+    }
+
     public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         self.updateListeners()
@@ -543,21 +818,21 @@ public class ChatAccessoryView : Button {
     
     
     @objc func updateAnimatableContent() -> Void {
-        for (_, value) in text_inlineStickerItemViews {
-            if let superview = value.superview {
-                value.isPlayable = NSIntersectsRect(value.frame, superview.visibleRect) && window != nil && window!.isKeyWindow && !isLite
-            }
-        }
-        for (_, value) in header_inlineStickerItemViews {
-            if let superview = value.superview {
-                value.isPlayable = NSIntersectsRect(value.frame, superview.visibleRect) && window != nil && window!.isKeyWindow && !isLite
-            }
-        }
+        updateInlineStickerPlayback(text_inlineStickerItemViews.values, window: window, isLite: isLite)
+        updateInlineStickerPlayback(header_inlineStickerItemViews.values, window: window, isLite: isLite)
     }
-    private let contentObserver = AnimatableContentTokenObserver()
+    private var contentObserver: AnimatableContentTokenObserver?
 
     private func updateListeners() {
-        contentObserver.update(for: self, handler: { [weak self] _ in
+        guard window != nil, !text_inlineStickerItemViews.isEmpty || !header_inlineStickerItemViews.isEmpty else {
+            contentObserver?.removeObservers()
+            contentObserver = nil
+            return
+        }
+        if contentObserver == nil {
+            contentObserver = AnimatableContentTokenObserver()
+        }
+        contentObserver?.update(for: self, handler: { [weak self] _ in
             self?.updateAnimatableContent()
         })
     }
@@ -565,7 +840,7 @@ public class ChatAccessoryView : Button {
     private var isLite: Bool = false
     
     public func updateInlineStickers(context: any AccountContextProtocol, view textView: TextView, textLayout: TextViewLayout, itemViews: inout [InlineStickerItemLayer.Key: InlineStickerItemLayer]) {
-        var validIds: [InlineStickerItemLayer.Key] = []
+        var validIds = InlineStickerKeyCollection()
         var index: Int = textView.hashValue
         self.isLite = context.isLite(.emoji)
         
@@ -590,6 +865,7 @@ public class ChatAccessoryView : Button {
                 if let current = itemViews[id], current.frame.size == rect.size && current.textColor == id.color {
                     view = current
                 } else {
+                    itemViews[id]?.isPlayable = false
                     itemViews[id]?.removeFromSuperlayer()
                     view = InlineStickerItemLayer(account: context.account, inlinePacksContext: context.inlinePacksContext, emoji: emoji, size: rect.size, textColor: textColor)
                     itemViews[id] = view
@@ -606,6 +882,7 @@ public class ChatAccessoryView : Button {
         for (key, itemLayer) in itemViews {
             if !validIds.contains(key) {
                 removeKeys.append(key)
+                itemLayer.isPlayable = false
                 itemLayer.removeFromSuperlayer()
             }
         }
@@ -615,7 +892,7 @@ public class ChatAccessoryView : Button {
     }
 
     deinit {
-        contentObserver.removeObservers()
+        contentObserver?.removeObservers()
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -712,8 +989,7 @@ open class ChatAccessoryModel: NSObject {
     open weak var view:ChatAccessoryView? {
         didSet {
             if let view = view {
-                view.imageView?.removeFromSuperview()
-                view.imageView = nil
+                view.removeAccessoryImage()
                 view.updateModel(self, animated: self.animates)
             }
         }

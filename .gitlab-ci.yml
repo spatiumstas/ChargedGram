@@ -1,5 +1,14 @@
 before_script:
-    - bash ./buildbox/sync-toolbox.sh
+    - bash ./buildbox/ci-log.sh bash ./buildbox/sync-toolbox.sh
+
+default:
+    after_script:
+        - 'if [ "$CI_JOB_STATUS" = "failed" ]; then bash ../deploy/notify-ci-failure.sh || true; fi'
+    artifacts:
+        when: always
+        expire_in: 7 days
+        paths:
+            - .ci-build-logs/
 
 stages:
     - deploy
@@ -21,7 +30,7 @@ beta:
     except:
         - tags
     script:
-        - sh ./buildbox/internal.sh Beta
+        - bash ./buildbox/ci-log.sh sh ./buildbox/internal.sh Beta
     environment:
         name: beta
 
@@ -35,7 +44,7 @@ more-glass:
     except:
         - tags
     script:
-        - sh ./buildbox/internal.sh Beta
+        - bash ./buildbox/ci-log.sh sh ./buildbox/internal.sh Beta
     environment:
         name: beta
 
@@ -49,7 +58,7 @@ alpha:
     except:
         - tags
     script:
-        - sh ./buildbox/internal.sh Alpha
+        - bash ./buildbox/ci-log.sh sh ./buildbox/internal.sh Alpha
     environment:
         name: alpha
 
@@ -63,7 +72,7 @@ appstore:
     except:
         - tags
     script:
-        - sh ./buildbox/internal.sh Appstore
+        - bash ./buildbox/ci-log.sh sh ./buildbox/internal.sh Appstore
     environment:
         name: appstore
 
@@ -77,6 +86,6 @@ release:
     except:
         - tags
     script:
-        - sh ./buildbox/internal.sh Stable
+        - bash ./buildbox/ci-log.sh sh ./buildbox/internal.sh Stable
     environment:
         name: release

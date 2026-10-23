@@ -201,9 +201,11 @@ open class ShortPeerRowItem: GeneralRowItem {
         public struct RightAction : Equatable {
             public var icon: CGImage
             public var index: Int
-            public init(icon: CGImage, index: Int) {
+            public var accessibilityLabel: String?
+            public init(icon: CGImage, index: Int, accessibilityLabel: String? = nil) {
                 self.icon = icon
                 self.index = index
+                self.accessibilityLabel = accessibilityLabel
             }
         }
         public var actions: [RightAction] = []
@@ -258,8 +260,22 @@ open class ShortPeerRowItem: GeneralRowItem {
     public private(set) var title:(TextNodeLayout, TextNode)?
     public private(set) var status:(TextNodeLayout, TextNode)?
     
-    public private(set) var titleSelected:(TextNodeLayout, TextNode)?
-    public private(set) var statusSelected:(TextNodeLayout, TextNode)?
+    private var selectedTitleLayout: (TextNodeLayout, TextNode)?
+    private var selectedStatusLayout: (TextNodeLayout, TextNode)?
+
+    public var titleSelected: (TextNodeLayout, TextNode)? {
+        if selectedTitleLayout == nil, let titleAttr, let textLayoutWidths {
+            selectedTitleLayout = TextNode.layoutText(maybeNode: nil, titleAttr, nil, 1, .end, NSMakeSize(textLayoutWidths.title, 20), nil, true, .left)
+        }
+        return selectedTitleLayout
+    }
+
+    public var statusSelected: (TextNodeLayout, TextNode)? {
+        if selectedStatusLayout == nil, let statusAttr, let textLayoutWidths {
+            selectedStatusLayout = TextNode.layoutText(maybeNode: nil, statusAttr, nil, 1, .end, NSMakeSize(textLayoutWidths.selectedStatus, 20), nil, true, .left)
+        }
+        return selectedStatusLayout
+    }
     
     public let leftImage:CGImage?
     
@@ -269,6 +285,9 @@ open class ShortPeerRowItem: GeneralRowItem {
     public let titleStyle:ControlStyle
     public let statusStyle:ControlStyle
     
+    private var textLayoutWidths: (title: CGFloat, status: CGFloat, selectedStatus: CGFloat)?
+    private var contextTextWidth: (text: String, width: CGFloat)?
+
     private var titleAttr:NSAttributedString?
     private var statusAttr:NSAttributedString?
     public let inputActivity: PeerInputActivity?
@@ -492,6 +511,12 @@ open class ShortPeerRowItem: GeneralRowItem {
 
     
     open override func prepare(_ selected:Bool) {
+        defer {
+            if selected {
+                _ = titleSelected
+                _ = statusSelected
+            }
+        }
         
         var addition:CGFloat = 0
         var additionStatus: CGFloat = 0
@@ -509,15 +534,12 @@ open class ShortPeerRowItem: GeneralRowItem {
             addition += 48
         case .selectable:
             addition += 20
-        case let .context(text):
-            let attr = NSAttributedString.initialize(string: text, color: .text, font: statusStyle.font)
-            addition += attr.size().width + 10
-        case let .contextColored(text, _):
-            let attr = NSAttributedString.initialize(string: text, color: .text, font: statusStyle.font)
-            addition += attr.size().width + 10
-        case let .nextContext(text):
-            let attr = NSAttributedString.initialize(string: text, color: .text, font: statusStyle.font)
-            addition += attr.size().width + 10
+        case let .context(text), let .contextColored(text, _), let .nextContext(text):
+            if contextTextWidth?.text != text {
+                let attr = NSAttributedString.initialize(string: text, color: .text, font: statusStyle.font)
+                contextTextWidth = (text, attr.size().width)
+            }
+            addition += (contextTextWidth?.width ?? 0) + 10
         default:
             break
         }
@@ -558,31 +580,33 @@ open class ShortPeerRowItem: GeneralRowItem {
                 addition += 25
             }
         }
+        let titleWidth: CGFloat
+        let statusWidth: CGFloat
+        let selectedStatusWidth: CGFloat
         switch viewType {
         case .legacy:
-            if let titleAttr = titleAttr {
-                title = TextNode.layoutText(maybeNode: nil,  titleAttr, nil, 1, .end, NSMakeSize(self.size.width - textInset(false) - (inset.right) - addition - textAdditionInset - 10, 20), nil,false, .left)
-                titleSelected = TextNode.layoutText(maybeNode: nil,  titleAttr, nil, 1, .end, NSMakeSize(self.size.width - textInset(false) - (inset.right) - addition - textAdditionInset - 10, 20), nil,true, .left)
-            }
-            if let statusAttr = statusAttr {
-                status = TextNode.layoutText(maybeNode: nil,  statusAttr, nil, 1, .end, NSMakeSize(self.size.width - textInset(true) - (inset.right) - addition - textAdditionInset - 10, 20), nil,false, .left)
-                statusSelected = TextNode.layoutText(maybeNode: nil,  statusAttr, nil, 1, .end, NSMakeSize(self.size.width - textInset(true) - inset.right - addition - additionStatus - textAdditionInset - 10, 20), nil,true, .left)
-            }
+            titleWidth = self.size.width - textInset(false) - inset.right - addition - textAdditionInset - 10
+            statusWidth = self.size.width - textInset(true) - inset.right - addition - textAdditionInset - 10
+            selectedStatusWidth = self.size.width - textInset(true) - inset.right - addition - additionStatus - textAdditionInset - 10
         case let .modern(_, insets):
-            let textSize = NSMakeSize(self.width - textInset(false) - insets.left - insets.right - inset.left - inset.right - addition - additionStatus - textAdditionInset, 20)
-            if let titleAttr = titleAttr {
-                title = TextNode.layoutText(maybeNode: nil,  titleAttr, nil, 1, .end, textSize, nil, false, .left)
-                titleSelected = TextNode.layoutText(maybeNode: nil, titleAttr, nil, 1, .end, textSize, nil,true, .left)
-            }
-            if let statusAttr = statusAttr {
-                status = TextNode.layoutText(maybeNode: nil,  statusAttr, nil, 1, .end, textSize, nil,false, .left)
-                statusSelected = TextNode.layoutText(maybeNode: nil,  statusAttr, nil, 1, .end, textSize, nil,true, .left)
-            }
+            titleWidth = self.width - textInset(false) - insets.left - insets.right - inset.left - inset.right - addition - additionStatus - textAdditionInset
+            statusWidth = titleWidth
+            selectedStatusWidth = titleWidth
         }
-        
-        
+        if let textLayoutWidths, textLayoutWidths.title == titleWidth, textLayoutWidths.status == statusWidth, textLayoutWidths.selectedStatus == selectedStatusWidth {
+            return
+        }
+        if let titleAttr {
+            title = TextNode.layoutText(maybeNode: nil, titleAttr, nil, 1, .end, NSMakeSize(titleWidth, 20), nil, false, .left)
+        }
+        if let statusAttr {
+            status = TextNode.layoutText(maybeNode: nil, statusAttr, nil, 1, .end, NSMakeSize(statusWidth, 20), nil, false, .left)
+        }
+        selectedTitleLayout = nil
+        selectedStatusLayout = nil
+        textLayoutWidths = (titleWidth, statusWidth, selectedStatusWidth)
     }
-    
+
     open var ctxMonoforumMessages: TextViewLayout? {
         if isSelected {
             return monoforumMessagesSelected
@@ -601,6 +625,142 @@ open class ShortPeerRowItem: GeneralRowItem {
     }
     
     open override var instantlyResize: Bool {
+        return true
+    }
+
+    open override var accessibilityLabel: String? {
+        guard let title = titleAttr?.string, !title.isEmpty else {
+            return peer.displayTitle
+        }
+        return title
+    }
+
+    open override var accessibilityValue: String? {
+        var values: [String] = []
+        if let status = statusAttr?.string, !status.isEmpty {
+            values.append(status)
+        }
+        switch type {
+        case let .context(value), let .contextColored(value, _), let .nextContext(value):
+            if !value.isEmpty {
+                values.append(value)
+            }
+        default:
+            break
+        }
+        return values.isEmpty ? nil : values.joined(separator: ", ")
+    }
+
+    open override var accessibilityRole: NSAccessibility.Role? {
+        if case .selectable = interactionType {
+            return .checkBox
+        }
+        switch type {
+        case .switchable:
+            return .checkBox
+        case .selectable:
+            return .radioButton
+        default:
+            return .button
+        }
+    }
+
+    open override var accessibilityToggleState: Bool? {
+        if case let .selectable(interaction, _) = interactionType {
+            return interaction.isPeerSelected(peerId, peer, interaction.presentation)
+        }
+        switch type {
+        case let .switchable(value), let .selectable(value):
+            return value
+        default:
+            return nil
+        }
+    }
+
+    open override var accessibilityIsEnabled: Bool {
+        return enabled
+    }
+
+    open override var accessibilityIncludesChildren: Bool {
+        return !rightActions.actions.isEmpty
+    }
+
+    open override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        var actions: [NSAccessibilityCustomAction] = []
+        if case let .deletable(onRemove, deletable) = interactionType, deletable, enabled {
+            let peerId = self.peerId
+            actions.append(NSAccessibilityCustomAction(name: strings().voiceOverCommonRemove, handler: {
+                onRemove(peerId)
+                return true
+            }))
+        }
+        if let customAction = customAction {
+            actions.append(NSAccessibilityCustomAction(name: customAction.title, handler: {
+                customAction.callback()
+                return true
+            }))
+        }
+        if story != nil {
+            actions.append(NSAccessibilityCustomAction(name: strings().voiceOverCommonStory, handler: { [weak self] in
+                self?.openPeerStory()
+                return true
+            }))
+        }
+        if enabled, case let .selectable(interaction, .left) = interactionType, !passLeftAction {
+            let peerId = self.peerId
+            actions.append(NSAccessibilityCustomAction(name: strings().voiceOverCommonOpen, handler: {
+                interaction.action(peerId, nil)
+                return true
+            }))
+        }
+        if badgeAction != nil, let label = accessibilityContextLabelText {
+            actions.append(NSAccessibilityCustomAction(name: label, handler: { [weak self] in
+                return (self?.view as? ShortPeerRowView)?.accessibilityPressContextLabel() ?? false
+            }))
+        }
+        return actions.isEmpty ? nil : actions
+    }
+
+    private var accessibilityContextLabelText: String? {
+        switch type {
+        case let .context(value), let .contextColored(value, _), let .nextContext(value):
+            return value.isEmpty ? nil : value
+        default:
+            return nil
+        }
+    }
+
+    private var accessibilityPressShowsMenu: Bool {
+        switch interactionType {
+        case .selectable, .deletable(_, true):
+            return false
+        default:
+            if menuOnAction {
+                return true
+            }
+            if case .nextContext = type {
+                return true
+            }
+            return false
+        }
+    }
+
+    open override func accessibilityPerformPress() -> Bool {
+        guard let view = view as? ShortPeerRowView else {
+            return super.accessibilityPerformPress()
+        }
+        if enabled {
+            _ = super.accessibilityPerformPress()
+            if case let .selectable(interaction, .left) = interactionType, !passLeftAction {
+                interaction.activateSelection(peer)
+            } else if accessibilityPressShowsMenu {
+                _ = view.accessibilityPerformShowMenu()
+            } else {
+                view.invokeAction(self, clickCount: 1)
+            }
+        } else {
+            disabledAction?()
+        }
         return true
     }
     

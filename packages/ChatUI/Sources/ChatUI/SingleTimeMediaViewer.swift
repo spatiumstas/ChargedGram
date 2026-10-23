@@ -105,7 +105,7 @@ private final class VoiceView : View, MediaView {
                 
                 self.sparkView.update(position: NSMakePoint(5 + width * (1 - progressValue), 18), sampleHeight: 5, color: self.activityBackground)
                 
-                self.waveformView.foregroundClipingView.setFrameSize(NSMakeSize(width * (1 - progressValue), 20))
+                self.waveformView.updateForegroundClip(size: NSMakeSize(width * (1 - progressValue), 20), animated: false)
             })
             sparksAnimator?.isPaused = false
             

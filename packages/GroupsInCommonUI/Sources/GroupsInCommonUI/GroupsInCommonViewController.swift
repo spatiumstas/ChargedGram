@@ -76,23 +76,21 @@ private func commonGroupsEntries(state: GroupsInCommonState, arguments: GroupsIn
 }
 
 public func GroupsInCommonViewController(context: any AccountContextProtocol, peerId: PeerId, standalone: Bool = false) -> ViewController {
-    
 
     let actionsDisposable = DisposableSet()
     
     let arguments = GroupsInCommonArguments(context: context, open: { peerId in
-        GroupsInCommonHooks.shared.openChat(context, peerId)
+        GroupsInCommonHooks.shared.openChatObserved(context, peerId)
     })
     
     let contextValue: Promise<GroupsInCommonContext> = Promise()
-    let peerId = getPeerView(peerId: peerId, postbox: context.account.postbox) |> take(1) |> map { peer in
-        return peer?.id ?? peerId
-    }
-    contextValue.set(peerId |> map {
-        GroupsInCommonContext(account: context.account, peerId: $0)
+    let peer = (getPeerView(peerId: peerId, postbox: context.account.postbox) |> take(1))
+    contextValue.set(peer |> map { peer in
+        let resolvedPeerId = peer?.id ?? peerId
+        return GroupsInCommonContext(account: context.account, peerId: resolvedPeerId)
     })
-    let state = contextValue.get() |> mapToSignal {
-        $0.state
+    let state = (contextValue.get()) |> mapToSignal {
+        ($0.state)
     }
     let dataSignal = state |> map {
         return InputDataSignalValue(entries: commonGroupsEntries(state: $0, arguments: arguments, standalone: standalone))
@@ -100,7 +98,6 @@ public func GroupsInCommonViewController(context: any AccountContextProtocol, pe
     
     let controller = InputDataController(dataSignal: dataSignal, title: !standalone ? "" : strings().peerInfoGroupsInCommon, hasDone: false)
     controller.bar = .init(height: standalone ? 50 : 0)
-    
     controller.contextObject = contextValue
     
     controller.onDeinit = {

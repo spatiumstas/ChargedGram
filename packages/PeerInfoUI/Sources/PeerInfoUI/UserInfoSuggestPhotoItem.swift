@@ -51,6 +51,11 @@ final class UserInfoSuggestPhotoItem : GeneralRowItem {
     override func viewClass() -> AnyClass {
         return UserInfoSuggestPhotoView.self
     }
+    
+    override var accessibilityLabel: String? {
+        let text = textLayout.attributedString.string
+        return text.isEmpty ? nil : text
+    }
 }
 
 
@@ -76,6 +81,8 @@ private final class UserInfoSuggestPhotoView: GeneralContainableRowView {
 
         imageView.image = TelegramThemeHooks.shared.image(.iconContactPhotoChevron).precomposed(theme.colors.grayIcon)
         imageView.sizeToFit()
+        imageView.isAccessibilityDecorative = true
+        newPhoto.setAccessibilityLabel(strings().voiceOverCommonPhoto)
         
         newPhoto.contentGravity = .resizeAspect
         

@@ -121,6 +121,7 @@ public class PasscodeLockView : Control, NSTextFieldDelegate {
         nextButton.setFrameSize(PasscodeLockView.buttonSize)
         nextButton.scaleOnClick = true
         nextButton.layer?.cornerRadius = nextButton.frame.height / 2
+        nextButton.setAccessibilityLabel(strings().voiceOverCommonUnlock)
 
         nameView.userInteractionEnabled = false
         nameView.isSelectable = false
@@ -150,6 +151,7 @@ public class PasscodeLockView : Control, NSTextFieldDelegate {
         _ = attr.append(string: strings().passcodeEnterPasscodePlaceholder, color: theme.colors.grayText, font: .medium(17))
         //attr.setAlignment(.center, range: attr.range)
         input.placeholderAttributedString = attr
+        input.setAccessibilityLabel(strings().passcodeEnterPasscodePlaceholder)
         input.cell?.usesSingleLineMode = true
         input.cell?.wraps = false
         input.cell?.isScrollable = true

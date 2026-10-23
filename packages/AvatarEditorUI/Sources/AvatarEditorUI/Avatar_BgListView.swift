@@ -41,6 +41,10 @@ private final class Avatar_PatternListItem : GeneralRowItem {
         return Avatar_PatternListView.self
     }
     
+    override var accessibilityLabel: String? {
+        return strings().voiceOverCommonWallpaper
+    }
+    
     override var instantlyResize: Bool {
         return true
     }
@@ -109,6 +113,8 @@ private final class Avatar_PatternListView : TableRowView {
             
             self.select = select
             self.color = pattern.color
+            self.setAccessibilityLabel(strings().voiceOverCommonWallpaper)
+            self.setAccessibilityValue(pattern.selected ? strings().voiceOverCommonSelected : nil)
             
             let emptyColor: TransformImageEmptyColor
             
@@ -234,6 +240,10 @@ private final class Avatar_BgColorListItem : GeneralRowItem {
     override func viewClass() -> AnyClass {
         return Avatar_BgColorListView.self
     }
+    
+    override var accessibilityLabel: String? {
+        return strings().voiceOverCommonColor
+    }
 }
 
 private final class Avatar_BgColorListView : TableRowView {
@@ -248,6 +258,7 @@ private final class Avatar_BgColorListView : TableRowView {
         required init(frame frameRect: NSRect) {
             super.init(frame: frameRect)
             addSubview(imageView)
+            imageView.isAccessibilityDecorative = true
             scaleOnClick = true
             set(handler: { [weak self] _ in
                 if let color = self?.color {
@@ -259,6 +270,8 @@ private final class Avatar_BgColorListView : TableRowView {
         func set(color: AvatarColor, select:@escaping(AvatarColor)->Void, animated: Bool) {
             self.select = select
             self.color = color
+            self.setAccessibilityLabel(strings().voiceOverCommonColor)
+            self.setAccessibilityValue(color.selected ? strings().voiceOverCommonSelected : nil)
             var colors: [NSColor] = []
             switch color.content {
             case let .gradient(c):

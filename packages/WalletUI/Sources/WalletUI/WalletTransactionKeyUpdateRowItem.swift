@@ -49,6 +49,18 @@ final class WalletTransactionKeyUpdateRowItem: GeneralRowItem {
     override func viewClass() -> AnyClass {
         return WalletTransactionKeyUpdateRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .staticText
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 private final class WalletTransactionKeyUpdateRowView: GeneralRowView {
@@ -59,6 +71,7 @@ private final class WalletTransactionKeyUpdateRowView: GeneralRowView {
         super.init(frame: frameRect)
         titleView.userInteractionEnabled = false
         titleView.isSelectable = false
+        imageView.isAccessibilityDecorative = true
         addSubview(imageView)
         addSubview(titleView)
     }

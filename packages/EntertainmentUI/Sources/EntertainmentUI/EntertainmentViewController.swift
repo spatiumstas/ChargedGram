@@ -55,18 +55,54 @@ public final class EntertainmentInteractions {
 public final class EntertainmentView : View {
     fileprivate static let tabsAreaHeight: CGFloat = 56
 
+    static let glassTintAlpha: CGFloat = 0.55
+
     fileprivate var sectionView: NSView
+    private let glassView = LiquidGlassView(frame: NSZeroRect, cornerRadius: 18, hasShadow: false, hasBorder: true, tintAlpha: 0, forceBlur: true)
     private let edgeView = ShadowView()
     private let tabs = GlassSegmentView(frame: NSZeroRect)
     private var tabStates: [EntertainmentState] = []
     fileprivate private(set) var selectedState: EntertainmentState?
     fileprivate var didSelectState: ((EntertainmentState) -> Void)?
+
+    var showsTabsEdge: Bool = true {
+        didSet {
+            edgeView.isHidden = !showsTabsEdge
+        }
+    }
+
+    var showsGlassBackground: Bool = true {
+        didSet {
+            glassView.isHidden = !showsGlassBackground
+        }
+    }
     
     private var premiumView: StickerPremiumHolderView?
+    private let tabAccessibilityCells = EntertainmentAccessibilityCells()
+
+    public override func accessibilityChildren() -> [Any]? {
+        guard TGUIKitAccessibility.isEnabled else {
+            return super.accessibilityChildren()
+        }
+        var children = NSAccessibility.unignoredChildren(from: subviews.filter { $0 !== tabs })
+        let labels = tabs.subviews.compactMap { $0 as? TextView }
+        var cells: [EntertainmentAccessibilityCell] = []
+        for (index, title) in tabs.titles.enumerated() where index < labels.count && index < tabStates.count {
+            let label = labels[index]
+            let state = tabStates[index]
+            let rect = tabs.convert(NSMakeRect(label.frame.minX - 12, 0, label.frame.width + 24, tabs.frame.height), to: self)
+            cells.append(EntertainmentAccessibilityCell(id: AnyHashable(index), label: title, frame: rect, isSelected: state == selectedState, press: { [weak self] in
+                self?.didSelectState?(state)
+            }))
+        }
+        children.append(contentsOf: tabAccessibilityCells.elements(for: cells, in: self))
+        return children
+    }
 
     public init(sectionView: NSView, frame: NSRect) {
         self.sectionView = sectionView
         super.init(frame: frame)
+        self.addSubview(self.glassView)
         self.addSubview(self.sectionView)
         self.addSubview(self.edgeView)
         self.addSubview(self.tabs)
@@ -84,7 +120,9 @@ public final class EntertainmentView : View {
     
     public override func updateLocalizationAndTheme(theme: PresentationTheme) {
         super.updateLocalizationAndTheme(theme: theme)
-        self.edgeView.shadowBackground = theme.colors.background.withAlphaComponent(0.8)
+        self.edgeView.shadowBackground = theme.colors.background.withAlphaComponent(0.6)
+        self.glassView.customTint = theme.colors.background.withAlphaComponent(EntertainmentView.glassTintAlpha)
+        self.glassView.updateLocalizationAndTheme(theme: theme)
         self.updateTabs(animated: false)
     }
     
@@ -156,6 +194,8 @@ public final class EntertainmentView : View {
     public override func layout() {
         super.layout()
         let tabsAreaHeight = EntertainmentView.tabsAreaHeight
+        self.glassView.frame = bounds
+        self.glassView.updateLayout(size: bounds.size, transition: .immediate)
         self.sectionView.frame = bounds
         self.edgeView.frame = NSMakeRect(0, frame.height - tabsAreaHeight, frame.width, tabsAreaHeight)
         let tabsSize = self.tabs.contentSize
@@ -192,6 +232,7 @@ public class EntertainmentViewController<Context: AccountContextProtocol>: Teleg
     private let section: SectionViewController
 
     private var disposable:MetaDisposable = MetaDisposable()
+    private let preparationDisposable = MetaDisposable()
     public typealias Mode = EntertainmentViewControllerMode
     
     private let mode: Mode
@@ -214,6 +255,25 @@ public class EntertainmentViewController<Context: AccountContextProtocol>: Teleg
         return nil
     }
     
+    public func prepareForPresentation() {
+        guard !self.isLoaded() else {
+            return
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.isLoaded() else {
+                return
+            }
+            self.loadViewIfNeeded(NSMakeRect(0, 0, 350, min(max(self.context.window.frame.height - 250, 300), 550)))
+            self.preparationDisposable.set((self.ready.get() |> filter { $0 } |> take(1)).start(next: { [weak self] _ in
+                guard let self, self.view.window == nil, self.popover == nil else {
+                    return
+                }
+                self.viewWillDisappear(false)
+                self.viewDidDisappear(false)
+            }))
+        }
+    }
+
     public func update(with chatInteraction: any ChatInteractionProtocol) -> Void {
         self.chatInteraction = chatInteraction
         
@@ -301,6 +361,9 @@ public class EntertainmentViewController<Context: AccountContextProtocol>: Teleg
         self.mode = mode
         self.presentation = presentation
         self.emoji = EmojiesController(context, mode: mode == .stories ? .stories : .emoji, presentation: presentation)
+        self.emoji.isGlass = true
+        if mode == .common || mode == .stories {
+        }
         self.stickers = NStickersViewController(context, presentation: presentation)
         self.gifs = GifKeyboardController(context, presentation: presentation)
 
@@ -330,24 +393,38 @@ public class EntertainmentViewController<Context: AccountContextProtocol>: Teleg
     }
 
 
+    public override var popoverBackgroundColor: NSColor {
+        return .clear
+    }
+
     public override func updateLocalizationAndTheme(theme: PresentationTheme) {
         super.updateLocalizationAndTheme(theme: theme)
         self.section.updateLocalizationAndTheme(theme: theme)
-        self.view.background = theme.colors.background
+        self.view.background = .clear
+        self.applyGlassStyle()
+    }
+
+    private func applyGlassStyle() {
+        if self.section.genericView._backgroundColor != .clear {
+            self.section.genericView._backgroundColor = .clear
+        }
         if emoji.isLoaded() {
-            emoji.view.background = theme.colors.background
+            emoji.view.background = .clear
         }
         if stickers.isLoaded() {
-            stickers.view.background = theme.colors.background
+            stickers.view.background = .clear
+            stickers.genericView.isGlass = true
         }
         if gifs.isLoaded() {
-            gifs.view.background = theme.colors.background
+            gifs.view.background = .clear
+            gifs.genericView.isGlass = true
         }
     }
     
     deinit {
         languageDisposable.dispose()
         disposable.dispose()
+        preparationDisposable.dispose()
     }
 
     
@@ -454,6 +531,7 @@ public class EntertainmentViewController<Context: AccountContextProtocol>: Teleg
         
         self.genericView.updateSelected(state, mode: mode, animated: false)
         self.updateSectionsBottomInset()
+        self.applyGlassStyle()
 
         
         let callSearchCmd:(ESearchCommand, SearchView)->Void = { command, view in
@@ -539,6 +617,7 @@ public class EntertainmentViewController<Context: AccountContextProtocol>: Teleg
             self?.chatInteraction?.setIsEmojiSection(state == .emoji)
             self?.genericView.updateSelected(state, mode: mode, animated: true)
             self?.updateSectionsBottomInset()
+            self?.applyGlassStyle()
         }
 
         self.ready.set(section.ready.get())

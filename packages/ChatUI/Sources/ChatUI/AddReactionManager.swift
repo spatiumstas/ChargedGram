@@ -315,6 +315,8 @@ public final class ContextAddReactionsListView : View, StickerFramesCollector  {
             self.scaleOnClick = true
             self.layer?.cornerRadius = frameRect.height / 2
             addSubview(self.imageView)
+            self.imageView.isAccessibilityDecorative = true
+            self.setAccessibilityLabel(strings().voiceOverCommonMore)
             self.imageView.image = theme.icons.reactions_show_more
             self.imageView.sizeToFit()
         }

@@ -24,6 +24,7 @@ private class PasscodeLockView : Control, NSTextFieldDelegate {
         self.backgroundColor = theme.colors.background
         
         cancel.set(image: theme.icons.modalClose, for: .Normal)
+        cancel.setAccessibilityLabel(L10n.voiceOverCommonClose)
         _ = cancel.sizeToFit(.zero, NSMakeSize(30, 30), thatFit: true)
 
         
@@ -79,6 +80,7 @@ private class PasscodeLockView : Control, NSTextFieldDelegate {
         inputContainer.backgroundColor = theme.colors.grayBackground
         
         
+        nextButton.setAccessibilityLabel(L10n.voiceOverCommonUnlock)
         nextButton.autohighlight = false
         nextButton.scaleOnClick = true
         nextButton.set(background: theme.colors.accentIcon, for: .Normal)

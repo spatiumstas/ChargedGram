@@ -1,7 +1,45 @@
 import Cocoa
 import TGUIKit
 
+fileprivate final class AudioWaveformDrawingSamples {
+    struct Prepared {
+        let peaks: [UInt16]
+        let inverseScale: CGFloat
+    }
+
+    private var waveform: AudioWaveform?
+    private var prepared: Prepared?
+
+    func reset() {
+        waveform = nil
+        prepared = nil
+    }
+
+    func prepare(_ waveform: AudioWaveform, count: Int) -> Prepared {
+        if self.waveform === waveform, let prepared, prepared.peaks.count == count {
+            return prepared
+        }
+        var peaks = [UInt16](repeating: 0, count: count)
+        var maximum: UInt16 = 0
+        waveform.samples.withUnsafeBytes { (samples: UnsafePointer<UInt16>) -> Void in
+            let sourceCount = waveform.samples.count / 2
+            for index in 0 ..< sourceCount {
+                let sample = samples[index]
+                maximum = max(maximum, sample)
+                let bucket = index * count / sourceCount
+                peaks[bucket] = max(peaks[bucket], sample)
+            }
+        }
+        let prepared = Prepared(peaks: peaks, inverseScale: 1.0 / max(1.0, CGFloat(maximum)))
+        self.waveform = waveform
+        self.prepared = prepared
+        return prepared
+    }
+}
+
 fileprivate class AudioWaveformContainerView : SimpleLayer {
+    private let drawingSamples: AudioWaveformDrawingSamples
+
     var color:NSColor = .accent {
         didSet {
             if color != oldValue {
@@ -11,6 +49,9 @@ fileprivate class AudioWaveformContainerView : SimpleLayer {
     }
     var waveform:AudioWaveform? {
         didSet {
+            if waveform !== oldValue {
+                drawingSamples.reset()
+            }
             if waveform != oldValue {
                 self.setNeedsDisplay()
             }
@@ -24,9 +65,11 @@ fileprivate class AudioWaveformContainerView : SimpleLayer {
             }
         }
     }
-    override init(frame frameRect: NSRect) {
+    init(frame frameRect: NSRect, drawingSamples: AudioWaveformDrawingSamples) {
+        self.drawingSamples = drawingSamples
         super.init()
         self.frame = frameRect
+        self.needsDisplayOnBoundsChange = true
     }
     
     required init?(coder: NSCoder) {
@@ -34,7 +77,9 @@ fileprivate class AudioWaveformContainerView : SimpleLayer {
     }
     
     override init(layer: Any) {
+        self.drawingSamples = AudioWaveformDrawingSamples()
         super.init()
+        self.needsDisplayOnBoundsChange = true
     }
     
     override func draw(in ctx: CGContext) {
@@ -49,63 +94,40 @@ fileprivate class AudioWaveformContainerView : SimpleLayer {
         if let waveform = waveform {
 
             
-            waveform.samples.withUnsafeBytes { (samples: UnsafePointer<UInt16>) -> Void in
-                let peakHeight: CGFloat = 12.0
-                let maxReadSamples = waveform.samples.count / 2
-                
-                var maxSample: UInt16 = 0
-                for i in 0 ..< maxReadSamples {
-                    let sample = samples[i]
-                    if maxSample < sample {
-                        maxSample = sample
-                    }
+            guard size.width.isFinite, size.width >= sampleWidth + distance else {
+                return
+            }
+            let numSamples = Int(floor(size.width / (sampleWidth + distance)))
+            let samples = drawingSamples.prepare(waveform, count: numSamples)
+            let peakHeight: CGFloat = 12.0
+            let invScale = samples.inverseScale
+
+            let commonRevealFraction = listViewAnimationCurveSystem(self.revealProgress)
+
+            for i in 0 ..< numSamples {
+                let offset = CGFloat(i) * (sampleWidth + distance)
+                let peakSample = samples.peaks[i]
+
+                var sampleHeight = CGFloat(peakSample) * peakHeight * invScale
+                if abs(sampleHeight) > peakHeight {
+                    sampleHeight = peakHeight
                 }
-                
-                let invScale = 1.0 / max(1.0, CGFloat(maxSample))
-                let numSamples = Int(floor(size.width / (sampleWidth + distance)))
-                
-                let adjustedSamplesMemory = malloc(numSamples * 2)!
-                let adjustedSamples = adjustedSamplesMemory.assumingMemoryBound(to: UInt16.self)
-                defer {
-                    free(adjustedSamplesMemory)
+
+                let startFraction = CGFloat(i) / CGFloat(numSamples)
+                if startFraction < commonRevealFraction {
+                    sampleHeight *= max(0.0, min(1.0, (commonRevealFraction - startFraction) / (1.0 - startFraction)))
+                } else {
+                    sampleHeight = 0.0
                 }
-                memset(adjustedSamplesMemory, 0, numSamples * 2)
-                
-                for i in 0 ..< maxReadSamples {
-                    let index = i * numSamples / maxReadSamples
-                    let sample = samples[i]
-                    if adjustedSamples[index] < sample {
-                        adjustedSamples[index] = sample
-                    }
-                }
-                
-                let commonRevealFraction = listViewAnimationCurveSystem(self.revealProgress)
 
-                for i in 0 ..< numSamples {
-                    let offset = CGFloat(i) * (sampleWidth + distance)
-                    let peakSample = adjustedSamples[i]
-
-                    var sampleHeight = CGFloat(peakSample) * peakHeight * invScale
-                    if abs(sampleHeight) > peakHeight {
-                        sampleHeight = peakHeight
-                    }
-
-                    let startFraction = CGFloat(i) / CGFloat(numSamples)
-                    if startFraction < commonRevealFraction {
-                        sampleHeight *= max(0.0, min(1.0, (commonRevealFraction - startFraction) / (1.0 - startFraction)))
-                    } else {
-                        sampleHeight = 0.0
-                    }
-
-                    let adjustedSampleHeight = sampleHeight - sampleWidth * 1.5
-                    if adjustedSampleHeight.isLessThanOrEqualTo(sampleWidth) {
-                        ctx.fillEllipse(in: CGRect(x: offset, y: size.height - sampleWidth, width: sampleWidth, height: sampleWidth))
-                    } else {
-                        let adjustedRect = CGRect(x: offset, y: size.height - adjustedSampleHeight, width: sampleWidth, height: adjustedSampleHeight - halfSampleWidth)
-                        ctx.fillEllipse(in: CGRect(x: adjustedRect.minX, y: adjustedRect.minY - halfSampleWidth, width: sampleWidth, height: sampleWidth))
-                        ctx.fillEllipse(in: CGRect(x: adjustedRect.minX, y: adjustedRect.maxY - halfSampleWidth, width: sampleWidth, height: sampleWidth))
-                        ctx.fill(adjustedRect)
-                    }
+                let adjustedSampleHeight = sampleHeight - sampleWidth * 1.5
+                if adjustedSampleHeight.isLessThanOrEqualTo(sampleWidth) {
+                    ctx.fillEllipse(in: CGRect(x: offset, y: size.height - sampleWidth, width: sampleWidth, height: sampleWidth))
+                } else {
+                    let adjustedRect = CGRect(x: offset, y: size.height - adjustedSampleHeight, width: sampleWidth, height: adjustedSampleHeight - halfSampleWidth)
+                    ctx.fillEllipse(in: CGRect(x: adjustedRect.minX, y: adjustedRect.minY - halfSampleWidth, width: sampleWidth, height: sampleWidth))
+                    ctx.fillEllipse(in: CGRect(x: adjustedRect.minX, y: adjustedRect.maxY - halfSampleWidth, width: sampleWidth, height: sampleWidth))
+                    ctx.fill(adjustedRect)
                 }
             }
         } else {
@@ -123,7 +145,7 @@ fileprivate class AudioWaveformContainerView : SimpleLayer {
 public class AudioWaveformView: View {
     private let foregroundView:AudioWaveformContainerView
     private let backgroundView:AudioWaveformContainerView
-    public let foregroundClipingView:View
+    private let foregroundClippingLayer: SimpleLayer
     
     var peakHeight:CGFloat = 12 {
         didSet {
@@ -140,15 +162,43 @@ public class AudioWaveformView: View {
     }
     
     public required init(frame frameRect: NSRect) {
-        foregroundView = AudioWaveformContainerView(frame: NSMakeRect(0,0,frameRect.width,frameRect.height))
-        backgroundView = AudioWaveformContainerView(frame: NSMakeRect(0,0,frameRect.width,frameRect.height))
-        foregroundClipingView = View(frame: NSMakeRect(0,0,frameRect.width,frameRect.height))
+        let drawingSamples = AudioWaveformDrawingSamples()
+        foregroundView = AudioWaveformContainerView(frame: NSMakeRect(0,0,frameRect.width,frameRect.height), drawingSamples: drawingSamples)
+        backgroundView = AudioWaveformContainerView(frame: NSMakeRect(0,0,frameRect.width,frameRect.height), drawingSamples: drawingSamples)
+        foregroundClippingLayer = SimpleLayer()
+        foregroundClippingLayer.anchorPoint = .zero
+        foregroundClippingLayer.position = .zero
+        foregroundClippingLayer.bounds = CGRect(origin: .zero, size: CGSize(width: max(0, frameRect.width), height: max(0, frameRect.height)))
+        foregroundClippingLayer.masksToBounds = true
         super.init(frame: frameRect)
         
         self.layer?.addSublayer(backgroundView)
         
-        foregroundClipingView.layer?.addSublayer(foregroundView)
-        addSubview(foregroundClipingView)
+        foregroundClippingLayer.addSublayer(foregroundView)
+        self.layer?.addSublayer(foregroundClippingLayer)
+    }
+
+    public func updateForegroundClip(size: NSSize, animated: Bool) {
+        let size = NSSize(width: max(0, size.width), height: max(0, size.height))
+        let target = CGRect(origin: .zero, size: size)
+        if !animated {
+            foregroundClippingLayer.removeAnimation(forKey: "bounds")
+            if foregroundClippingLayer.bounds != target {
+                foregroundClippingLayer.bounds = target
+            }
+        } else if foregroundClippingLayer.bounds != target {
+            var previous = foregroundClippingLayer.bounds
+            if foregroundClippingLayer.animation(forKey: "bounds") != nil,
+               let presentation = foregroundClippingLayer.presentation() {
+                previous.size = presentation.bounds.size
+            }
+            if previous == target {
+                foregroundClippingLayer.removeAnimation(forKey: "bounds")
+            } else {
+                foregroundClippingLayer.animateBounds(from: previous, to: target, duration: 0.2, timingFunction: .easeOut)
+            }
+            foregroundClippingLayer.bounds = target
+        }
     }
     
     public override func mouseDragged(with event: NSEvent) {

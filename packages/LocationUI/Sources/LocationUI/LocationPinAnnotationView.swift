@@ -25,6 +25,7 @@ public final class LocationPinAnnotationView : MKAnnotationView {
         
         locationPin.image = TelegramThemeHooks.shared.darkAppearance().icons.locationMapPin
         locationPin.sizeToFit()
+        locationPin.isAccessibilityDecorative = true
         
         frame = CGRect(x: 0, y: 0, width: 60, height: 60)
         

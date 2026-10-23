@@ -884,17 +884,15 @@ public protocol MorphHoldObserving: AnyObject {
 // radius on the control or any control-sized descendant (a circular glass background, a masked row
 // container, …), clamped to a full circle, with the corner mask from that same source. A genuinely square
 // control reads 0 with all four corners, so every all-four source keeps the uniform-radius morph path.
-private func morphControlShape(_ view: NSView) -> (radius: CGFloat, corners: CACornerMask) {
+func morphControlShape(_ view: NSView) -> (radius: CGFloat, corners: CACornerMask) {
     let circle = min(view.bounds.width, view.bounds.height) / 2
     guard circle > 0 else {
         return (0, morphAllCorners)
     }
     let threshold = min(view.bounds.width, view.bounds.height) * 0.7
     func scan(_ v: NSView) -> (CGFloat, CACornerMask) {
-        // A glass background is a capsule, so the control reads as fully rounded (its radius lives on the
-        // glass's inner layers, not on the control's own layer).
-        if v is LiquidGlassView {
-            return (circle, morphAllCorners)
+        if let glass = v as? LiquidGlassView {
+            return (max(0, min(glass.cornerRadius, min(glass.bounds.width, glass.bounds.height) / 2)), morphAllCorners)
         }
         if let provider = v as? MorphCornerProviding {
             return (provider.morphCornerRadius, provider.morphCorners)
@@ -919,6 +917,15 @@ private func morphControlShape(_ view: NSView) -> (radius: CGFloat, corners: CAC
 // clicked item's on-screen snapshot + rect just before running its action; a modal opened right after (no
 // explicit morphSource) consumes it for an OPEN-ONLY morph, then closes normally (nothing to morph back to).
 public enum ModalMorphContextSource {
+    public private(set) static var current: (() -> NSView?)?
+
+    public static func withSource<Result>(_ source: (() -> NSView?)?, perform action: () throws -> Result) rethrows -> Result {
+        let previous = current
+        current = source
+        defer { current = previous }
+        return try action()
+    }
+
     private static var pendingImage: CGImage?
     private static var pendingScreenRect: CGRect = .zero
     private static var pendingTime: CFAbsoluteTime = 0
@@ -1447,6 +1454,7 @@ public class Modal: NSObject {
         }
         
         markedAsClosed = true
+        disposable.dispose()
         
         window.removeAllHandlers(for: self)
         for type in [NSEvent.EventType.leftMouseDown, .rightMouseDown] {
@@ -1921,7 +1929,7 @@ public enum ModalAnimationCloseBehaviour : Equatable {
 
 public func showModal(with controller:ModalViewController, for window:Window, isOverlay: Bool = false, animated: Bool = true, animationType: ModalAnimationType = .bottomToCenter, morphSource: (() -> NSView?)? = nil) -> Void {
     assert(controller.modal == nil)
-    var morphSource = morphSource
+    var morphSource = morphSource ?? ModalMorphContextSource.current
     // A modal opened straight from a button's context menu (no explicit morphSource) morphs from that
     // owning button and back, like the attach menu — see ModalMorphContextSource.consumeOwner.
     if morphSource == nil, let owner = ModalMorphContextSource.consumeOwner() {
@@ -1949,7 +1957,7 @@ public func closeModal(_ type: ModalViewController.Type) -> Void {
 
 public func showModal(with controller: NavigationViewController, for window:Window, isOverlay: Bool = false, animated: Bool = true, animationType: ModalAnimationType = .bottomToCenter, morphSource: (() -> NSView?)? = nil) -> Void {
     assert(controller.modal == nil)
-    var morphSource = morphSource
+    var morphSource = morphSource ?? ModalMorphContextSource.current
     if morphSource == nil, let owner = ModalMorphContextSource.consumeOwner() {
         morphSource = { [weak owner] in owner }
     }

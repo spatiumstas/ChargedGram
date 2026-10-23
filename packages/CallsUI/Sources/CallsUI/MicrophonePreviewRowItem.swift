@@ -48,6 +48,18 @@ public class MicrophonePreviewRowItem: GeneralRowItem {
     }
 
     
+    public override var accessibilityLabel: String? {
+        return strings().callSettingsInputLevel
+    }
+
+    public override var accessibilityValue: String? {
+        return "\(Int(round(Double(powerLevel) / 36 * 100)))%"
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
     public override func viewClass() -> AnyClass {
         return MicrophonePreviewRowView.self
     }

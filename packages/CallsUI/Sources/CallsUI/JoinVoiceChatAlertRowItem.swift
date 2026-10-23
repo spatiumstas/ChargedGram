@@ -40,6 +40,14 @@ public final class JoinVoiceChatAlertRowItem : GeneralRowItem {
     public override var height: CGFloat {
         return 70 + 10 + self.titleLayout.layoutSize.height
     }
+
+    public override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
     
     public override func viewClass() -> AnyClass {
         return JoinVoiceChatAlertRowView.self

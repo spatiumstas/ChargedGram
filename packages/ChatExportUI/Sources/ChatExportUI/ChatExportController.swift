@@ -176,6 +176,14 @@ private final class ChatExportProgressRowItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return ChatExportProgressRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return textLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return "\(Int(progress * 100))%"
+    }
 }
 
 private final class ChatExportProgressRowView: GeneralContainableRowView {
@@ -283,7 +291,11 @@ private final class ChatExportHeaderView: NavigationHeaderView {
     private let textView = TextView()
     private let disposable = MetaDisposable()
     private weak var session: ChatExportSession?
-    private var text: String = ""
+    private var text: String = "" {
+        didSet {
+            container.setAccessibilityLabel(text)
+        }
+    }
 
     public override init(_ header: NavigationHeader) {
         super.init(header)
@@ -991,7 +1003,11 @@ private final class FullExportHeaderView: NavigationHeaderView {
     private let textView = TextView()
     private let disposable = MetaDisposable()
     private weak var session: FullExportSession?
-    private var text: String = ""
+    private var text: String = "" {
+        didSet {
+            container.setAccessibilityLabel(text)
+        }
+    }
 
     public override init(_ header: NavigationHeader) {
         super.init(header)

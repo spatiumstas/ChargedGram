@@ -13,6 +13,7 @@ import TelegramTheme
 import TelegramUtils
 import TelegramMediaUtils
 import InlineStickerLayer
+import Localization
 
 
 public class InputTextDataRowItem: GeneralRowItem, InputDataRowDataValue {
@@ -153,6 +154,13 @@ public class InputTextDataRowItem: GeneralRowItem, InputDataRowDataValue {
     
     public override func viewClass() -> AnyClass {
         return InputTextDataRowView.self
+    }
+
+    public override var accessibilityLabel: String? {
+        if let text = placeholder?.placeholder, !text.isEmpty {
+            return text
+        }
+        return inputPlaceholder.string.isEmpty ? nil : inputPlaceholder.string
     }
     
 }
@@ -425,6 +433,7 @@ public class InputTextDataRowView : GeneralContainableRowView {
                 mediaLoadingView?.removeFromSuperview()
                 mediaLoadingView = nil
                 rightActionView.removeAllHandlers()
+                rightActionView.setAccessibilityLabel(nil)
                 switch action {
                 case .none:
                     rightActionView.userInteractionEnabled = false
@@ -435,12 +444,14 @@ public class InputTextDataRowView : GeneralContainableRowView {
                 case .clearText:
                     rightActionView.userInteractionEnabled = true
                     rightActionView.autohighlight = false
+                    rightActionView.setAccessibilityLabel(strings().voiceOverEditingClearText)
                     rightActionView.set(handler: { [weak self] _ in
                         self?.textView.set(.init())
                     }, for: .Click)
                 case let .custom(action):
                     rightActionView.userInteractionEnabled = true
                     rightActionView.autohighlight = false
+                    rightActionView.setAccessibilityLabel(strings().voiceOverCommonOptions)
                     rightActionView.set(handler: { control in
                         action(item, control)
                     }, for: .Click)
@@ -551,6 +562,11 @@ public class InputTextDataRowView : GeneralContainableRowView {
                 }
                 overlay.frame = mediaFrame
                 overlay.removeAllHandlers()
+                if let file = media as? TelegramMediaFile {
+                    overlay.setAccessibilityLabel(file.isSticker || file.isAnimatedSticker || file.isVideoSticker ? strings().voiceOverCommonSticker : file.isVideo ? strings().voiceOverCommonVideo : strings().voiceOverCommonFile)
+                } else {
+                    overlay.setAccessibilityLabel(strings().voiceOverCommonPhoto)
+                }
                 switch action {
                 case let .custom(action):
                     overlay.set(handler: { [weak self] control in
@@ -605,6 +621,8 @@ public class InputTextDataRowView : GeneralContainableRowView {
                 guard let placeholderAction = self.placeholderAction else {
                     return
                 }
+                placeholderAction.setAccessibilityLabel(strings().voiceOverCommonSelect)
+                placeholderAction.isAccessibilityDecorative = placeholder.action == nil
                 placeholderAction.set(image: icon, for: .Normal)
                 placeholderAction.set(image: icon, for: .Highlight)
                 placeholderAction.set(image: icon, for: .Hover)
@@ -651,6 +669,7 @@ public class InputTextDataRowView : GeneralContainableRowView {
                 current = ImageButton()
                 current.autohighlight = false
                 current.scaleOnClick = true
+                current.setAccessibilityLabel(strings().voiceOverCommonEmoji)
                 addSubview(current)
                 self.emoji = current
                 
@@ -687,6 +706,7 @@ public class InputTextDataRowView : GeneralContainableRowView {
         textView.placeholderFontSize = 13
         textView.placeholderMaxLines = item.fitPlaceholderHeight ? .max : 1
         textView.placeholder = item.inputPlaceholder.string
+        textView.inputView.setAccessibilityLabel(item.accessibilityLabel)
         
         textView.context = item.context
         textView.interactions.max_height = 500

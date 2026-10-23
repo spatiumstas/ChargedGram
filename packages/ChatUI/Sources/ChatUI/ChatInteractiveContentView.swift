@@ -113,11 +113,42 @@ final class ChatVideoChunkedAutoplayPlayer: ChatVideoAutoplayPlayer {
     }
 }
 
+fileprivate final class ChatVideoAccessoryTimer {
+    private var source: DispatchSourceTimer?
+
+    init(completion: @escaping () -> Void) {
+        let source = DispatchSource.makeTimerSource(queue: .main)
+        self.source = source
+        source.setEventHandler { [weak self] in
+            guard self?.source != nil else {
+                return
+            }
+            completion()
+        }
+        restart()
+        source.resume()
+    }
+
+    func restart() {
+        source?.schedule(deadline: .now() + 0.5, repeating: 0.5)
+    }
+
+    func invalidate() {
+        source?.cancel()
+        source = nil
+    }
+
+    deinit {
+        invalidate()
+    }
+}
+
 public final class ChatVideoAutoplayView {
     public let mediaPlayer: ChatVideoAutoplayPlayer
     public let view: MediaPlayerView
 
-    fileprivate var playTimer: SwiftSignalKit.Timer?
+    fileprivate var playTimer: ChatVideoAccessoryTimer?
+    fileprivate var playTimerAnimated = false
     public var status: MediaPlayerStatus?
 
     private var timer: SwiftSignalKit.Timer? = nil
@@ -162,10 +193,15 @@ public final class ChatVideoAutoplayView {
         }
     }
     
+    fileprivate func stopPlayTimer() {
+        playTimer?.invalidate()
+        playTimer = nil
+    }
+
     deinit {
         view.removeFromSuperview()
         timer?.invalidate()
-        playTimer?.invalidate()
+        stopPlayTimer()
     }
 }
 
@@ -190,6 +226,196 @@ private final class VideoTimestampView : View {
     }
 }
 
+final class ChatMediaImageHost {
+    private weak var owner: NSView?
+    private(set) var view: TransformImageView?
+    private(set) var layer: TransformImageLayer?
+
+    #if DEBUG
+    static var parityMutation: CGFloat = 0
+    #endif
+
+    init(owner: NSView) {
+        self.owner = owner
+        let view = TransformImageView()
+        self.view = view
+        owner.addSubview(view)
+    }
+
+    private var layerShift: CGFloat {
+        #if DEBUG
+        return ChatMediaImageHost.parityMutation
+        #else
+        return 0
+        #endif
+    }
+
+    func setLayerHosted(_ hosted: Bool, keepingImage: Bool) {
+        guard hosted != (layer != nil), let owner else { return }
+        let previousImage = keepingImage ? (view?.image ?? layer?.image) : nil
+        let frame = self.frame
+        if hosted {
+            let layer = TransformImageLayer()
+            layer.zPosition = -1
+            layer.frame = frame.offsetBy(dx: layerShift, dy: 0)
+            layer.visibilityView = owner
+            owner.layer?.addSublayer(layer)
+            view?.removeFromSuperview()
+            view = nil
+            self.layer = layer
+            if let previousImage {
+                layer.image = previousImage
+            }
+        } else {
+            let view = TransformImageView(frame: frame)
+            owner.addSubview(view, positioned: .below, relativeTo: nil)
+            layer?.removeFromSuperlayer()
+            layer = nil
+            self.view = view
+            if let previousImage {
+                view.image = previousImage
+            }
+        }
+    }
+
+    var frame: NSRect {
+        if let view {
+            return view.frame
+        }
+        if let layer {
+            return layer.frame.offsetBy(dx: -layerShift, dy: 0)
+        }
+        return .zero
+    }
+
+    func setFrameSize(_ size: NSSize) {
+        view?.setFrameSize(size)
+        if let layer, layer.frame.size != size {
+            layer.frame = NSRect(origin: layer.frame.origin, size: size)
+        }
+    }
+
+    func updateFrame(_ frame: NSRect, transition: ContainedViewLayoutTransition) {
+        if let view {
+            transition.updateFrame(view: view, frame: frame)
+        }
+        if let layer {
+            transition.updateFrame(layer: layer, frame: frame.offsetBy(dx: layerShift, dy: 0))
+        }
+    }
+
+    func set(arguments: TransformImageArguments) {
+        view?.set(arguments: arguments)
+        layer?.set(arguments: arguments)
+    }
+
+    var isFullyLoaded: Bool {
+        return view?.isFullyLoaded ?? layer?.isFullyLoaded ?? false
+    }
+
+    var ignoreFullyLoad: Bool {
+        get { view?.ignoreFullyLoad ?? layer?.ignoreFullyLoad ?? false }
+        set {
+            view?.ignoreFullyLoad = newValue
+            layer?.ignoreFullyLoad = newValue
+        }
+    }
+
+    var animatesAlphaOnFirstTransition: Bool {
+        get { view?.animatesAlphaOnFirstTransition ?? layer?.animatesAlphaOnFirstTransition ?? false }
+        set {
+            view?.animatesAlphaOnFirstTransition = newValue
+            layer?.animatesAlphaOnFirstTransition = newValue
+        }
+    }
+
+    var preventsCapture: Bool {
+        get { view?.preventsCapture ?? false }
+        set { view?.preventsCapture = newValue }
+    }
+
+    var opacity: Float {
+        get { view?.layer?.opacity ?? layer?.opacity ?? 1 }
+        set {
+            view?.layer?.opacity = newValue
+            layer?.opacity = newValue
+        }
+    }
+
+    func setSignal(signal: Signal<TransformImageResult?, NoError>, clearInstantly: Bool) {
+        view?.setSignal(signal: signal, clearInstantly: clearInstantly)
+        layer?.setSignal(signal: signal, clearInstantly: clearInstantly)
+    }
+
+    func setSignal(_ signal: Signal<ImageDataTransformation, NoError>, animate: Bool, cacheImage: @escaping (TransformImageResult) -> Void, isProtected: Bool, alreadyRendered: TransformImageArguments?) {
+        if let view {
+            view.setSignal(signal, animate: animate, cacheImage: cacheImage, isProtected: isProtected, alreadyRendered: alreadyRendered)
+        } else if let layer {
+            assert(!isProtected)
+            layer.setSignal(signal, animate: animate, cacheImage: cacheImage, alreadyRendered: alreadyRendered)
+        }
+    }
+
+    func change(size: NSSize, animated: Bool) {
+        if let view {
+            view._change(size: size, animated: animated)
+            return
+        }
+        guard let layer, layer.frame.size != size else { return }
+        if animated {
+            var presentBounds = layer.bounds
+            if let presentation = layer.presentation(), layer.animation(forKey: "bounds") != nil {
+                presentBounds.size = presentation.bounds.size
+            }
+            layer.animateBounds(from: presentBounds, to: NSMakeRect(0, 0, size.width, size.height), duration: 0.2, timingFunction: .easeOut)
+        } else {
+            layer.removeAnimation(forKey: "bounds")
+        }
+        layer.frame = NSRect(origin: layer.frame.origin, size: size)
+    }
+
+    func hostDidMoveToWindow() {
+        layer?.hostDidMoveToWindow()
+    }
+
+    var contents: Any? {
+        return view?.layer?.contents ?? layer?.contents
+    }
+
+    func copy() -> Any {
+        if let view {
+            return view.copy()
+        }
+        guard let owner, let layer else { return NSView() }
+        let bounds = layer.bounds
+        let visibleRect = owner.effectiveVisibleRect
+        let view = NSView()
+        view.wantsLayer = true
+        view.background = .clear
+        view.layer?.contents = layer.image
+        view.frame = visibleRect
+        view.layer?.masksToBounds = true
+        if bounds != visibleRect {
+            if let image = layer.contents {
+                view.layer?.contents = generateImage(bounds.size, contextGenerator: { size, ctx in
+                    ctx.clear(bounds)
+                    ctx.setFillColor(.clear)
+                    ctx.fill(bounds)
+                    if visibleRect.minY != 0  {
+                        ctx.clip(to: NSMakeRect(0, 0, bounds.width, bounds.height - ( bounds.height - visibleRect.height)))
+                    } else {
+                        ctx.clip(to: NSMakeRect(0, (bounds.height - visibleRect.height), bounds.width, bounds.height - ( bounds.height - visibleRect.height)))
+                    }
+                    ctx.draw(image as! CGImage, in: bounds)
+                }, opaque: false)
+            }
+        }
+        view.layer?.shouldRasterize = true
+        view.layer?.rasterizationScale = owner.backingScaleFactor
+        return view
+    }
+}
+
 public class ChatInteractiveContentView: ChatMediaContentView {
 
     /// When set, the image is rendered with square (0) corners instead of the default `.cornerRadius`.
@@ -202,7 +428,7 @@ public class ChatInteractiveContentView: ChatMediaContentView {
         return .chatMedia(positionFlags, bubble: parameters?.bubbleCorners(), inner: squareCorners ? 0 : .cornerRadius)
     }
 
-    private let image:TransformImageView = TransformImageView()
+    private lazy var image = ChatMediaImageHost(owner: self)
     private var videoAccessory: ChatMessageAccessoryView? = nil
     private var progressView:RadialProgressView?
     private var timableProgressView: TimableProgressView? = nil
@@ -255,7 +481,7 @@ public class ChatInteractiveContentView: ChatMediaContentView {
     public required init(frame frameRect: NSRect) {
         super.init(frame:frameRect)
         //background = .random
-        self.addSubview(image)
+        _ = self.image
     }
     
 
@@ -282,21 +508,24 @@ public class ChatInteractiveContentView: ChatMediaContentView {
     private func updateMediaStatus(_ status: MediaPlayerStatus, animated: Bool = false) {
         if let autoplayVideoView = autoplayVideoView, let media = self.media as? TelegramMediaFile {
             autoplayVideoView.status = status
+            autoplayVideoView.playTimerAnimated = animated
             updateVideoAccessory(.Local, file: media, mediaPlayerStatus: status, animated: animated)
             
             switch status.status {
             case .playing:
-                autoplayVideoView.playTimer?.invalidate()
-                autoplayVideoView.playTimer = SwiftSignalKit.Timer(timeout: 0.5, repeat: true, completion: { [weak self] in
-                    guard let self, let status = self.autoplayVideoView?.status else {
-                        return
-                    }
-                    self.updateVideoAccessory(.Local, file: media, mediaPlayerStatus: status, animated: animated)
-                    }, queue: .mainQueue())
-                
-                autoplayVideoView.playTimer?.start()
+                if let timer = autoplayVideoView.playTimer {
+                    timer.restart()
+                } else {
+                    autoplayVideoView.playTimer = ChatVideoAccessoryTimer(completion: { [weak self, weak autoplayVideoView] in
+                        guard let self, let autoplayVideoView, self.autoplayVideoView === autoplayVideoView, let status = autoplayVideoView.status, let media = self.media as? TelegramMediaFile else {
+                            autoplayVideoView?.stopPlayTimer()
+                            return
+                        }
+                        self.updateVideoAccessory(.Local, file: media, mediaPlayerStatus: status, animated: autoplayVideoView.playTimerAnimated)
+                    })
+                }
             default:
-                autoplayVideoView.playTimer?.invalidate()
+                autoplayVideoView.stopPlayTimer()
             }
 
             
@@ -358,7 +587,7 @@ public class ChatInteractiveContentView: ChatMediaContentView {
     
     @objc public func updatePlayerIfNeeded() {
         
-        guard let autoplayView = autoplayVideoView else {
+        guard autoplayVideoView != nil || livePhotoView != nil else {
             return
         }
         
@@ -368,24 +597,25 @@ public class ChatInteractiveContentView: ChatMediaContentView {
             accept = accept && mouseInside()
         }
                         
-        if accept {
-            autoplayView.mediaPlayer.play()
-            self.progressView?.isHidden = true
-        } else {
-            autoplayView.mediaPlayer.pause()
-            autoplayVideoView?.playTimer?.invalidate()
-            self.progressView?.isHidden = false
+        if let autoplayView = autoplayVideoView {
+            if accept {
+                autoplayView.mediaPlayer.play()
+                self.progressView?.isHidden = true
+            } else {
+                autoplayView.mediaPlayer.pause()
+                autoplayView.stopPlayTimer()
+                self.progressView?.isHidden = false
+            }
         }
 
         if let livePhotoView = livePhotoView {
-            let inView = window != nil && !NSIsEmptyRect(visibleRect)
-            if !inView {
+            if !accept {
                 if livePhotoPlayed {
                     livePhotoPlayed = false
                     livePhotoView.mediaPlayer.pause()
                     hideLivePhotoVideo(animated: false)
                 }
-            } else if !livePhotoPlayed, !self.isDynamicContentLocked {
+            } else if !livePhotoPlayed {
                 livePhotoPlayed = true
                 livePhotoView.mediaPlayer.seek(timestamp: 0, play: true)
             }
@@ -404,6 +634,7 @@ public class ChatInteractiveContentView: ChatMediaContentView {
         } else {
             badge = ImageView()
             badge.isEventLess = true
+            badge.isAccessibilityDecorative = true
             self.livePhotoBadge = badge
             addSubview(badge)
         }
@@ -438,7 +669,7 @@ public class ChatInteractiveContentView: ChatMediaContentView {
         player.view.layer?.opacity = 0
         player.view.corners = self.appliedCorners
         player.view.preventsCapture = parameters?.isProtected ?? false
-        addSubview(player.view, positioned: .above, relativeTo: image)
+        addSubview(player.view, positioned: .above, relativeTo: image.view)
         player.mediaPlayer.attachPlayerView(player.view)
         livePhotoView = player
         livePhotoPlayed = false
@@ -477,6 +708,7 @@ public class ChatInteractiveContentView: ChatMediaContentView {
 
     private func removeLivePhotoPlayer() {
         livePhotoStatusDisposable.set(nil)
+        livePhotoFetchDisposable.set(nil)
         livePhotoPlayerStatusDisposable.set(nil)
         livePhotoView = nil
         livePhotoFile = nil
@@ -525,6 +757,9 @@ public class ChatInteractiveContentView: ChatMediaContentView {
     public override func viewDidMoveToWindow() {
         updateListeners()
         self.updatePlayerIfNeeded()
+        if window != nil {
+            image.hostDidMoveToWindow()
+        }
     }
 
     public override func viewDidMoveToSuperview() {
@@ -792,6 +1027,8 @@ public class ChatInteractiveContentView: ChatMediaContentView {
 
         
         
+        let hostsImageLayer = !ChatRowView.usesLegacyRowChrome && !isProtected && !isSpoiler && parent?.containsSecretMedia != true && (media as? TelegramMediaImage).map { $0.video == nil } == true
+        self.image.setLayerHosted(hostsImageLayer, keepingImage: !clearInstantly)
         self.image.preventsCapture = isProtected
 
 
@@ -942,7 +1179,7 @@ public class ChatInteractiveContentView: ChatMediaContentView {
             
             self.image.set(arguments: arguments)
             
-            self.image._change(size: size, animated: animated)
+            self.image.change(size: size, animated: animated)
             
             autoplayVideoView?.view.corners = corners
             
@@ -998,7 +1235,7 @@ public class ChatInteractiveContentView: ChatMediaContentView {
                     performSubviewRemoval(view, animated: removeViewAnimated)
                     self.inkView = nil
                 }
-                self.image.layer?.opacity = 1
+                self.image.opacity = 1
                 self.autoplayVideoView?.view.layer?.opacity = 1
             }
 
@@ -1066,9 +1303,9 @@ public class ChatInteractiveContentView: ChatMediaContentView {
                                 autoplay.view.frame = NSMakeRect(0, 0, value.width, value.height)
                                 autoplay.view.corners = corners
                                 let subviews = strongSelf.subviews
-                                let isPlacedAboveImage = autoplay.view.superview === strongSelf && subviews.firstIndex(of: strongSelf.image).map { $0 + 1 < subviews.count && subviews[$0 + 1] === autoplay.view } == true
+                                let isPlacedAboveImage = autoplay.view.superview === strongSelf && strongSelf.image.view.flatMap({ subviews.firstIndex(of: $0) }).map { $0 + 1 < subviews.count && subviews[$0 + 1] === autoplay.view } == true
                                 if !isPlacedAboveImage {
-                                    strongSelf.addSubview(autoplay.view, positioned: .above, relativeTo: strongSelf.image)
+                                    strongSelf.addSubview(autoplay.view, positioned: .above, relativeTo: strongSelf.image.view)
                                 }
                                 if strongSelf.attachedAutoplayView !== autoplay {
                                     autoplay.mediaPlayer.attachPlayerView(autoplay.view)
@@ -1245,7 +1482,7 @@ public class ChatInteractiveContentView: ChatMediaContentView {
     public override func updateLayout(size: NSSize, transition: ContainedViewLayoutTransition) {
         super.updateLayout(size: size, transition: transition)
         
-        transition.updateFrame(view: image, frame: bounds)
+        image.updateFrame(bounds, transition: transition)
         
     }
     
@@ -1324,8 +1561,14 @@ public class ChatInteractiveContentView: ChatMediaContentView {
     public override func copy() -> Any {
         return image.copy()
     }
+
+    #if DEBUG
+    var debugImageHost: (isPhoto: Bool, layer: Bool) {
+        return (media is TelegramMediaImage, image.layer != nil)
+    }
+    #endif
     public override var contents: Any? {
-        return image.layer?.contents
+        return image.contents
     }
     
 }

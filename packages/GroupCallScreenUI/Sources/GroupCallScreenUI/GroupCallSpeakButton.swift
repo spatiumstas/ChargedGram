@@ -5,6 +5,7 @@ import TelegramCore
 import TelegramMedia
 import LocalAnimations
 import TelegramCallsCore
+import Localization
 
 public final class GroupCallSpeakButton : Control {
     private let animationView: LottiePlayerView
@@ -34,6 +35,29 @@ public final class GroupCallSpeakButton : Control {
     private var previousState: PresentationGroupCallState?
     private var previousIsMuted: Bool?
     private var previousIsFullScreen: Bool?
+    private var previousIsStream: Bool = false
+
+    public override var accessibilityDefaultLabel: String? {
+        guard let state = previousState else {
+            return nil
+        }
+        if state.scheduleTimestamp != nil {
+            if state.canManageCall {
+                return strings().voiceChatStartNow
+            } else if state.subscribedToScheduled {
+                return strings().voiceChatRemoveReminder
+            } else {
+                return strings().voiceChatSetReminder
+            }
+        }
+        if previousIsStream {
+            return previousIsFullScreen == true ? strings().voiceOverCommonExitFullscreen : strings().voiceOverCommonFullscreen
+        }
+        if let muteState = state.muteState, !muteState.canUnmute {
+            return strings().voiceOverCommonRaiseHand
+        }
+        return previousIsMuted == true ? strings().voiceOverCommonUnmute : strings().voiceOverCommonMute
+    }
     
     public func update(with state: PresentationGroupCallState, isStream: Bool, isFullScreen: Bool, isMuted: Bool, animated: Bool) {
         if state.scheduleTimestamp == nil {
@@ -135,6 +159,7 @@ public final class GroupCallSpeakButton : Control {
         self.previousIsFullScreen = isFullScreen
         self.previousState = state
         self.previousIsMuted = isMuted
+        self.previousIsStream = isStream
     }
     
     private func setupScheduled(_ animation: LocalAnimatedSticker) {

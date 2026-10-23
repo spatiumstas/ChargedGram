@@ -57,6 +57,10 @@ private final class HeaderItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return HeaderItemView.self
     }
+
+    override var accessibilityLabel: String? {
+        return headerLayout.attributedString.string
+    }
 }
 
 private final class HeaderItemView : GeneralRowView {
@@ -69,6 +73,7 @@ private final class HeaderItemView : GeneralRowView {
             super.init(frame: frameRect)
             addSubview(imageView)
             addSubview(textView)
+            imageView.isAccessibilityDecorative = true
             
             textView.userInteractionEnabled = false
             textView.isSelectable = false
@@ -154,6 +159,7 @@ private final class HeaderItemView : GeneralRowView {
                     current = view
                 } else {
                     current = ImageView()
+                    current.isAccessibilityDecorative = true
                     self.select = current
                     addSubview(current)
                 }
@@ -234,6 +240,7 @@ private final class HeaderItemView : GeneralRowView {
         
         
         dismiss.set(image: theme.icons.glass_close, for: .Normal)
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
         dismiss.setGlassEffect(size: NSMakeSize(36, 36))
         dismiss.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
         dismiss.scaleOnClick = true

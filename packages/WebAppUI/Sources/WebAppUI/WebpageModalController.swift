@@ -77,7 +77,7 @@ private func webAppSecuredEventProxySource(trustedOrigin: String) -> String {
     """
 }
 
-private final class BotEmojiStatusPermissionRowItem : GeneralRowItem {
+final class BotEmojiStatusPermissionRowItem : GeneralRowItem {
     fileprivate let context: (any AccountContextProtocol)
     fileprivate let peer: EnginePeer
     public init(_ initialSize: NSSize, stableId: AnyHashable, peer: EnginePeer, context: (any AccountContextProtocol)) {
@@ -89,6 +89,10 @@ private final class BotEmojiStatusPermissionRowItem : GeneralRowItem {
     }
     public override func viewClass() -> AnyClass {
         return BotEmojiStatusPermissionRowView.self
+    }
+
+    public override var accessibilityLabel: String? {
+        return peer._asPeer().displayTitle
     }
 }
 
@@ -328,6 +332,7 @@ public final class WebpageHeaderView : Control {
         rightButton.set(image: TelegramThemeHooks.shared.image(.iconChatActionsActive).precomposed(color), for: .Normal)
         rightButton.setGlassEffect(size: NSMakeSize(36, 36))
         rightButton.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
+        rightButton.setAccessibilityLabel(strings().voiceOverCommonMore)
         
         if prevLeft != left || prevLeft == nil || !animated {
             let previousBtn = self.leftButton
@@ -341,6 +346,7 @@ public final class WebpageHeaderView : Control {
                 btn.set(image: TelegramThemeHooks.shared.image(.iconPipClose).precomposed(color), for: .Normal)
                 btn.setGlassEffect(size: NSMakeSize(36, 36))
                 btn.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
+                btn.setAccessibilityLabel(strings().voiceOverCommonClose)
                 button = btn
             case .back:
                 let btn = TextButton()
@@ -477,6 +483,7 @@ private final class WebpageView : View {
             let textLayout = TextViewLayout(.initialize(string: state.text, color: state.textColor, font: .medium(.text)), maximumNumberOfLines: 1, truncationType: .middle)
             textLayout.measure(width: frame.width - 60)
             textView.update(textLayout)
+            setAccessibilityLabel(state.text)
             
             set(background: state.backgroundColor, for: .Normal)
             set(background: state.backgroundColor.darker(), for: .Highlight)
@@ -993,6 +1000,12 @@ public struct WebpageModalState : Equatable {
 }
 
 public class WebpageModalController: ModalViewController, WKNavigationDelegate, WKUIDelegate, BrowserPage {
+    private let invoiceAction = BrowserInvoiceAction()
+    private let preparedShareAction = BrowserPreparedShareAction()
+    private let locationAction = BrowserLocationAction()
+    private let emojiPermissionAction = BrowserEmojiPermissionAction()
+    private let emojiStatusAction = BrowserEmojiStatusAction()
+    private var acceptsLocationRequests = true
     
     private let statePromise = ValuePromise<WebpageModalState>(WebpageModalState(), ignoreRepeated: true)
     private let stateValue = Atomic(value: WebpageModalState())
@@ -1348,7 +1361,17 @@ public class WebpageModalController: ModalViewController, WKNavigationDelegate, 
         return browser?.window ?? _window ?? view.window as? Window
     }
     
+    public override func viewWillAppear(_ animated: Bool) {
+        acceptsLocationRequests = true
+        super.viewWillAppear(animated)
+    }
+
     public override func viewWillDisappear(_ animated: Bool) {
+        acceptsLocationRequests = false
+        lastTouchTimestamp = nil
+        locationAction.reset()
+        emojiPermissionAction.reset()
+        emojiStatusAction.reset()
         super.viewWillDisappear(animated)
         window?.removeObserver(for: self)
         apperanceDisposable.set(nil)
@@ -1914,26 +1937,13 @@ public class WebpageModalController: ModalViewController, WKNavigationDelegate, 
                 }
             }
         case "web_app_open_invoice":
-            if let eventData = (body["eventData"] as? String)?.data(using: .utf8), let json = try? JSONSerialization.jsonObject(with: eventData, options: []) as? [String: Any] {
-                if let slug = json["slug"] as? String {
-                    
-                    let signal = showModalProgress(signal: context.engine.payments.fetchBotPaymentInvoice(source: .slug(slug)), for: window)
-                    
-                    _ = signal.start(next: { [weak self] invoice in
-                        if let window = self?.window {
-                            BrowserHooks.shared.openInvoice(context, invoice, slug, window, { [weak self] status in
-                                let data: JSON = ["slug": slug, "status": status]
-                                self?.sendEvent(name: "invoice_closed", data: data.string)
-                            })
-                        }
-                        
-                        
-                    }, error: { [weak self] error in
-                        if let window = self?.window {
-                            showModalText(for: window, text: strings().paymentsInvoiceNotExists)
-                        }
-                    })
-                }
+            if let slug = json?["slug"] as? String {
+                invoiceAction.open(context: context, slug: slug, window: window, canPresent: { [weak self] in
+                    self?.window === window
+                }, completion: { [weak self] status in
+                    let data: JSON = ["slug": slug, "status": status]
+                    self?.sendEvent(name: "invoice_closed", data: data.string)
+                })
             }
         case "web_app_set_background_color":
             if let json = json, let colorValue = json["color"] as? String, let color = NSColor(hexString: colorValue) {
@@ -2148,45 +2158,9 @@ public class WebpageModalController: ModalViewController, WKNavigationDelegate, 
                 })
             }
         case "web_app_set_emoji_status":
-            if let json = json, let emojiId = (json["custom_emoji_id"] as? String).flatMap(Int64.init) {
-                let duration = (json["duration"] as? String).flatMap(Int32.init)
-                if let bot {
-                    _ = showModalProgress(signal: context.inlinePacksContext.load(fileId: emojiId) |> take(1), for: window).start(next: { [self] file in
-                        if let file {
-                            showModal(with: WebbotEmojisetModal(context: context, bot: .init(bot), file: file, expirationDate: duration != nil ? context.timestamp + duration! : nil, completed: { [weak self] result in
-                                if result == .fail {
-                                    self?.sendEvent(name: "emoji_status_failed", data: nil)
-                                } else {
-                                    self?.sendEvent(name: "emoji_status_set", data: nil)
-                                }
-                                if result == .success {
-                                    showModalText(for: window, text: strings().emojiContextSetStatusSuccess)
-                                }
-                            }), for: window)
-                        } else {
-                            showModalText(for: window, text: strings().webappEmojiStatusNotExists)
-                            self.sendEvent(name: "emoji_status_failed", data: nil)
-                        }
-                    })
-                }
-            }
+            setEmojiStatus(json)
         case "web_app_request_emoji_status_access":
-            if let bot {
-                let data = ModalAlertData(title: nil, info: strings().webappEmojiStatusRequested(bot.displayTitle, bot.displayTitle), description: nil, ok: strings().webappEmojiStatusRequestedAllow, options: [], mode: .confirm(text: strings().webappEmojiStatusRequestedDecline, isThird: false), header: .init(id: "header", value: { initialSize, stableId, presentation in
-                    return BotEmojiStatusPermissionRowItem(initialSize, stableId: stableId, peer: .init(context.myPeer!), context: context)
-                }))
-                
-                showModalAlert(for: window, data: data, completion: { result in
-                    if !context.isPremium {
-                        BrowserHooks.shared.openPremiumBoarding(context, window)
-                    } else {
-                        _ = context.engine.peers.toggleBotEmojiStatusAccess(peerId: bot.id, enabled: true).start()
-                        showModalText(for: window, text: strings().webappEmojiStatusAllowed(bot.displayTitle))
-                    }
-                }, onDeinit: {
-                    self.sendEvent(name: "emoji_status_access_requested", data: nil)
-                })
-            }
+            requestEmojiStatusAccess()
         case "web_app_request_file_download":
             if let json = json, let url = (json["url"] as? String), let fileName = json["file_name"] as? String {
                 if let bot = bot {
@@ -2209,20 +2183,12 @@ public class WebpageModalController: ModalViewController, WKNavigationDelegate, 
                 }
             }
         case "web_app_send_prepared_message":
-            if let json = json, let id = (json["id"] as? String) {
-                if let bot = bot {
-                    _ = showModalProgress(signal: context.engine.messages.getPreparedInlineMessage(botId: bot.id, id: id), for: window).startStandalone(next: { preparedMessage in
-                        if let preparedMessage {
-                            BrowserHooks.shared.sharePreparedMessage(context, bot, preparedMessage, window, { success in
-                                if success {
-                                    self.sendEvent(name: "prepared_message_sent", data: nil)
-                                } else {
-                                    self.sendEvent(name: "prepared_message_failed", data: nil)
-                                }
-                            })
-                        }
-                    })
-                }
+            if let id = json?["id"] as? String, let bot {
+                preparedShareAction.open(context: context, bot: bot, id: id, window: window, canPresent: { [weak self] in
+                    self?.window === window
+                }, completion: { [weak self] success in
+                    self?.sendEvent(name: success ? "prepared_message_sent" : "prepared_message_failed", data: nil)
+                })
             }
         case "web_app_request_fullscreen":
             if !window.isFullScreen {
@@ -2546,133 +2512,105 @@ public class WebpageModalController: ModalViewController, WKNavigationDelegate, 
         self.sendEvent(name: "theme_changed", data: themeParamsString)
     }
     
-    fileprivate func openLocationSettings() {
-        guard let botId = self.bot?.id else {
+    fileprivate func setEmojiStatus(_ data: [String: Any]?) {
+        guard acceptsLocationRequests, !emojiStatusAction.isPending, let timestamp = lastTouchTimestamp else {
             return
         }
+        let elapsed = CACurrentMediaTime() - timestamp
+        guard elapsed >= 0 && elapsed <= 10 else { return }
+        let parameters: BrowserEmojiStatusAction.Parameters
+        switch BrowserEmojiStatusAction.parse(data, timestamp: context.timestamp) {
+        case let .success(value):
+            parameters = value
+        case let .failure(error):
+            self.sendEvent(name: "emoji_status_failed", data: JSON(dictionary: ["error": error.rawValue])?.string)
+            return
+        }
+        guard let bot = self.bot, let window = self.window else {
+            self.sendEvent(name: "emoji_status_failed", data: JSON(dictionary: ["error": "UNKNOWN_ERROR"])?.string)
+            return
+        }
+        let botId = bot.id
+        emojiStatusAction.open(context: context, bot: bot, parameters: parameters, window: window, canPresent: { [weak self, weak window] in
+            guard let self, let window else { return false }
+            return self.acceptsLocationRequests && self.bot?.id == botId && self.window === window
+        }, completion: { [weak self] error in
+            if let error {
+                self?.sendEvent(name: "emoji_status_failed", data: JSON(dictionary: ["error": error.rawValue])?.string)
+            } else {
+                self?.sendEvent(name: "emoji_status_set", data: nil)
+            }
+        })
+    }
+
+    fileprivate func requestEmojiStatusAccess() {
+        guard acceptsLocationRequests, let timestamp = lastTouchTimestamp else {
+            return
+        }
+        let elapsed = CACurrentMediaTime() - timestamp
+        guard elapsed >= 0 && elapsed <= 10 else {
+            return
+        }
+        guard let bot = self.bot, let window = self.window else {
+            self.sendEvent(name: "emoji_status_access_requested", data: JSON(dictionary: ["status": "cancelled"])?.string)
+            return
+        }
+        let botId = bot.id
+        emojiPermissionAction.open(context: context, bot: bot, window: window, canPresent: { [weak self, weak window] in
+            guard let self, let window else {
+                return false
+            }
+            return self.acceptsLocationRequests && self.bot?.id == botId && self.window === window
+        }, completion: { [weak self] status in
+            self?.sendEvent(name: "emoji_status_access_requested", data: JSON(dictionary: ["status": status])?.string)
+        })
+    }
+
+    fileprivate func openLocationSettings() {
+        guard acceptsLocationRequests, let botId = self.bot?.id, let timestamp = lastTouchTimestamp else {
+            return
+        }
+        let elapsed = CACurrentMediaTime() - timestamp
+        guard elapsed >= 0 && elapsed <= 10 else {
+            return
+        }
+        lastTouchTimestamp = nil
         BrowserHooks.shared.openPeerInfo(context, botId)
         context.window.makeKeyAndOrderFront(nil)
     }
     
     fileprivate func checkLocation() {
-        guard let botId = self.bot?.id else {
+        guard acceptsLocationRequests, let botId = self.bot?.id else {
             return
         }
-        let _ = (webAppPermissionsState(context: self.context, peerId: botId)
-        |> take(1)
-        |> deliverOnMainQueue).start(next: { [weak self] state in
-            guard let self else {
+        locationAction.check(context: context, botId: botId, canPresent: { [weak self] in
+            self?.acceptsLocationRequests == true && self?.bot?.id == botId
+        }, completion: { [weak self] data in
+            self?.sendEvent(name: "location_checked", data: JSON(dictionary: data)?.string)
+        })
+    }
+
+    fileprivate func requestLocation() {
+        guard acceptsLocationRequests else {
+            return
+        }
+        guard let bot = self.bot, let window = self.window else {
+            self.sendEvent(name: "location_requested", data: JSON(dictionary: ["available": false])?.string)
+            return
+        }
+        let botId = bot.id
+        locationAction.open(context: context, bot: bot, window: window, canPresent: { [weak self, weak window] in
+            guard let self, let window else {
+                return false
+            }
+            return self.acceptsLocationRequests && self.bot?.id == botId && self.window === window
+        }, completion: { [weak self, weak window] data, error in
+            guard let self, let window else {
                 return
             }
-            var data: [String: Any] = [:]
-            data["available"] = true
-            if let location = state?.location {
-                data["access_requested"] = location.isRequested
-                if location.isRequested {
-                    data["access_granted"] = location.isAllowed
-                }
-            } else {
-                data["access_requested"] = false
-            }
-            if let serializedData = JSON(dictionary: data)?.string {
-                self.sendEvent(name: "location_checked", data: serializedData)
-            }
-        })
-
-    }
-    
-    fileprivate func requestLocation() {
-        
-        let context = self.context
-        
-        guard let bot = self.bot else {
-            return
-        }
-        
-        let botId = bot.id
-        
-        _ = (FeatureNavigationHooks.shared.requestUserLocation() |> take(1)).start(next: { [self] result in
-            
-            
-            switch result {
-            case let .success(location):
-                let _ = (webAppPermissionsState(context: context, peerId: botId)
-                         |> take(1)
-                         |> deliverOnMainQueue).start(next: { [weak self] state in
-                    guard let self else {
-                        return
-                    }
-                    
-                    var shouldRequest = false
-                    
-                    if let request = state?.location {
-                        if request.isRequested {
-                            if request.isAllowed {
-                                var data: [String: Any] = [:]
-                                data["available"] = true
-                                data["latitude"] = location.coordinate.latitude
-                                data["longitude"] = location.coordinate.longitude
-                                data["altitude"] = location.altitude
-                                data["course"] = location.course
-                                data["speed"] = location.speed
-                                data["horizontal_accuracy"] = location.horizontalAccuracy
-                                data["vertical_accuracy"] = location.verticalAccuracy
-                                
-                                if #available(macOS 10.15.4, *) {
-                                    data["course_accuracy"] = location.courseAccuracy
-                                } else {
-                                    data["course_accuracy"] = NSNull()
-                                }
-                                
-                                if #available(macOS 10.15, *) {
-                                    data["speed_accuracy"] = location.speedAccuracy
-                                } else {
-                                    data["speed_accuracy"] = NSNull()
-                                }
-                                if let serializedData = JSON(dictionary: data)?.string {
-                                    self.sendEvent(name: "location_requested", data: serializedData)
-                                }
-                            } else {
-                                var data: [String: Any] = [:]
-                                data["available"] = false
-                                self.sendEvent(name: "location_requested", data: JSON(dictionary: data)?.string)
-                            }
-                        } else {
-                            shouldRequest = true
-                        }
-                    } else {
-                        shouldRequest = true
-                    }
-                    
-                    if shouldRequest, let window = self.window {
-                        verifyAlert(for: window, information: strings().webAppLocationPermissionText(bot.displayTitle, bot.displayTitle), ok: strings().webAppLocationPermissionAllow, cancel: strings().webAppLocationPermissionDecline, successHandler: { [weak self] _ in
-                            
-                            let _ = updateWebAppPermissionsStateInteractively(context: context, peerId: botId) { current in
-                                return WebAppPermissionsState(location: WebAppPermissionsState.Location(isRequested: true, isAllowed: true), emojiStatus: nil)
-                            }.start()
-                            
-                            showModalText(for: window, text: strings().webAppLocationPermissionSucceed(bot.displayTitle))
-                            
-                            Queue.mainQueue().after(0.1, {
-                                self?.requestLocation()
-                            })
-
-                        }, cancelHandler: { [weak self] in
-                            var data: [String: Any] = [:]
-                            data["available"] = false
-                            self?.sendEvent(name: "location_requested", data: JSON(dictionary: data)?.string)
-                            
-                            let _ = updateWebAppPermissionsStateInteractively(context: context, peerId: botId) { current in
-                                return WebAppPermissionsState(location: WebAppPermissionsState.Location(isRequested: true, isAllowed: false), emojiStatus: nil)
-                            }.start()
-
-                            
-                        })
-                    }
-                })
-            default:
+            if let error {
                 let text: String
-                switch result {
+                switch error {
                 case .denied, .restricted:
                     text = strings().webAppLocationPermissionDeniedError
                 case .wifiRequired:
@@ -2680,18 +2618,11 @@ public class WebpageModalController: ModalViewController, WKNavigationDelegate, 
                 default:
                     text = strings().webAppLocationPermissionDisabledError
                 }
-                if let window = self.window {
-                    showModalText(for: window, text: text)
-                }
+                showModalText(for: window, text: text)
             }
-            
+            self.sendEvent(name: "location_requested", data: JSON(dictionary: data)?.string)
         })
     }
-
-      
-
-    
-
 
     private func downloadFile(url: String, fileName: String, fileSize: String, bot: Peer, window: Window) {
         var title: String?
@@ -3084,6 +3015,7 @@ public class WebpageModalController: ModalViewController, WKNavigationDelegate, 
     }
     
     public func closeAnyway() {
+        cancelPendingPageActions()
         if let browser {
             browser.close(confirm: false)
         } else {
@@ -3116,7 +3048,25 @@ public class WebpageModalController: ModalViewController, WKNavigationDelegate, 
         
     }
 
+    public func cancelPendingInvoices() {
+        invoiceAction.reset()
+    }
+
+    public func cancelPendingPageActions() {
+        lastTouchTimestamp = nil
+        locationAction.reset()
+        emojiPermissionAction.reset()
+        emojiStatusAction.reset()
+        cancelPendingInvoices()
+        preparedShareAction.reset()
+    }
+
+    public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        cancelPendingPageActions()
+    }
+
     public func reloadPage() {
+        cancelPendingPageActions()
         self.genericView._holder.reload()
         self.updateLocalizationAndTheme(theme: theme)
     }

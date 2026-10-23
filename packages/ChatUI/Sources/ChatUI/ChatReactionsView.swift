@@ -245,6 +245,7 @@ public final class ChatReactionsLayout {
             lhs.mode == rhs.mode &&
             lhs.rect == rhs.rect &&
             lhs.message.id == rhs.message.id &&
+            lhs.message.containsSecretMedia == rhs.message.containsSecretMedia &&
             lhs.canViewList == rhs.canViewList &&
             lhs.message.effectiveReactions(isTags: lhs.context.peerId == lhs.message.id.peerId) == rhs.message.effectiveReactions(isTags: rhs.context.peerId == rhs.message.id.peerId)
         }
@@ -338,6 +339,7 @@ public final class ChatReactionsLayout {
         private var menu: ContextMenu?
         
         private var reactions: EngineMessageReactionListContext?
+        private let avatarDisposable = MetaDisposable()
         
         public func cancelMenu() {
             delayDisposable.set(nil)
@@ -366,7 +368,7 @@ public final class ChatReactionsLayout {
                         }
                         
                         menu.addItem(ContextMenuItem(label != nil ? strings().chatReactionContextEditTag : strings().chatReactionContextAddLabel, handler: {
-                            ChatNavigationHooks.shared.showEditTagLabel(context, tag, label, context.window)
+                            ChatNavigationHooks.shared.showEditTagLabelObserved(context, tag, label, context.window)
                         }, itemImage: MenuAnimation.menu_tag_rename.value))
                         
                         menu.addItem(ContextSeparatorItem())
@@ -405,7 +407,7 @@ public final class ChatReactionsLayout {
                     self.reactions = current
                 }
                 let signal = current.state |> deliverOnMainQueue
-                self.disposable.set(signal.start(next: { [weak self] state in
+                self.disposable.set((signal).start(next: { [weak self] state in
                     self?.applyState(state)
                 }))
                 
@@ -429,6 +431,8 @@ public final class ChatReactionsLayout {
             weak let weakSelf = self
             let message = self.message
             let canDeleteReactions = canDeleteReactionsInChat(message: self.message)
+            let avatarDisposables = DisposableSet()
+            self.avatarDisposable.set(avatarDisposables)
             let makeItem:(_ peer: Peer, _ readTimestamp: Int32?) -> ContextMenuItem = { peer, readTimestamp in
                 let title = peer.displayTitle.prefixWithDots(25)
                 let item = ReactionPeerMenu(title: title, handler: {
@@ -437,17 +441,16 @@ public final class ChatReactionsLayout {
                 
                 let signal:Signal<(CGImage?, Bool), NoError>
                 signal = peerAvatarImage(account: account, photo: .peer(peer, peer.smallProfileImage, peer.namePeerColor, TelegramUtilsHooks.shared.peerLetters(peer), nil, nil), displayDimensions: NSMakeSize(18 * System.backingScale, 18 * System.backingScale), font: .avatar(13), genCap: true, synchronousLoad: false) |> deliverOnMainQueue
-                _ = signal.start(next: { [weak item] image, _ in
+                avatarDisposables.add((signal).start(next: { [weak item] image, _ in
                     if let image = image {
                         item?.image = NSImage(cgImage: image, size: NSMakeSize(18, 18))
                     }
-                })
+                }))
                 return item
             }
             menu?.loadMore = { [weak self] in
-                if self?.state?.canLoadMore == true {
-                    self?.reactions?.loadMore()
-                }
+                guard let self, self.state?.canLoadMore == true else { return }
+                self.reactions?.loadMore()
             }
             
             var items = state.items.map {
@@ -463,7 +466,7 @@ public final class ChatReactionsLayout {
                     let text = strings().chatContextMessageContainsEmojiOther(1)
                     
                     let item = MessageContainsPacksMenuItem(title: text, handler: {
-                        showModal(with: ChatMediaUIHooks.shared.makeStickerPackPreview(context, context.peerId, sources), for: context.window)
+                        showModal(with: ChatMediaUIHooks.shared.makeStickerPackPreviewObserved(context, message.id.peerId, sources), for: context.window)
                     }, packs: [reference], context: context)
                     
                     items.append(item)
@@ -472,6 +475,12 @@ public final class ChatReactionsLayout {
                 break
             }
             menu?.items = items
+        }
+
+        deinit {
+            delayDisposable.dispose()
+            disposable.dispose()
+            avatarDisposable.dispose()
         }
     }
     fileprivate let context: any AccountContextProtocol
@@ -604,6 +613,7 @@ public final class ChatReactionsLayout {
         }
     }
     
+
     public var lastLineSize: NSSize {
         if let line = lines.last {
             if let lastItem = line.last {
@@ -713,6 +723,8 @@ public protocol ReactionViewImpl : AnyObject {
 
 public class AnimationLayerContainer : View {
     fileprivate var imageLayer: InlineStickerItemLayer?
+    fileprivate private(set) var isContentPlayable: Bool = false
+    fileprivate var contentPlayableUpdated: ((Bool) -> Void)?
     private var isLite: Bool = false
     public required init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -768,7 +780,12 @@ public class AnimationLayerContainer : View {
                         isKeyWindow = window.isKeyWindow
                     }
                 }
-                value.isPlayable = !superview.visibleRect.isEmpty && isKeyWindow && !isLite
+                let isPlayable = !superview.visibleRect.isEmpty && isKeyWindow && !isLite
+                value.isPlayable = isPlayable
+                if self.isContentPlayable != isPlayable {
+                    self.isContentPlayable = isPlayable
+                    self.contentPlayableUpdated?(isPlayable)
+                }
             }
         }
     }
@@ -794,7 +811,209 @@ public class AnimationLayerContainer : View {
     }
 }
 
-public final class ChatReactionsView : View {
+protocol ChatReactionEmojiHost: AnyObject {
+    var frame: CGRect { get }
+    var isHidden: Bool { get set }
+    var isContentPlayable: Bool { get }
+    var contentPlayableUpdated: ((Bool) -> Void)? { get set }
+    func install(in chip: NSView)
+    func setFrame(_ frame: CGRect, transition: ContainedViewLayoutTransition)
+    func setOpacityImmediately(_ value: Float)
+    func setCornerRadius(_ value: CGFloat)
+    func animateAppear()
+    func updateLayer(_ layer: InlineStickerItemLayer, isLite: Bool, animated: Bool, host: NSView)
+    func updateAnimatableContent()
+    var observesOwnVisibility: Bool { get }
+}
+
+extension ChatReactionEmojiLayer: ChatReactionEmojiHost {
+    func install(in chip: NSView) {
+        chip.layer?.addSublayer(self)
+    }
+    func setFrame(_ frame: CGRect, transition: ContainedViewLayoutTransition) {
+        #if DEBUG
+        transition.updateFrame(layer: self, frame: frame.offsetBy(dx: ChatRowView.parityEmojiMutation, dy: 0))
+        #else
+        transition.updateFrame(layer: self, frame: frame)
+        #endif
+        layoutImage()
+        updateAnimatableContent()
+    }
+    func setOpacityImmediately(_ value: Float) {
+        removeAnimation(forKey: "opacity")
+        opacity = value
+    }
+    func setCornerRadius(_ value: CGFloat) {
+        cornerRadius = value
+    }
+    func animateAppear() {
+        animateScaleCenter(from: 0.1, to: 1, duration: 0.2)
+    }
+    var observesOwnVisibility: Bool { false }
+}
+
+protocol ChatReactionAvatarHost: AnyObject {
+    var hostLayer: CALayer? { get }
+    var origin: NSPoint { get }
+    func setOrigin(_ origin: NSPoint)
+    func updateLayout(size: CGSize, isClipped: Bool, animated: Bool)
+    func removeFromContainer()
+}
+
+extension AvatarContentView: ChatReactionAvatarHost {
+    var hostLayer: CALayer? { layer }
+    var origin: NSPoint { frame.origin }
+    func setOrigin(_ origin: NSPoint) { setFrameOrigin(origin) }
+    func removeFromContainer() { removeFromSuperview() }
+}
+
+extension AvatarContentLayer: ChatReactionAvatarHost {
+    var hostLayer: CALayer? { self }
+    var origin: NSPoint { frame.origin }
+    func setOrigin(_ origin: NSPoint) { frame.origin = origin }
+    func removeFromContainer() { removeFromSuperlayer() }
+}
+
+enum ChatReactionAvatarsContainer {
+    case view(View)
+    case layer(SimpleLayer)
+
+    static func make(in chip: NSView) -> ChatReactionAvatarsContainer {
+        let frame = NSMakeRect(0, 0, 24 * 3, 24)
+        if ChatRowView.usesLegacyRowChrome {
+            let container = View(frame: frame)
+            container.isEventLess = true
+            chip.addSubview(container)
+            return .view(container)
+        }
+        let container = SimpleLayer()
+        ChatReactionAvatarsContainer.mirrorViewLayer(container)
+        container.frame = frame
+        chip.layer?.addSublayer(container)
+        return .layer(container)
+    }
+
+    static func make(inLayer parent: CALayer) -> ChatReactionAvatarsContainer {
+        let container = SimpleLayer()
+        ChatReactionAvatarsContainer.mirrorViewLayer(container)
+        container.frame = NSMakeRect(0, 0, 24 * 3, 24)
+        parent.addSublayer(container)
+        return .layer(container)
+    }
+
+    static func mirrorViewLayer(_ layer: CALayer) {
+        layer.anchorPoint = .zero
+        layer.masksToBounds = true
+        layer.isOpaque = true
+        layer.edgeAntialiasingMask = []
+        if #available(macOS 10.15, *) {
+            layer.cornerCurve = .continuous
+        }
+    }
+
+    var frame: CGRect {
+        switch self {
+        case let .view(view): return view.frame
+        case let .layer(layer): return layer.frame
+        }
+    }
+
+    func makeAvatar(context: any AccountContextProtocol, peer: Peer, message: Message?, size: NSSize) -> ChatReactionAvatarHost {
+        switch self {
+        case .view:
+            let control = AvatarContentView(context: context, peer: peer, message: message, synchronousLoad: false, size: size, inset: 6)
+            control.userInteractionEnabled = false
+            return control
+        case .layer:
+            let control = AvatarContentLayer(context: context, peer: peer, message: message, synchronousLoad: false, size: size, inset: 6)
+            control.animatesClipChanges = true
+            ChatReactionAvatarsContainer.mirrorViewLayer(control)
+            return control
+        }
+    }
+
+    func insert(_ avatar: ChatReactionAvatarHost, at index: Int, size: NSSize, origin: NSPoint) {
+        switch self {
+        case let .view(view):
+            guard let control = avatar as? AvatarContentView else { return }
+            control.setFrameSize(size)
+            control.setFrameOrigin(origin)
+            view.subviews.insert(control, at: index)
+        case let .layer(layer):
+            guard let control = avatar as? AvatarContentLayer else { return }
+            control.frame = CGRect(origin: origin, size: size)
+            layer.insertSublayer(control, at: UInt32(index))
+        }
+    }
+
+    var ordered: [ChatReactionAvatarHost] {
+        switch self {
+        case let .view(view): return view.subviews.compactMap { $0 as? AvatarContentView }
+        case let .layer(layer): return layer.sublayers?.compactMap { $0 as? AvatarContentLayer } ?? []
+        }
+    }
+
+    func updateFrame(_ frame: CGRect, transition: ContainedViewLayoutTransition) {
+        switch self {
+        case let .view(view): transition.updateFrame(view: view, frame: frame)
+        case let .layer(layer):
+            #if DEBUG
+            transition.updateFrame(layer: layer, frame: frame.offsetBy(dx: ChatRowView.parityAvatarMutation, dy: 0))
+            #else
+            transition.updateFrame(layer: layer, frame: frame)
+            #endif
+        }
+    }
+}
+
+final class ChatReactionEmojiViewHost: ChatReactionEmojiHost {
+    let view = AnimationLayerContainer(frame: NSMakeRect(0, 0, 16, 16))
+    var frame: CGRect { view.frame }
+    var isHidden: Bool {
+        get { view.isHidden }
+        set { view.isHidden = newValue }
+    }
+    var isContentPlayable: Bool { view.isContentPlayable }
+    var contentPlayableUpdated: ((Bool) -> Void)? {
+        get { view.contentPlayableUpdated }
+        set { view.contentPlayableUpdated = newValue }
+    }
+    func install(in chip: NSView) {
+        chip.addSubview(view)
+    }
+    func setFrame(_ frame: CGRect, transition: ContainedViewLayoutTransition) {
+        transition.updateFrame(view: view, frame: frame)
+    }
+    func setOpacityImmediately(_ value: Float) {
+        view._change(opacity: CGFloat(value), animated: false)
+    }
+    func setCornerRadius(_ value: CGFloat) {
+        view.layer?.cornerRadius = value
+    }
+    func animateAppear() {
+        view.layer?.animateScaleCenter(from: 0.1, to: 1, duration: 0.2)
+    }
+    func updateLayer(_ layer: InlineStickerItemLayer, isLite: Bool, animated: Bool, host: NSView) {
+        view.updateLayer(layer, isLite: isLite, animated: animated)
+    }
+    func updateAnimatableContent() {
+        view.updateAnimatableContent()
+    }
+    var observesOwnVisibility: Bool { true }
+}
+
+fileprivate protocol ReactionChipElement: ReactionViewImpl {
+    var chipFrame: NSRect { get set }
+    var chipLayer: CALayer? { get }
+    func chipReaction(in mode: ChatReactionsLayout.Mode) -> ChatReactionsLayout.Reaction?
+    func chipIsReusable(in mode: ChatReactionsLayout.Mode) -> Bool
+    func chipCancelPendingEffect()
+    func install(in container: ChatReactionsView)
+    func removeFromContainer(_ container: ChatReactionsView, animated: Bool)
+    func updateChipFrame(_ frame: NSRect, transition: ContainedViewLayoutTransition)
+}
+
+final class ChatReactionsView : ChatLayerSceneView {
     
     
     public final class ReactionView: Control, ReactionViewImpl {
@@ -805,13 +1024,22 @@ public final class ChatReactionsView : View {
         fileprivate func cancelPendingEffect() {
             self.effectDisposable.set(nil)
         }
-        fileprivate let imageView: AnimationLayerContainer = AnimationLayerContainer(frame: NSMakeRect(0, 0, 16, 16))
-        private var textView: TextView?
-        private let avatarsContainer = View(frame: NSMakeRect(0, 0, 24 * 3, 24))
-        private var avatars:[AvatarContentView] = []
+        fileprivate let imageView: ChatReactionEmojiHost = {
+            if ChatRowView.usesLegacyRowChrome {
+                return ChatReactionEmojiViewHost()
+            }
+            let layer = ChatReactionEmojiLayer()
+            layer.frame = NSMakeRect(0, 0, 16, 16)
+            return layer
+        }()
+        private var emojiAnchor: View?
+        private let emojiObserver = AnimatableContentObserver()
+        private var textLayer: ChatReactionTextLayer?
+        private var avatarsContainer: ChatReactionAvatarsContainer?
+        private var avatars:[ChatReactionAvatarHost] = []
         private var peers:[Avatar] = []
         private var first: Bool = true
-        private var backgroundView: View? = nil
+        private var backgroundLayer: SimpleLayer?
         
         private var effetView: LottiePlayerView?
         private let effectDisposable = MetaDisposable()
@@ -824,10 +1052,11 @@ public final class ChatReactionsView : View {
         public required init(frame frameRect: NSRect) {
             super.init(frame: frameRect)
             
-            addSubview(imageView)
-            addSubview(avatarsContainer)
-            avatarsContainer.isEventLess = true
+            imageView.install(in: self)
             scaleOnClick = true
+            imageView.contentPlayableUpdated = { [weak self] isPlayable in
+                self?.starButtonEffect?.isPlaying = isPlayable
+            }
             
             self.layer?.masksToBounds = false
             
@@ -868,10 +1097,37 @@ public final class ChatReactionsView : View {
         
         public override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            textLayer?.updateScale(backingScaleFactor)
+            updateEmojiListeners()
             imageView.updateAnimatableContent()
+        }
+
+        @objc private func updateEmojiVisibility() {
+            imageView.updateAnimatableContent()
+        }
+
+        private func updateEmojiListeners() {
+            guard !imageView.observesOwnVisibility else { return }
+            emojiObserver.update(for: self, target: self, selector: #selector(updateEmojiVisibility), options: [.contentBounds, .documentFrame, .ownFrame])
+        }
+
+        public override func viewDidChangeBackingProperties() {
+            super.viewDidChangeBackingProperties()
+            textLayer?.updateScale(backingScaleFactor)
+        }
+
+        public override func accessibilityChildren() -> [Any]? {
+            let children = super.accessibilityChildren() ?? []
+            guard let child = textLayer?.accessibleChild() else { return children }
+            return children + [child]
+        }
+
+        public override func accessibilityHitTest(_ point: NSPoint) -> Any? {
+            return textLayer?.accessibilityHit(at: point) ?? super.accessibilityHitTest(point)
         }
         public override func viewDidMoveToSuperview() {
             super.viewDidMoveToSuperview()
+            updateEmojiListeners()
             imageView.updateAnimatableContent()
         }
         
@@ -948,10 +1204,10 @@ public final class ChatReactionsView : View {
             addSubview(player)
             
             
-            self.imageView._change(opacity: 0, animated: false)
+            self.imageView.setOpacityImmediately(0)
             
             animation.triggerOn = (LottiePlayerTriggerFrame.last, { [weak self, weak player] in
-                self?.imageView._change(opacity: 1, animated: false)
+                self?.imageView.setOpacityImmediately(1)
                 if let player = player {
                     performSubviewRemoval(player, animated: false)
                     if self?.effetView == player {
@@ -976,27 +1232,23 @@ public final class ChatReactionsView : View {
                 self.toolTip = tooltip
             }
             
-            self.imageView.layer?.cornerRadius = reaction.value.value.string == "" ? 4 : 0
+            self.imageView.setCornerRadius(reaction.value.value.string == "" ? 4 : 0)
             
             let presentation = reaction.presentation
             
             if let text = reaction.text {
-                let current: TextView
-                if let view = self.textView {
-                    current = view
+                let current: ChatReactionTextLayer
+                if let layer = self.textLayer {
+                    current = layer
                 } else {
-                    current = TextView(frame: CGRect(origin: NSMakePoint(presentation.insetOuter + presentation.reactionSize.width + presentation.insetInner, (frame.height - text.layoutSize.height) / 2), size: text.layoutSize))
-                    current.userInteractionEnabled = false
-                    current.isSelectable = false
-                    self.textView = current
-                    addSubview(current)
+                    current = ChatReactionTextLayer()
+                    current.frame = CGRect(origin: NSMakePoint(presentation.insetOuter + presentation.reactionSize.width + presentation.insetInner, (frame.height - text.layoutSize.height) / 2), size: text.layoutSize)
+                    self.textLayer = current
                 }
-                current.update(text)
-            } else {
-                if let view = self.textView {
-                    performSubviewRemoval(view, animated: animated)
-                    self.textView = nil
-                }
+                current.update(text, in: self)
+            } else if let layer = self.textLayer {
+                layer.remove(animated: animated)
+                self.textLayer = nil
             }
             
             
@@ -1010,29 +1262,32 @@ public final class ChatReactionsView : View {
                 let haveNext = reaction.avatars.contains(where: { $0.stableId == peer.stableId })
                 control.updateLayout(size: size, isClipped: false, animated: animated)
                 if animated && !haveNext {
-                    control.layer?.animateAlpha(from: 1, to: 0, duration: 0.2, timingFunction: .easeOut, removeOnCompletion: false, completion: { [weak control] _ in
-                        control?.removeFromSuperview()
+                    control.hostLayer?.animateAlpha(from: 1, to: 0, duration: 0.2, timingFunction: .easeOut, removeOnCompletion: false, completion: { [weak control] _ in
+                        control?.removeFromContainer()
                     })
-                    control.layer?.animateScaleSpring(from: 1.0, to: 0.2, duration: 0.2)
+                    control.hostLayer?.animateScaleSpring(from: 1.0, to: 0.2, duration: 0.2)
                 } else {
-                    control.removeFromSuperview()
+                    control.removeFromContainer()
                 }
             }
             let avatarSize = reaction.presentation.avatarSize
-            for inserted in inserted {
-                let control = AvatarContentView(context: reaction.context, peer: inserted.1.peer, message: reaction.message, synchronousLoad: false, size: avatarSize, inset: 6)
-                control.updateLayout(size: avatarSize, isClipped: inserted.0 != 0, animated: animated)
-                control.userInteractionEnabled = false
-                control.setFrameSize(avatarSize)
-                control.setFrameOrigin(NSMakePoint(CGFloat(inserted.0) * 12, 0))
-                avatars.insert(control, at: inserted.0)
-                avatarsContainer.subviews.insert(control, at: inserted.0)
-                if animated {
-                    if let index = inserted.2 {
-                        control.layer?.animatePosition(from: NSMakePoint(CGFloat(index) * 12, 0), to: control.frame.origin, duration: 0.2, timingFunction: .easeOut)
-                    } else {
-                        control.layer?.animateAlpha(from: 0, to: 1, duration: 0.2, timingFunction: .easeOut)
-                        control.layer?.animateScaleSpring(from: 0.2, to: 1.0, duration: 0.2)
+            if !inserted.isEmpty, avatarsContainer == nil {
+                avatarsContainer = ChatReactionAvatarsContainer.make(in: self)
+            }
+            if let avatarsContainer {
+                for inserted in inserted {
+                    let control = avatarsContainer.makeAvatar(context: reaction.context, peer: inserted.1.peer, message: reaction.message, size: avatarSize)
+                    control.updateLayout(size: avatarSize, isClipped: inserted.0 != 0, animated: animated)
+                    let origin = NSMakePoint(CGFloat(inserted.0) * 12, 0)
+                    avatars.insert(control, at: inserted.0)
+                    avatarsContainer.insert(control, at: inserted.0, size: avatarSize, origin: origin)
+                    if animated {
+                        if let index = inserted.2 {
+                            control.hostLayer?.animatePosition(from: NSMakePoint(CGFloat(index) * 12, 0), to: origin, duration: 0.2, timingFunction: .easeOut)
+                        } else {
+                            control.hostLayer?.animateAlpha(from: 0, to: 1, duration: 0.2, timingFunction: .easeOut)
+                            control.hostLayer?.animateScaleSpring(from: 0.2, to: 1.0, duration: 0.2)
+                        }
                     }
                 }
             }
@@ -1041,13 +1296,13 @@ public final class ChatReactionsView : View {
                 control.updateLayout(size: avatarSize, isClipped: updated.0 != 0, animated: animated)
                 let updatedPoint = NSMakePoint(CGFloat(updated.0) * 12, 0)
                 if animated {
-                    control.layer?.animatePosition(from: control.frame.origin - updatedPoint, to: .zero, duration: 0.2, timingFunction: .easeOut, additive: true)
+                    control.hostLayer?.animatePosition(from: control.origin - updatedPoint, to: .zero, duration: 0.2, timingFunction: .easeOut, additive: true)
                 }
-                control.setFrameOrigin(updatedPoint)
+                control.setOrigin(updatedPoint)
             }
             var index: CGFloat = 10
-            for control in avatarsContainer.subviews.compactMap({ $0 as? AvatarContentView }) {
-                control.layer?.zPosition = index
+            for control in avatarsContainer?.ordered ?? [] {
+                control.hostLayer?.zPosition = index
                 index -= 1
             }
             
@@ -1060,26 +1315,38 @@ public final class ChatReactionsView : View {
             
             if selectedUpdated {
                 if reaction.value.isSelected {
-                    let view = View(frame: bounds)
-                    view.isEventLess = true
-                    view.layer?.cornerRadius = view.frame.height / 2
-                    self.backgroundView = view
-                    view.layer?.masksToBounds = false
-                    self.addSubview(view, positioned: .below, relativeTo: subviews.first)
+                    let background = SimpleLayer()
+                    background.anchorPoint = layer?.anchorPoint ?? .zero
+                    background.isGeometryFlipped = layer?.isGeometryFlipped ?? false
+                    background.frame = bounds
+                    background.cornerRadius = background.frame.height / 2
+                    background.isOpaque = true
+                    background.edgeAntialiasingMask = []
+                    if #available(macOS 10.15, *) { background.cornerCurve = .continuous }
+                    self.backgroundLayer = background
+                    layer?.insertSublayer(background, at: 0)
                     
                     if animated {
-                        view.layer?.animateScaleSpring(from: 0.1, to: 1, duration: 0.3)
-                        view.layer?.animateAlpha(from: 0, to: 1, duration: 0.2)
+                        background.animateScaleSpring(from: 0.1, to: 1, duration: 0.3)
+                        background.animateAlpha(from: 0, to: 1, duration: 0.2)
                     }
                 } else {
-                    if let view = backgroundView {
-                        performSubviewRemoval(view, animated: animated, scale: true)
-                        self.backgroundView = nil
+                    if let layer = backgroundLayer {
+                        if animated {
+                            let opacity = layer.presentation()?.opacity ?? layer.opacity
+                            layer.animateAlpha(from: CGFloat(opacity), to: 0, duration: 0.2, timingFunction: .easeOut, removeOnCompletion: false, completion: { [weak layer] _ in
+                                layer?.removeFromSuperlayer()
+                            })
+                            layer.animateScaleCenter(from: 1, to: 0.01, duration: 0.2, removeOnCompletion: false, timingFunction: .easeOut)
+                        } else {
+                            layer.removeFromSuperlayer()
+                        }
+                        self.backgroundLayer = nil
                     }
                 }
             }
 
-            self.backgroundView?.backgroundColor = reaction.presentation.selectedColor
+            self.backgroundLayer?.backgroundColor = reaction.presentation.selectedColor.cgColor
 
             
             if case .stars = reaction.value.value {
@@ -1088,14 +1355,15 @@ public final class ChatReactionsView : View {
                     current = layer
                 } else {
                     current = StarsButtonEffectLayer()
+                    current.isPlaying = self.imageView.isContentPlayable
                     self.starButtonEffect = current
                 }
                 let rect = reaction.rect.size.bounds.insetBy(dx: -5, dy: -5)
                 current.frame = rect
                 current.update(size: rect.size)
                 
-                if let backgroundView {
-                    backgroundView.layer?.addSublayer(current)
+                if let backgroundLayer {
+                    backgroundLayer.addSublayer(current)
                 } else {
                     self.layer?.addSublayer(current)
                 }
@@ -1122,7 +1390,7 @@ public final class ChatReactionsView : View {
             }
             
             if !first, reactionUpdated, animated {
-                self.imageView.layer?.animateScaleCenter(from: 0.1, to: 1, duration: 0.2)
+                self.imageView.animateAppear()
             }
 
             if first {
@@ -1131,7 +1399,7 @@ public final class ChatReactionsView : View {
             }
 
             if layerUpdated {
-                self.imageView.updateLayer(reaction.getInlineLayer(reaction.mode), isLite: TelegramUtilsHooks.shared.isLite(.emoji), animated: animated)
+                self.imageView.updateLayer(reaction.getInlineLayer(reaction.mode), isLite: TelegramUtilsHooks.shared.isLite(.emoji), animated: animated, host: self)
             }
         }
         
@@ -1144,7 +1412,23 @@ public final class ChatReactionsView : View {
         }
         
         public func getView() -> NSView {
-            return self.imageView
+            if let legacy = imageView as? ChatReactionEmojiViewHost {
+                return legacy.view
+            }
+            let anchor: View
+            if let emojiAnchor {
+                anchor = emojiAnchor
+            } else {
+                anchor = View(frame: imageView.frame)
+                anchor.isEventLess = true
+                anchor.backgroundColor = .clear
+                emojiAnchor = anchor
+                addSubview(anchor)
+            }
+            if anchor.frame != imageView.frame {
+                anchor.frame = imageView.frame
+            }
+            return anchor
         }
         
         public func lockVisibility() {
@@ -1163,8 +1447,8 @@ public final class ChatReactionsView : View {
                 return
             }
             
-            if let backgroundView = backgroundView {
-                transition.updateFrame(view: backgroundView, frame: size.bounds)
+            if let backgroundLayer {
+                transition.updateFrame(layer: backgroundLayer, frame: size.bounds)
             }
             
             
@@ -1177,16 +1461,22 @@ public final class ChatReactionsView : View {
                 reactionSize.height += 3
             }
             
-            transition.updateFrame(view: self.imageView, frame: CGRect(origin: NSMakePoint(presentation.insetOuter, (size.height - reactionSize.height) / 2), size: reactionSize))
-            
-            
-            if let textView = textView, let text = reaction.text {
-                let center = focus(text.layoutSize)
-                transition.updateFrame(view: textView, frame: CGRect(origin: NSMakePoint(self.imageView.frame.maxX + presentation.insetInner, center.minY), size: text.layoutSize))
+            let emojiFrame = CGRect(origin: NSMakePoint(presentation.insetOuter, (size.height - reactionSize.height) / 2), size: reactionSize)
+            self.imageView.setFrame(emojiFrame, transition: transition)
+            if let emojiAnchor, emojiAnchor.frame != emojiFrame {
+                emojiAnchor.frame = emojiFrame
             }
             
-            let center = focus(presentation.avatarSize)
-            transition.updateFrame(view: avatarsContainer, frame: CGRect(origin: NSMakePoint(self.imageView.frame.maxX + presentation.insetInner, center.minY), size: avatarsContainer.frame.size))
+            
+            if let textLayer = textLayer, let text = reaction.text {
+                let center = focus(text.layoutSize)
+                textLayer.updateFrame(CGRect(origin: NSMakePoint(self.imageView.frame.maxX + presentation.insetInner, center.minY), size: text.layoutSize), transition: transition)
+            }
+            
+            if let avatarsContainer {
+                let center = focus(presentation.avatarSize)
+                avatarsContainer.updateFrame(CGRect(origin: NSMakePoint(self.imageView.frame.maxX + presentation.insetInner, center.minY), size: avatarsContainer.frame.size), transition: transition)
+            }
             
         }
         public override func layout() {
@@ -1195,6 +1485,453 @@ public final class ChatReactionsView : View {
         }
     }
     
+    final class ReactionChip: NSObject, ReactionViewImpl {
+        let node: ChatLayerControlNode
+        fileprivate private(set) var reaction: ChatReactionsLayout.Reaction?
+        fileprivate weak var container: ChatReactionsView?
+        fileprivate var isReusable: Bool {
+            return self.effetView == nil && !self.emoji.isHidden
+        }
+        fileprivate func cancelPendingEffect() {
+            self.effectDisposable.set(nil)
+        }
+        private let emoji: ChatReactionEmojiLayer = {
+            let layer = ChatReactionEmojiLayer()
+            layer.frame = NSMakeRect(0, 0, 16, 16)
+            return layer
+        }()
+        private var emojiAnchor: View?
+        private let emojiObserver = AnimatableContentObserver()
+        private var textLayer: ChatReactionTextLayer?
+        private var avatarsContainer: ChatReactionAvatarsContainer?
+        private var avatars:[ChatReactionAvatarHost] = []
+        private var peers:[Avatar] = []
+        private var first: Bool = true
+        private var backgroundLayer: SimpleLayer?
+
+        private var effetView: LottiePlayerView?
+        private let effectDisposable = MetaDisposable()
+
+        private var starButtonEffect: StarsButtonEffectLayer?
+
+        private var starKeyHandler: UInt32?
+
+        init(id: AnyHashable, frame: NSRect) {
+            self.node = ChatLayerControlNode(id: id)
+            super.init()
+            let layer = node.layer
+            layer.masksToBounds = false
+            layer.isOpaque = true
+            if #available(macOS 10.15, *) {
+                layer.cornerCurve = .continuous
+            }
+            node.frame = frame
+            layer.addSublayer(emoji)
+            node.scaleOnClick = true
+            node.accessibilityRole = .button
+            emoji.contentPlayableUpdated = { [weak self] isPlayable in
+                self?.starButtonEffect?.isPlaying = isPlayable
+            }
+
+            node.set(handler: { [weak self] _ in
+                if let reaction = self?.reaction {
+                    reaction.action(reaction.value.value, false)
+                }
+            }, for: .Click)
+
+            node.contextMenu = { [weak self] in
+                if let reaction = self?.reaction {
+                    return reaction.loadMenu()
+                }
+                return nil
+            }
+
+            node.set(handler: { [weak self] _ in
+                if let reaction = self?.reaction, reaction.value.value == .stars {
+                    reaction.starReact()
+                }
+            }, for: .LongMouseDown)
+
+            node.set(handler: { [weak self] _ in
+                self?.reaction?.cancelMenu()
+            }, for: .Normal)
+
+            node.onAccessibilityPress = { [weak self] in
+                guard let reaction = self?.reaction else { return false }
+                reaction.action(reaction.value.value, false)
+                return true
+            }
+        }
+
+        private var frame: NSRect { node.frame }
+        private var hostScale: CGFloat { container?.backingScaleFactor ?? System.backingScale }
+
+        fileprivate func hostDidMoveToWindow() {
+            textLayer?.updateScale(hostScale)
+            updateEmojiListeners()
+            emoji.updateAnimatableContent()
+        }
+
+        fileprivate func hostDidChangeBackingProperties() {
+            textLayer?.updateScale(hostScale)
+        }
+
+        @objc private func updateEmojiVisibility() {
+            emoji.updateAnimatableContent()
+        }
+
+        private func updateEmojiListeners() {
+            guard let container else { return }
+            emojiObserver.update(for: container, target: self, selector: #selector(updateEmojiVisibility), options: [.contentBounds, .documentFrame, .ownFrame])
+        }
+
+        public func playEffect() {
+            let size: NSSize
+
+            guard let reaction = reaction, let file = reaction.effectFile, self.effetView == nil else {
+                return
+            }
+
+            switch reaction.value.value {
+            case .stars:
+                size = NSMakeSize(emoji.frame.width + 4, emoji.frame.height + 4)
+            default:
+                size = NSMakeSize(emoji.frame.width * 2, emoji.frame.height * 2)
+            }
+
+            if TelegramUtilsHooks.shared.isLite(.emoji_effects) {
+                return
+            }
+
+            let fileSignal: Signal<MediaResourceData, NoError>
+            if let resource = file.resource as? LocalBundleResource, let path = resource.path {
+                fileSignal = .single(MediaResourceData(path: path, offset: 0, size: 0, complete: true))
+            } else {
+                fileSignal = reaction.context.account.postbox.mediaBox.resourceData(file.resource, attemptSynchronously: true)
+            }
+            let signal: Signal<LottieAnimation?, NoError> = fileSignal
+            |> filter { $0.complete }
+            |> map { value -> Data? in
+                return try? Data(contentsOf: URL(fileURLWithPath: value.path))
+            }
+            |> filter {
+                $0 != nil
+            }
+            |> map {
+                $0!
+            }
+            |> take(1)
+            |> map { data in
+                return LottieAnimation(compressed: data, key: .init(key: .bundle("_effect_\(reaction.value.value)"), size: size), cachePurpose: .none, playPolicy: .once, metalSupport: false)
+            } |> deliverOnMainQueue
+
+            self.effectDisposable.set(signal.start(next: { [weak self] animation in
+                if let animation = animation {
+                    self?.runAnimationEffect(animation)
+                }
+            }))
+        }
+
+        private func runAnimationEffect(_ animation: LottieAnimation) {
+            guard let reaction = self.reaction, let container else {
+                return
+            }
+
+            let point: NSPoint
+            switch reaction.value.value {
+            case .stars:
+                point = self.emoji.frame.origin.offsetBy(dx: -2, dy: -2)
+            default:
+                point = NSMakePoint(2, -3)
+            }
+
+            let player = LottiePlayerView(frame: CGRect(origin: point.offsetBy(dx: frame.minX, dy: frame.minY), size: animation.size))
+
+            player.set(animation, reset: true)
+
+            self.effetView = player
+
+            player.isEventLess = true
+            container.addSubview(player)
+            player.layer?.zPosition = 10
+
+            self.emoji.setOpacityImmediately(0)
+
+            animation.triggerOn = (LottiePlayerTriggerFrame.last, { [weak self, weak player] in
+                self?.emoji.setOpacityImmediately(1)
+                if let player = player {
+                    performSubviewRemoval(player, animated: false)
+                    if self?.effetView == player {
+                        self?.effetView = nil
+                    }
+                }
+            }, {})
+        }
+
+        public func update(with reaction: ChatReactionsLayout.Reaction, account: Account, animated: Bool) {
+            let layerUpdated = reaction.source != self.reaction?.source
+            let selectedUpdated = self.reaction?.value.isSelected != reaction.value.isSelected
+            let reactionUpdated = self.reaction?.value.value != reaction.value.value
+            self.reaction = reaction
+            let layer = node.layer
+            layer.cornerRadius = reaction.rect.height / 2
+            node.sendRightMouseAnyway = reaction.value.value != .stars
+
+            let tooltip = reaction.avatars.map { $0.peer.displayTitle }.joined(separator: ", ")
+
+            if tooltip.isEmpty {
+                node.toolTip = "\(reaction.value.count.formattedWithSeparator)"
+            } else {
+                node.toolTip = tooltip
+            }
+            node.accessibilityLabel = node.toolTip
+
+            self.emoji.setCornerRadius(reaction.value.value.string == "" ? 4 : 0)
+
+            let presentation = reaction.presentation
+
+            if let text = reaction.text, let container {
+                let current: ChatReactionTextLayer
+                if let layer = self.textLayer {
+                    current = layer
+                } else {
+                    current = ChatReactionTextLayer()
+                    current.frame = CGRect(origin: NSMakePoint(presentation.insetOuter + presentation.reactionSize.width + presentation.insetInner, (frame.height - text.layoutSize.height) / 2), size: text.layoutSize)
+                    self.textLayer = current
+                }
+                current.update(text, in: container, parent: layer)
+            } else if let layer = self.textLayer {
+                layer.remove(animated: animated)
+                self.textLayer = nil
+            }
+
+            let (removed, inserted, updated) = mergeListsStableWithUpdates(leftList: self.peers, rightList: reaction.avatars)
+
+            let size = reaction.presentation.reactionSize
+
+            for removed in removed.reversed() {
+                let control = avatars.remove(at: removed)
+                let peer = self.peers[removed]
+                let haveNext = reaction.avatars.contains(where: { $0.stableId == peer.stableId })
+                control.updateLayout(size: size, isClipped: false, animated: animated)
+                if animated && !haveNext {
+                    control.hostLayer?.animateAlpha(from: 1, to: 0, duration: 0.2, timingFunction: .easeOut, removeOnCompletion: false, completion: { [weak control] _ in
+                        control?.removeFromContainer()
+                    })
+                    control.hostLayer?.animateScaleSpring(from: 1.0, to: 0.2, duration: 0.2)
+                } else {
+                    control.removeFromContainer()
+                }
+            }
+            let avatarSize = reaction.presentation.avatarSize
+            if !inserted.isEmpty, avatarsContainer == nil {
+                avatarsContainer = ChatReactionAvatarsContainer.make(inLayer: layer)
+            }
+            if let avatarsContainer {
+                for inserted in inserted {
+                    let control = avatarsContainer.makeAvatar(context: reaction.context, peer: inserted.1.peer, message: reaction.message, size: avatarSize)
+                    control.updateLayout(size: avatarSize, isClipped: inserted.0 != 0, animated: animated)
+                    let origin = NSMakePoint(CGFloat(inserted.0) * 12, 0)
+                    avatars.insert(control, at: inserted.0)
+                    avatarsContainer.insert(control, at: inserted.0, size: avatarSize, origin: origin)
+                    if animated {
+                        if let index = inserted.2 {
+                            control.hostLayer?.animatePosition(from: NSMakePoint(CGFloat(index) * 12, 0), to: origin, duration: 0.2, timingFunction: .easeOut)
+                        } else {
+                            control.hostLayer?.animateAlpha(from: 0, to: 1, duration: 0.2, timingFunction: .easeOut)
+                            control.hostLayer?.animateScaleSpring(from: 0.2, to: 1.0, duration: 0.2)
+                        }
+                    }
+                }
+            }
+            for updated in updated {
+                let control = avatars[updated.0]
+                control.updateLayout(size: avatarSize, isClipped: updated.0 != 0, animated: animated)
+                let updatedPoint = NSMakePoint(CGFloat(updated.0) * 12, 0)
+                if animated {
+                    control.hostLayer?.animatePosition(from: control.origin - updatedPoint, to: .zero, duration: 0.2, timingFunction: .easeOut, additive: true)
+                }
+                control.setOrigin(updatedPoint)
+            }
+            var index: CGFloat = 10
+            for control in avatarsContainer?.ordered ?? [] {
+                control.hostLayer?.zPosition = index
+                index -= 1
+            }
+
+            self.peers = reaction.avatars
+
+            let bgColor = reaction.presentation.bgColor.cgColor
+            if layer.backgroundColor != bgColor {
+                layer.backgroundColor = bgColor
+            }
+
+            if selectedUpdated {
+                if reaction.value.isSelected {
+                    let background = SimpleLayer()
+                    background.anchorPoint = layer.anchorPoint
+                    background.isGeometryFlipped = layer.isGeometryFlipped
+                    background.frame = layer.bounds
+                    background.cornerRadius = background.frame.height / 2
+                    background.isOpaque = true
+                    background.edgeAntialiasingMask = []
+                    if #available(macOS 10.15, *) { background.cornerCurve = .continuous }
+                    self.backgroundLayer = background
+                    layer.insertSublayer(background, at: 0)
+
+                    if animated {
+                        background.animateScaleSpring(from: 0.1, to: 1, duration: 0.3)
+                        background.animateAlpha(from: 0, to: 1, duration: 0.2)
+                    }
+                } else {
+                    if let layer = backgroundLayer {
+                        if animated {
+                            let opacity = layer.presentation()?.opacity ?? layer.opacity
+                            layer.animateAlpha(from: CGFloat(opacity), to: 0, duration: 0.2, timingFunction: .easeOut, removeOnCompletion: false, completion: { [weak layer] _ in
+                                layer?.removeFromSuperlayer()
+                            })
+                            layer.animateScaleCenter(from: 1, to: 0.01, duration: 0.2, removeOnCompletion: false, timingFunction: .easeOut)
+                        } else {
+                            layer.removeFromSuperlayer()
+                        }
+                        self.backgroundLayer = nil
+                    }
+                }
+            }
+
+            self.backgroundLayer?.backgroundColor = reaction.presentation.selectedColor.cgColor
+
+            if case .stars = reaction.value.value {
+                let current: StarsButtonEffectLayer
+                if let layer = self.starButtonEffect {
+                    current = layer
+                } else {
+                    current = StarsButtonEffectLayer()
+                    current.isPlaying = self.emoji.isContentPlayable
+                    self.starButtonEffect = current
+                }
+                let rect = reaction.rect.size.bounds.insetBy(dx: -5, dy: -5)
+                current.frame = rect
+                current.update(size: rect.size)
+
+                if let backgroundLayer {
+                    backgroundLayer.addSublayer(current)
+                } else {
+                    layer.addSublayer(current)
+                }
+            } else if let starButtonEffect {
+                performSublayerRemoval(starButtonEffect, animated: animated)
+                self.starButtonEffect = nil
+            }
+
+            if case .stars = reaction.value.value {
+                if self.starKeyHandler == nil {
+                    self.starKeyHandler = node.set(handler: { [weak self] _ in
+                        self?.reaction?.starReact()
+                    }, for: .RightDown)
+                }
+            } else if let starKeyHandler {
+                self.starKeyHandler = nil
+                node.removeHandler(starKeyHandler)
+            }
+
+            if animated {
+                layer.animateBorder()
+                layer.animateBackground()
+            }
+
+            if !first, reactionUpdated, animated {
+                self.emoji.animateAppear()
+            }
+
+            if first {
+                updateLayout(size: reaction.rect.size, transition: .immediate)
+                first = false
+            }
+
+            if layerUpdated, let container {
+                self.emoji.updateLayer(reaction.getInlineLayer(reaction.mode), isLite: TelegramUtilsHooks.shared.isLite(.emoji), animated: animated, host: container)
+            }
+        }
+
+        deinit {
+            effectDisposable.dispose()
+        }
+
+        public func getView() -> NSView {
+            let anchor: View
+            if let emojiAnchor {
+                anchor = emojiAnchor
+            } else {
+                anchor = View(frame: anchorFrame)
+                anchor.isEventLess = true
+                anchor.backgroundColor = .clear
+                emojiAnchor = anchor
+                container?.addSubview(anchor)
+            }
+            if anchor.frame != anchorFrame {
+                anchor.frame = anchorFrame
+            }
+            return anchor
+        }
+
+        private var anchorFrame: NSRect {
+            return emoji.frame.offsetBy(dx: frame.minX, dy: frame.minY)
+        }
+
+        public func lockVisibility() {
+            self.emoji.isHidden = true
+        }
+        public func unlockVisibility() {
+            self.emoji.isHidden = false
+        }
+
+        public func updateLayout(size: CGSize, transition: ContainedViewLayoutTransition) {
+            guard let reaction = reaction else {
+                return
+            }
+
+            if let backgroundLayer {
+                transition.updateFrame(layer: backgroundLayer, frame: size.bounds)
+            }
+
+            let presentation = reaction.presentation
+
+            var reactionSize = presentation.reactionSize
+
+            if case .custom = reaction.value.value {
+                reactionSize.width += 3
+                reactionSize.height += 3
+            }
+
+            let emojiFrame = CGRect(origin: NSMakePoint(presentation.insetOuter, (size.height - reactionSize.height) / 2), size: reactionSize)
+            self.emoji.setFrame(emojiFrame, transition: transition)
+            if let emojiAnchor, emojiAnchor.frame != anchorFrame {
+                emojiAnchor.frame = anchorFrame
+            }
+
+            let bounds = NSRect(origin: .zero, size: size)
+            if let textLayer = textLayer, let text = reaction.text {
+                let center = bounds.focus(text.layoutSize)
+                textLayer.updateFrame(CGRect(origin: NSMakePoint(self.emoji.frame.maxX + presentation.insetInner, center.minY), size: text.layoutSize), transition: transition)
+            }
+
+            if let avatarsContainer {
+                let center = bounds.focus(presentation.avatarSize)
+                avatarsContainer.updateFrame(CGRect(origin: NSMakePoint(self.emoji.frame.maxX + presentation.insetInner, center.minY), size: avatarsContainer.frame.size), transition: transition)
+            }
+        }
+
+        fileprivate func removeAnchors() {
+            emojiAnchor?.removeFromSuperview()
+            emojiAnchor = nil
+            if let effetView {
+                effetView.removeFromSuperview()
+                self.effetView = nil
+            }
+        }
+    }
+
     public final class TagReactionView: Control, ReactionViewImpl {
         fileprivate private(set) var reaction: ChatReactionsLayout.Reaction?
         fileprivate var isReusable: Bool {
@@ -1203,17 +1940,26 @@ public final class ChatReactionsView : View {
         fileprivate func cancelPendingEffect() {
             self.effectDisposable.set(nil)
         }
-        fileprivate let imageView: AnimationLayerContainer = AnimationLayerContainer(frame: NSMakeRect(0, 0, 16, 16))
+        fileprivate let imageView: ChatReactionEmojiHost = {
+            if ChatRowView.usesLegacyRowChrome {
+                return ChatReactionEmojiViewHost()
+            }
+            let layer = ChatReactionEmojiLayer()
+            layer.frame = NSMakeRect(0, 0, 16, 16)
+            return layer
+        }()
+        private var emojiAnchor: View?
+        private let emojiObserver = AnimatableContentObserver()
         private var first: Bool = true
-        private var backgroundView: NinePathImage? = nil
-        private var textView: TextView?
+        private var backgroundLayer: ChatReactionTagBackgroundLayer?
+        private var textLayer: ChatReactionTextLayer?
 
         private var effetView: LottiePlayerView?
         private let effectDisposable = MetaDisposable()
         public required init(frame frameRect: NSRect) {
             super.init(frame: frameRect)
             
-            addSubview(imageView)
+            imageView.install(in: self)
             scaleOnClick = true
             
             self.set(handler: { control in
@@ -1237,10 +1983,39 @@ public final class ChatReactionsView : View {
         
         public override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            textLayer?.updateScale(backingScaleFactor)
+            backgroundLayer?.updateScale(backingScaleFactor)
+            updateEmojiListeners()
             imageView.updateAnimatableContent()
+        }
+
+        @objc private func updateEmojiVisibility() {
+            imageView.updateAnimatableContent()
+        }
+
+        private func updateEmojiListeners() {
+            guard !imageView.observesOwnVisibility else { return }
+            emojiObserver.update(for: self, target: self, selector: #selector(updateEmojiVisibility), options: [.contentBounds, .documentFrame, .ownFrame])
+        }
+
+        public override func viewDidChangeBackingProperties() {
+            super.viewDidChangeBackingProperties()
+            textLayer?.updateScale(backingScaleFactor)
+            backgroundLayer?.updateScale(backingScaleFactor)
+        }
+
+        public override func accessibilityChildren() -> [Any]? {
+            let children = super.accessibilityChildren() ?? []
+            guard let child = textLayer?.accessibleChild() else { return children }
+            return children + [child]
+        }
+
+        public override func accessibilityHitTest(_ point: NSPoint) -> Any? {
+            return textLayer?.accessibilityHit(at: point) ?? super.accessibilityHitTest(point)
         }
         public override func viewDidMoveToSuperview() {
             super.viewDidMoveToSuperview()
+            updateEmojiListeners()
             imageView.updateAnimatableContent()
         }
         
@@ -1287,10 +2062,10 @@ public final class ChatReactionsView : View {
             
             addSubview(player)
             
-            self.imageView._change(opacity: 0, animated: false)
+            self.imageView.setOpacityImmediately(0)
             
             animation.triggerOn = (LottiePlayerTriggerFrame.last, { [weak self, weak player] in
-                self?.imageView._change(opacity: 1, animated: false)
+                self?.imageView.setOpacityImmediately(1)
                 if let player = player {
                     performSubviewRemoval(player, animated: false)
                     if self?.effetView == player {
@@ -1306,27 +2081,38 @@ public final class ChatReactionsView : View {
             let reactionUpdated = self.reaction?.value.value != reaction.value.value
             self.reaction = reaction
             
-            self.imageView.layer?.cornerRadius = reaction.value.value.string == "" ? 4 : 0
+            self.imageView.setCornerRadius(reaction.value.value.string == "" ? 4 : 0)
                         
             self.backgroundColor = .clear
 
             if selectedUpdated {
                 if reaction.value.isSelected {
-                    if backgroundView == nil {
-                        let view = NinePathImage(frame: bounds)
-                        self.backgroundView = view
-                        self.backgroundView?.capInsets = NSEdgeInsets(top: 3, left: 5, bottom: 3, right: 15)
-                        self.addSubview(view, positioned: .below, relativeTo: subviews.first)
+                    if backgroundLayer == nil {
+                        let background = ChatReactionTagBackgroundLayer()
+                        background.frame = bounds
+                        background.capInsets = NSEdgeInsets(top: 3, left: 5, bottom: 3, right: 15)
+                        background.isGeometryFlipped = isFlipped
+                        background.contentsScale = backingScaleFactor
+                        self.backgroundLayer = background
+                        layer?.insertSublayer(background, at: 0)
                         
                         if animated {
-                            view.layer?.animateScaleSpring(from: 0.1, to: 1, duration: 0.3)
-                            view.layer?.animateAlpha(from: 0, to: 1, duration: 0.2)
+                            background.animateScaleSpring(from: 0.1, to: 1, duration: 0.3)
+                            background.animateAlpha(from: 0, to: 1, duration: 0.2)
                         }
                     }
                 } else {
-                    if let view = backgroundView {
-                        performSubviewRemoval(view, animated: animated, scale: true)
-                        self.backgroundView = nil
+                    if let layer = backgroundLayer {
+                        if animated {
+                            let opacity = layer.presentation()?.opacity ?? layer.opacity
+                            layer.animateAlpha(from: CGFloat(opacity), to: 0, duration: 0.2, timingFunction: .easeOut, removeOnCompletion: false, completion: { [weak layer] _ in
+                                layer?.removeFromSuperlayer()
+                            })
+                            layer.animateScaleCenter(from: 1, to: 0.01, duration: 0.2, removeOnCompletion: false, timingFunction: .easeOut)
+                        } else {
+                            layer.removeFromSuperlayer()
+                        }
+                        self.backgroundLayer = nil
                     }
                 }
             }
@@ -1334,27 +2120,23 @@ public final class ChatReactionsView : View {
             let presentation = reaction.presentation
             
             if let text = reaction.text {
-                let current: TextView
-                if let view = self.textView {
-                    current = view
+                let current: ChatReactionTextLayer
+                if let layer = self.textLayer {
+                    current = layer
                 } else {
-                    current = TextView(frame: CGRect(origin: NSMakePoint(presentation.insetOuter + presentation.reactionSize.width + presentation.insetInner, (frame.height - text.layoutSize.height) / 2), size: text.layoutSize))
-                    current.userInteractionEnabled = false
-                    current.isSelectable = false
-                    self.textView = current
-                    addSubview(current)
+                    current = ChatReactionTextLayer()
+                    current.frame = CGRect(origin: NSMakePoint(presentation.insetOuter + presentation.reactionSize.width + presentation.insetInner, (frame.height - text.layoutSize.height) / 2), size: text.layoutSize)
+                    self.textLayer = current
                 }
-                current.update(text)
-            } else {
-                if let view = self.textView {
-                    performSubviewRemoval(view, animated: animated)
-                    self.textView = nil
-                }
+                current.update(text, in: self)
+            } else if let layer = self.textLayer {
+                layer.remove(animated: animated)
+                self.textLayer = nil
             }
             
             
             
-            self.backgroundView?.image = reaction.presentation.tagBackground
+            self.backgroundLayer?.image = reaction.presentation.tagBackground
             
             if animated {
                 self.layer?.animateBorder()
@@ -1362,7 +2144,7 @@ public final class ChatReactionsView : View {
             }
             
             if !first, reactionUpdated, animated {
-                self.imageView.layer?.animateScaleCenter(from: 0.1, to: 1, duration: 0.2)
+                self.imageView.animateAppear()
             }
 
             if first {
@@ -1371,7 +2153,7 @@ public final class ChatReactionsView : View {
             }
 
             if layerUpdated {
-                self.imageView.updateLayer(reaction.getInlineLayer(reaction.mode), isLite: TelegramUtilsHooks.shared.isLite(.emoji), animated: animated)
+                self.imageView.updateLayer(reaction.getInlineLayer(reaction.mode), isLite: TelegramUtilsHooks.shared.isLite(.emoji), animated: animated, host: self)
             }
         }
         
@@ -1384,7 +2166,23 @@ public final class ChatReactionsView : View {
         }
         
         public func getView() -> NSView {
-            return self.imageView
+            if let legacy = imageView as? ChatReactionEmojiViewHost {
+                return legacy.view
+            }
+            let anchor: View
+            if let emojiAnchor {
+                anchor = emojiAnchor
+            } else {
+                anchor = View(frame: imageView.frame)
+                anchor.isEventLess = true
+                anchor.backgroundColor = .clear
+                emojiAnchor = anchor
+                addSubview(anchor)
+            }
+            if anchor.frame != imageView.frame {
+                anchor.frame = imageView.frame
+            }
+            return anchor
         }
         
         public func lockVisibility() {
@@ -1403,8 +2201,8 @@ public final class ChatReactionsView : View {
                 return
             }
             
-            if let backgroundView = backgroundView {
-                transition.updateFrame(view: backgroundView, frame: size.bounds)
+            if let backgroundLayer {
+                transition.updateFrame(layer: backgroundLayer, frame: size.bounds)
             }
             
             let presentation = reaction.presentation
@@ -1416,11 +2214,15 @@ public final class ChatReactionsView : View {
                 reactionSize.height += 3
             }
             
-            transition.updateFrame(view: self.imageView, frame: CGRect(origin: NSMakePoint(presentation.insetOuter, (size.height - reactionSize.height) / 2), size: reactionSize))
+            let emojiFrame = CGRect(origin: NSMakePoint(presentation.insetOuter, (size.height - reactionSize.height) / 2), size: reactionSize)
+            self.imageView.setFrame(emojiFrame, transition: transition)
+            if let emojiAnchor, emojiAnchor.frame != emojiFrame {
+                emojiAnchor.frame = emojiFrame
+            }
             
-            if let textView = textView, let text = reaction.text {
+            if let textLayer = textLayer, let text = reaction.text {
                 let center = focus(text.layoutSize)
-                transition.updateFrame(view: textView, frame: CGRect(origin: NSMakePoint(self.imageView.frame.maxX + presentation.insetInner, center.minY), size: text.layoutSize))
+                textLayer.updateFrame(CGRect(origin: NSMakePoint(self.imageView.frame.maxX + presentation.insetInner, center.minY), size: text.layoutSize), transition: transition)
             }
         }
         public override func layout() {
@@ -1431,52 +2233,81 @@ public final class ChatReactionsView : View {
     
     private var currentLayout: ChatReactionsLayout?
     private var reactions:[ChatReactionsLayout.Reaction] = []
-    private var views:[NSView] = []
-    public required init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
+    private var views:[ReactionChipElement] = []
+    private let usesNodes: Bool = !ChatRowView.usesLegacyRowChrome
+    #if DEBUG
+    var debugChipNodeCount: Int { views.filter { $0 is ReactionChip }.count }
+    func debugChipHitChecks() -> (ok: Int, total: Int) {
+        var ok = 0, total = 0
+        for case let chip as ReactionChip in views {
+            total += 1
+            let center = NSPoint(x: chip.node.frame.midX, y: chip.node.frame.midY)
+            guard let window else { continue }
+            let windowPoint = convert(center, to: nil)
+            if window.contentView?.hitTest(windowPoint) === self, hitNode(at: center) === chip.node {
+                ok += 1
+            }
+        }
+        return (ok, total)
+    }
+    #endif
+    required init(frame frameRect: NSRect) {
+        super.init(frame: frameRect, deferred: true)
         self.layer?.masksToBounds = false
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        for case let chip as ReactionChip in views {
+            chip.hostDidMoveToWindow()
+        }
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        for case let chip as ReactionChip in views {
+            chip.hostDidChangeBackingProperties()
+        }
+    }
+
+    fileprivate func attach(_ chip: ReactionChip) {
+        guard chip.node.scene !== self else { return }
+        chip.container = self
+        do { try root.setChildren(root.children + [chip.node]) }
+        catch { assertionFailure("Invalid reactions tree") }
+        chip.hostDidMoveToWindow()
+    }
+
+    fileprivate func detach(_ chip: ReactionChip, animated: Bool) {
+        guard chip.node.scene === self else { return }
+        do { try root.setChildren(root.children.filter { $0 !== chip.node }) }
+        catch { assertionFailure("Invalid reactions tree") }
+        chip.removeAnchors()
+        let layer = chip.node.layer
+        if animated {
+            root.layer.addSublayer(layer)
+            let from = layer.presentation()?.opacity ?? layer.opacity
+            layer.animateAlpha(from: CGFloat(from), to: 0, duration: 0.2, timingFunction: .easeOut, removeOnCompletion: false, completion: { [weak self, weak layer] finish in
+                if finish {
+                    layer?.removeFromSuperlayer()
+                    self?.releaseEmptyLayerContent()
+                }
+            })
+            layer.animateScaleCenter(from: 1, to: 0.01, duration: 0.2, removeOnCompletion: false, timingFunction: .easeOut)
+        } else {
+            releaseEmptyLayerContent()
+        }
     }
     
     public func getView(_ value: MessageReaction.Reaction) -> ReactionViewImpl? {
         guard let currentLayout = currentLayout else {
             return nil
         }
-        switch currentLayout.mode {
-        case .full:
-            let view = self.views.compactMap({
-                $0 as? ReactionView
-            }).first(where: { $0.reaction?.value.value == value })
-            
-            return view
-        case .tag:
-            let view = self.views.compactMap({
-                $0 as? TagReactionView
-            }).first(where: { $0.reaction?.value.value == value })
-            
-            return view
-        }
-        
+        return self.views.first(where: { $0.chipReaction(in: currentLayout.mode)?.value.value == value })
     }
     
     public func getReactionView(_ value: MessageReaction.Reaction) -> NSView? {
-        guard let currentLayout = currentLayout else {
-            return nil
-        }
-        switch currentLayout.mode {
-        case .full:
-            let view = self.views.compactMap({
-                $0 as? ReactionView
-            }).first(where: { $0.reaction?.value.value == value })
-            
-            return view?.imageView
-        case .tag:
-            let view = self.views.compactMap({
-                $0 as? TagReactionView
-            }).first(where: { $0.reaction?.value.value == value })
-            
-            return view?.imageView
-        }
-        
+        return getView(value)?.getView()
     }
     
     public func update(with layout: ChatReactionsLayout, animated: Bool) {
@@ -1487,7 +2318,7 @@ public final class ChatReactionsView : View {
         let (removed, inserted, updated) = mergeListsStableWithUpdates(leftList: self.reactions, rightList: layout.reactions)
         
 
-        var deletedViews:[Int: NSView] = [:]
+        var deletedViews:[Int: ReactionChipElement] = [:]
         var reused:Set<Int> = Set()
         
         for idx in removed.reversed() {
@@ -1498,7 +2329,7 @@ public final class ChatReactionsView : View {
         let claimedByIdentity = Set(inserted.compactMap { $0.2 })
         for (idx, item, pix) in inserted {
             var prevFrame: NSRect? = nil
-            var prevView: NSView? = nil
+            var prevView: ReactionChipElement? = nil
             var reusedPix: Int?
             if let pix = pix {
                 prevFrame = previous[pix].rect
@@ -1509,18 +2340,10 @@ public final class ChatReactionsView : View {
                 }
             }
             if prevView == nil, !animated {
-                var candidate: (Int, NSView)?
+                var candidate: (Int, ReactionChipElement)?
                 for (key, view) in deletedViews where !reused.contains(key) && !claimedByIdentity.contains(key) {
-                    let reusable: Bool
-                    let value: MessageReaction.Reaction?
-                    switch layout.mode {
-                    case .full:
-                        reusable = (view as? ReactionView)?.isReusable == true
-                        value = (view as? ReactionView)?.reaction?.value.value
-                    case .tag:
-                        reusable = (view as? TagReactionView)?.isReusable == true
-                        value = (view as? TagReactionView)?.reaction?.value.value
-                    }
+                    let reusable = view.chipIsReusable(in: layout.mode)
+                    let value = view.chipReaction(in: layout.mode)?.value.value
                     if !reusable {
                         continue
                     }
@@ -1535,13 +2358,20 @@ public final class ChatReactionsView : View {
                     prevView = view
                     reused.insert(key)
                     reusedPix = key
-                    (view as? ReactionView)?.cancelPendingEffect()
-                    (view as? TagReactionView)?.cancelPendingEffect()
+                    view.chipCancelPendingEffect()
                 }
             }
-            let getView: (NSView?)->NSView = { prev in
+            let usesNodes = self.usesNodes
+            let getView: (ReactionChipElement?)->ReactionChipElement = { prev in
                 switch layout.mode {
                 case .full:
+                    if usesNodes {
+                        if let prev = prev as? ReactionChip {
+                            return prev
+                        } else {
+                            return ReactionChip(id: AnyHashable(UUID()), frame: item.rect)
+                        }
+                    }
                     if let prev = prev as? ReactionView {
                         return prev
                     } else {
@@ -1558,38 +2388,39 @@ public final class ChatReactionsView : View {
             
             let view = getView(prevView)
             
-            if view != prevView, let pix = reusedPix {
+            if view !== prevView, let pix = reusedPix {
                 _ = reused.remove(pix)
             }
-            view.frame = prevFrame ?? item.rect
+            view.chipFrame = prevFrame ?? item.rect
             self.views.insert(view, at: idx)
             self.reactions.insert(item, at: idx)
-            (view as? ReactionViewImpl)?.update(with: item, account: layout.context.account, animated: animated)
+            if let chip = view as? ReactionChip {
+                chip.container = self
+            }
+            view.update(with: item, account: layout.context.account, animated: animated)
             if animated, prevView == nil {
-                view.layer?.animateScaleSpring(from: 0.1, to: 1, duration: 0.3)
-                view.layer?.animateAlpha(from: 0, to: 1, duration: 0.2)
+                view.chipLayer?.animateScaleSpring(from: 0.1, to: 1, duration: 0.3)
+                view.chipLayer?.animateAlpha(from: 0, to: 1, duration: 0.2)
             }
-            if view.superview !== self {
-                addSubview(view)
-            }
+            view.install(in: self)
         }
         
         for (idx, item, prev) in updated {
             if prev != idx {
-                self.views[idx].frame = previous[prev].rect
+                self.views[idx].chipFrame = previous[prev].rect
             }
-            (self.views[idx] as? ReactionViewImpl)?.update(with: item, account: layout.context.account, animated: animated)
+            self.views[idx].update(with: item, account: layout.context.account, animated: animated)
             self.reactions[idx] = item
         }
         
         for (i, view) in views.enumerated() {
-            view.layer?.masksToBounds = false
-            view.layer?.zPosition = CGFloat(i)
+            view.chipLayer?.masksToBounds = false
+            view.chipLayer?.zPosition = CGFloat(i)
         }
         
         for (index, view) in deletedViews {
             if !reused.contains(index) {
-                performSubviewRemoval(view, animated: animated, checkCompletion: true, scale: true)
+                view.removeFromContainer(self, animated: animated)
             }
         }
 
@@ -1678,12 +2509,94 @@ public final class ChatReactionsView : View {
     public func updateLayout(size: CGSize, transition: ContainedViewLayoutTransition) {
         for (i, view) in views.enumerated() {
             let rect = self.reactions[i].rect
-            transition.updateFrame(view: view, frame: rect)
-            (view as? ReactionViewImpl)?.updateLayout(size: rect.size, transition: transition)
+            view.updateChipFrame(rect, transition: transition)
+            view.updateLayout(size: rect.size, transition: transition)
         }
     }
     
     public required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+}
+
+extension ChatReactionsView.ReactionView: ReactionChipElement {
+    var chipFrame: NSRect {
+        get { frame }
+        set { frame = newValue }
+    }
+    var chipLayer: CALayer? { layer }
+    func chipReaction(in mode: ChatReactionsLayout.Mode) -> ChatReactionsLayout.Reaction? {
+        if case .full = mode { return reaction }
+        return nil
+    }
+    func chipIsReusable(in mode: ChatReactionsLayout.Mode) -> Bool {
+        if case .full = mode { return isReusable }
+        return false
+    }
+    func chipCancelPendingEffect() { cancelPendingEffect() }
+    func install(in container: ChatReactionsView) {
+        if superview !== container { container.addSubview(self) }
+    }
+    func removeFromContainer(_ container: ChatReactionsView, animated: Bool) {
+        performSubviewRemoval(self, animated: animated, checkCompletion: true, scale: true)
+    }
+    func updateChipFrame(_ frame: NSRect, transition: ContainedViewLayoutTransition) {
+        transition.updateFrame(view: self, frame: frame)
+    }
+}
+
+extension ChatReactionsView.TagReactionView: ReactionChipElement {
+    var chipFrame: NSRect {
+        get { frame }
+        set { frame = newValue }
+    }
+    var chipLayer: CALayer? { layer }
+    func chipReaction(in mode: ChatReactionsLayout.Mode) -> ChatReactionsLayout.Reaction? {
+        if case .tag = mode { return reaction }
+        return nil
+    }
+    func chipIsReusable(in mode: ChatReactionsLayout.Mode) -> Bool {
+        if case .tag = mode { return isReusable }
+        return false
+    }
+    func chipCancelPendingEffect() { cancelPendingEffect() }
+    func install(in container: ChatReactionsView) {
+        if superview !== container { container.addSubview(self) }
+    }
+    func removeFromContainer(_ container: ChatReactionsView, animated: Bool) {
+        performSubviewRemoval(self, animated: animated, checkCompletion: true, scale: true)
+    }
+    func updateChipFrame(_ frame: NSRect, transition: ContainedViewLayoutTransition) {
+        transition.updateFrame(view: self, frame: frame)
+    }
+}
+
+extension ChatReactionsView.ReactionChip: ReactionChipElement {
+    var chipFrame: NSRect {
+        get { node.frame }
+        set { node.frame = newValue }
+    }
+    var chipLayer: CALayer? { node.layer }
+    func chipReaction(in mode: ChatReactionsLayout.Mode) -> ChatReactionsLayout.Reaction? {
+        if case .full = mode { return reaction }
+        return nil
+    }
+    func chipIsReusable(in mode: ChatReactionsLayout.Mode) -> Bool {
+        if case .full = mode { return isReusable }
+        return false
+    }
+    func chipCancelPendingEffect() { cancelPendingEffect() }
+    func install(in container: ChatReactionsView) {
+        container.attach(self)
+    }
+    func removeFromContainer(_ container: ChatReactionsView, animated: Bool) {
+        container.detach(self, animated: animated)
+    }
+    func updateChipFrame(_ frame: NSRect, transition: ContainedViewLayoutTransition) {
+        #if DEBUG
+        node.updateFrame(frame.offsetBy(dx: ChatRowView.parityChipMutation, dy: 0), transition: transition)
+        #else
+        node.updateFrame(frame, transition: transition)
+        #endif
     }
 }

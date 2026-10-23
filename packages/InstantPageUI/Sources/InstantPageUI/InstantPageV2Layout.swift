@@ -26,6 +26,52 @@ public struct InstantPageV2Layout {
         return result
     }
 
+    public func collapsedDetailsIndex(forQuote text: String, range: NSRange? = nil) -> Int? {
+        guard !text.isEmpty else { return nil }
+        var blocks: [NSAttributedString] = []
+        var collapsedParents: [Int?] = []
+        func append(_ text: NSAttributedString, collapsedParent: Int?) {
+            blocks.append(text)
+            collapsedParents.append(collapsedParent)
+        }
+        func collect(_ layout: InstantPageV2Layout, collapsedParent: Int?) {
+            for item in layout.items {
+                switch item {
+                case let .text(text):
+                    append(text.textItem.attributedString, collapsedParent: collapsedParent)
+                case let .codeBlock(code):
+                    append(code.textItem.attributedString, collapsedParent: collapsedParent)
+                case let .formula(formula):
+                    append(NSAttributedString(string: formula.attachment.latex), collapsedParent: collapsedParent)
+                case let .details(details):
+                    append(details.titleTextItem.attributedString, collapsedParent: collapsedParent)
+                    if let inner = details.innerLayout ?? details.layoutCollapsedContent?() {
+                        collect(inner, collapsedParent: collapsedParent ?? (details.isExpanded ? nil : details.index))
+                    }
+                case let .table(table):
+                    if let title = table.titleSubLayout {
+                        collect(title, collapsedParent: collapsedParent)
+                    }
+                    for cell in table.cells {
+                        if let content = cell.subLayout {
+                            collect(content, collapsedParent: collapsedParent)
+                        }
+                    }
+                default:
+                    break
+                }
+            }
+        }
+        collect(self, collapsedParent: nil)
+        let ranges = instantPageQuoteRanges(in: blocks, text: text, range: range)
+        for (range, parent) in zip(ranges, collapsedParents) {
+            if range != nil, let parent {
+                return parent
+            }
+        }
+        return nil
+    }
+
     private static func collectMedias(in items: [InstantPageV2LaidOutItem], into result: inout [InstantPageMedia]) {
         for item in items {
             switch item {
@@ -272,6 +318,7 @@ public struct InstantPageV2DetailsItem {
     public let innerLayout: InstantPageV2Layout?
     public let defaultExpanded: Bool
     public let rtl: Bool
+    var layoutCollapsedContent: (() -> InstantPageV2Layout)? = nil
 }
 
 public enum InstantPageV2TableVerticalAlignment {
@@ -344,7 +391,7 @@ public func layoutInstantPageV2(
         return InstantPageV2Layout(contentSize: .zero, items: [], detailsIndices: [])
     }
 
-    var media = instantPage.media
+    var media = instantPage.media.mapValues { $0._asMedia() }
     if let image = loadedContent.image, let id = image.id {
         media[id] = image
     }
@@ -2096,6 +2143,29 @@ private func layoutFormulaV2(
 }
 
 
+private func detailsCountV2(in blocks: [InstantPageBlock]) -> Int {
+    var count = 0
+    for block in blocks {
+        switch block {
+        case let .details(_, children, _):
+            count += 1 + detailsCountV2(in: children)
+        case let .cover(child):
+            count += detailsCountV2(in: [child])
+        case let .blockQuote(children, _, _):
+            count += detailsCountV2(in: children)
+        case let .list(items, _):
+            for item in items {
+                if case let .blocks(children, _, _) = item {
+                    count += detailsCountV2(in: children)
+                }
+            }
+        default:
+            break
+        }
+    }
+    return count
+}
+
 private func layoutDetailsV2(
     title: RichText,
     blocks: [InstantPageBlock],
@@ -2126,7 +2196,10 @@ private func layoutDetailsV2(
         computeRevealCharacterRects: context.computeRevealCharacterRects,
         lineMetrics: titleLineMetrics
     )
-    guard let titleTextItem = titleTextItem else { return [] }
+    guard let titleTextItem = titleTextItem else {
+        context.detailsIndexCounter += detailsCountV2(in: blocks)
+        return []
+    }
 
     let isExpanded = context.toggledDetails.contains(index) ? !defaultExpanded : defaultExpanded
 
@@ -2154,7 +2227,7 @@ private func layoutDetailsV2(
         totalHeight += layout.contentSize.height
     }
 
-    let item = InstantPageV2DetailsItem(
+    var item = InstantPageV2DetailsItem(
         frame: CGRect(x: 0.0, y: 0.0, width: boundingWidth, height: totalHeight),
         index: index,
         sideInset: horizontalInset,
@@ -2165,6 +2238,14 @@ private func layoutDetailsV2(
         defaultExpanded: defaultExpanded,
         rtl: context.rtl
     )
+    if !isExpanded {
+        let collapsedContext = context
+        context.detailsIndexCounter += detailsCountV2(in: blocks)
+        item.layoutCollapsedContent = {
+            var context = collapsedContext
+            return layoutBlockSequenceV2(blocks, boundingWidth: boundingWidth, horizontalInset: horizontalInset, context: &context, kind: .detail)
+        }
+    }
     return [.details(item)]
 }
 

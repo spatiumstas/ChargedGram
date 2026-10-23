@@ -7,6 +7,7 @@ import InputTextView
 import MessageUtils
 import TelegramMediaUtils
 import TelegramTheme
+import Localization
 
 
 public class ChatMessageView: ChatRowView, ModalPreviewRowViewProtocol {
@@ -30,6 +31,7 @@ public class ChatMessageView: ChatRowView, ModalPreviewRowViewProtocol {
                     current = view
                 } else {
                     current = ImageView()
+                    current.isAccessibilityDecorative = true
                     addSubview(current)
                     self.urlView = current
                 }
@@ -64,6 +66,7 @@ public class ChatMessageView: ChatRowView, ModalPreviewRowViewProtocol {
             addSubview(separator)
             
             close.scaleOnClick = true
+            close.setAccessibilityLabel(strings().voiceOverCommonClose)
             close.autohighlight = false
             
             close.set(handler: { [weak self] _ in
@@ -105,6 +108,7 @@ public class ChatMessageView: ChatRowView, ModalPreviewRowViewProtocol {
                     current = ImageButton(frame: NSMakeRect(0, 30, 30, 30))
                     current.scaleOnClick = true
                     current.autohighlight = false
+                    current.setAccessibilityLabel(strings().voiceOverCommonMore)
 
                     self.more = current
                     addSubview(current)
@@ -155,6 +159,16 @@ public class ChatMessageView: ChatRowView, ModalPreviewRowViewProtocol {
     }
     
     private(set) var text:FoldingTextView?
+    private var layerText: ChatLayerMessageTextView?
+    private var textBindingVersion: UInt64 = 0
+
+    var textContentView: NSView? { layerText ?? text }
+
+    func firstTextBaseline(in view: NSView) -> NSPoint? {
+        if let layerText { return layerText.firstTextBaseline(in: view) }
+        guard let textView = text?.textViews.first, let line = textView.textLayout?.lines.first else { return nil }
+        return textView.convert(NSPoint(x: line.frame.minX, y: line.frame.minY), to: view)
+    }
 
     public private(set) var webpageContent:WPContentView?
     private var actionButton: ActionButton?
@@ -247,7 +261,7 @@ public class ChatMessageView: ChatRowView, ModalPreviewRowViewProtocol {
             transition.updateFrame(view: webpageContent, frame: webpageFrame(item))
         }
         
-        if let text = self.text {
+        if let text = textContentView {
             transition.updateFrame(view: text, frame: textFrame(item))
         }
         
@@ -271,7 +285,7 @@ public class ChatMessageView: ChatRowView, ModalPreviewRowViewProtocol {
     }
 
     public override func canStartTextSelecting(_ event: NSEvent) -> Bool {
-        if let superTextView = text?.superview {
+        if let superTextView = textContentView?.superview {
             if let webpageContent = webpageContent {
                 return !NSPointInRect(superTextView.convert(event.locationInWindow, from: nil), webpageContent.frame)
             }
@@ -280,6 +294,24 @@ public class ChatMessageView: ChatRowView, ModalPreviewRowViewProtocol {
         return false
     }
     
+    override var textSelectionSources: ChatTextSelectionSources {
+        let hasLayerCaptions = captionViews.contains(where: { $0.layerView != nil })
+        guard layerText != nil || hasLayerCaptions else { return .views(selectableTextViews) }
+        var sources: [ChatTextSelectionSource]
+        if hasLayerCaptions, case let .mixed(values) = super.textSelectionSources {
+            sources = values
+        } else {
+            sources = super.selectableTextViews.map(ChatTextSelectionSource.view)
+        }
+        if let layerText {
+            sources.append(contentsOf: layerText.body.textNodes.map { .layer($0, layerText) })
+        } else if let text {
+            sources.append(contentsOf: text.textViews.map(ChatTextSelectionSource.view))
+        }
+        if let webpageContent { sources.append(contentsOf: webpageContent.selectableTextViews.map(ChatTextSelectionSource.view)) }
+        return .mixed(sources)
+    }
+
     public override var selectableTextViews: [TextView] {
         var views:[TextView] = super.selectableTextViews + (text?.textViews ?? [])
         if let webpage = webpageContent {
@@ -305,79 +337,141 @@ public class ChatMessageView: ChatRowView, ModalPreviewRowViewProtocol {
     public override func focusAnimation(_ innerId: AnyHashable?, text: String?, range: NSRange?) {
         super.focusAnimation(innerId, text: text)
         
-        guard let item = item as? ChatRowItem else {
+        guard let item = item as? ChatMessageItem else {
             return
         }
         if let text = text, !text.isEmpty {
-            self.text?.highlight(text: text, color: item.presentation.colors.focusAnimationColor, range: range)
+            if let layerText {
+                layerText.body.highlight(text: text, color: item.presentation.colors.focusAnimationColor, range: range, in: item.textLayout)
+            } else {
+                self.text?.highlight(text: text, color: item.presentation.colors.focusAnimationColor, range: range)
+            }
+        }
+    }
+
+
+    private func updateText(for item: ChatMessageItem, previous: ChatMessageItem?, animated: Bool) {
+        let version = textBindingVersion
+        let presentation = item.papercutLayout == nil ? ChatLayerMessageTextPresentation.simpleText(item.textLayout) : nil
+        var useLayers = presentation != nil
+        if useLayers, let text {
+            if animated || text.hasSelectedText {
+                useLayers = false
+            } else {
+                useLayers = text.updateForReusedContent(layout: item.textLayout)
+                guard textBindingVersion == version else { return }
+            }
+        }
+        if useLayers, let presentation {
+            let current = layerText ?? ChatLayerMessageTextView(frame: textFrame(item))
+            if presentation.requiresRevealAction, current.body.revealBlockAtIndex == nil {
+                current.body.revealBlockAtIndex = { [weak self] index in
+                    (self?.item as? ChatMessageItem)?.revealBlockAtIndex(index)
+                }
+            }
+            let identity = ChatLayerMessageTextView.Identity(messageId: item.stableId, accountId: ObjectIdentifier(item.textLayout.context))
+            guard current.update(presentation, identity: identity, context: item.textLayout.context, animated: animated), textBindingVersion == version else {
+                if layerText !== current { _ = current.prepareForRemoval() }
+                return
+            }
+            let isNew = layerText !== current
+            if let text {
+                self.text = nil
+                text.removeFromSuperview()
+                guard textBindingVersion == version else { return }
+            }
+            layerText = current
+            if isNew || !animated {
+                let frame = textFrame(item)
+                if current.frame != frame { current.frame = frame }
+            }
+            if isNew {
+                addSubview(current)
+                if animated { current.layer?.animateAlpha(from: 0, to: 1, duration: 0.2) }
+            }
+        } else {
+            if let layerText {
+                let sameMessage = previous?.stableId == item.stableId && previous?.textLayout.context === item.textLayout.context
+                let selections = sameMessage ? layerText.body.textNodes.compactMap { node in
+                    node.textLayout.map { ($0.attributedString.string, $0.selectedRange) }
+                } : []
+                guard layerText.prepareForRemoval(), textBindingVersion == version else { return }
+                for (old, block) in zip(selections, item.textLayout.blocks)
+                where old.0 == block.text.attributedString.string && block.text.mayItems && block.text.selectedRange.range.location == NSNotFound {
+                    block.text.selectedRange = old.1
+                }
+                self.layerText = nil
+                performSubviewRemoval(layerText, animated: animated)
+                guard textBindingVersion == version else { return }
+            }
+            updateNativeText(for: item, previous: previous, animated: animated)
+        }
+    }
+
+    private func updateNativeText(for item: ChatMessageItem, previous: ChatMessageItem?, animated: Bool) {
+        let isEqual = previous?.stableId == item.stableId
+            && previous?.textLayout.context === item.textLayout.context
+            && previous?.textLayout.string == item.textLayout.string
+        if item.papercutLayout != nil {
+            if let view = self.text {
+                performSubviewRemoval(view, animated: animated)
+                self.text = nil
+            }
+        } else if isEqual, let view = self.text {
+            view.update(layout: item.textLayout, animated: animated)
+        } else if !animated, let view = self.text, view.updateForReusedContent(layout: item.textLayout) {
+            let frame = textFrame(item)
+            if view.frame != frame { view.frame = frame }
+        } else {
+
+            let appendingAnimationView = self.text?.appendingAnimationView
+
+            if let view = self.text {
+                performSubviewRemoval(view, animated: animated)
+            }
+            let current: FoldingTextView = FoldingTextView(frame: textFrame(item))
+            current.update(layout: item.textLayout, animated: false, appendingAnimationView: appendingAnimationView)
+
+            current.revealBlockAtIndex = { [weak self] index in
+                if let item = self?.item as? ChatMessageItem {
+                    item.revealBlockAtIndex(index)
+                }
+            }
+            current.streamingVisibleHeightChanged = { [weak self] in
+                guard let self, let item = self.item as? ChatMessageItem, let table = item.table else {
+                    return
+                }
+                let oldHeight = item.height
+                item.previousBlockWidth = 0
+                _ = item.makeSize(item.width, oldWidth: 0)
+                let newHeight = item.height
+                if oldHeight != newHeight {
+                    table.noteHeightOfRow(item.index, true)
+                }
+            }
+
+            self.text = current
+            addSubview(current)
+
+            if animated, !item.textLayout.appendingAnimation {
+                current.layer?.animateAlpha(from: 0, to: 1, duration: 0.2)
+            }
         }
     }
 
 
     public override func set(item:TableRowItem, animated:Bool = false) {
+        textBindingVersion &+= 1
+        let version = textBindingVersion
         let previous = self.item as? ChatMessageItem
         super.set(item: item, animated: animated)
+        guard textBindingVersion == version else { return }
 
         if let item = item as? ChatMessageItem {
 
-            let isEqual = previous?.textLayout.string == item.textLayout.string
-            if item.papercutLayout != nil {
-                // The card replaces the text entirely; dropping the view also stops drag-selection and
-                // content clicks from starting inside it.
-                if let view = self.text {
-                    performSubviewRemoval(view, animated: animated)
-                    self.text = nil
-                }
-            } else if isEqual, let view = self.text {
-                view.update(layout: item.textLayout, animated: animated)
-                view.streamingVisibleHeightChanged = { [weak self] in
-                    guard let self, let item = self.item as? ChatMessageItem, let table = item.table else {
-                        return
-                    }
-                    let oldHeight = item.height
-                    item.previousBlockWidth = 0
-                    _ = item.makeSize(item.width, oldWidth: 0)
-                    let newHeight = item.height
-                    if oldHeight != newHeight {
-                        table.noteHeightOfRow(item.index, true)
-                    }
-                }
-            } else {
+            updateText(for: item, previous: previous, animated: animated)
+            guard textBindingVersion == version else { return }
 
-                let appendingAnimationView = self.text?.appendingAnimationView
-
-                if let view = self.text {
-                    performSubviewRemoval(view, animated: animated)
-                }
-                let current: FoldingTextView = FoldingTextView(frame: textFrame(item))
-                current.update(layout: item.textLayout, animated: false, appendingAnimationView: appendingAnimationView)
-
-                current.revealBlockAtIndex = { [weak self] index in
-                    if let item = self?.item as? ChatMessageItem {
-                        item.revealBlockAtIndex(index)
-                    }
-                }
-                current.streamingVisibleHeightChanged = { [weak self] in
-                    guard let self, let item = self.item as? ChatMessageItem, let table = item.table else {
-                        return
-                    }
-                    let oldHeight = item.height
-                    item.previousBlockWidth = 0
-                    _ = item.makeSize(item.width, oldWidth: 0)
-                    let newHeight = item.height
-                    if oldHeight != newHeight {
-                        table.noteHeightOfRow(item.index, true)
-                    }
-                }
-                
-                self.text = current
-                addSubview(current)
-                
-                if animated, !item.textLayout.appendingAnimation {
-                    current.layer?.animateAlpha(from: 0, to: 1, duration: 0.2)
-                }
-            }
-            
             if let webpageLayout = item.webpageLayout {
                 let updated = webpageContent == nil || !webpageContent!.isKind(of: webpageLayout.viewClass())
                 let current: WPContentView
@@ -415,8 +509,8 @@ public class ChatMessageView: ChatRowView, ModalPreviewRowViewProtocol {
                 actionButton?.set(isExternalUrl: item.hasExternalLink, color: item.wpPresentation.activity.main)
                 actionButton?.scaleOnClick = true
                 actionButton?.removeAllHandlers()
-                actionButton?.set(handler: { [weak item] _ in
-                    item?.invokeAction()
+                actionButton?.set(handler: { [weak item, weak self] _ in
+                    item?.invokeAction(morphSource: { [weak self] in self?.actionButton })
                 }, for: .Click)
                 actionButton?.set(text: text, for: .Normal)
                 actionButton?.set(color: item.wpPresentation.activity.main, for: .Normal)
@@ -481,6 +575,7 @@ public class ChatMessageView: ChatRowView, ModalPreviewRowViewProtocol {
     
     public override func updateAnimatableContent() {
         super.updateAnimatableContent()
+        layerText?.updateInlineEmojiVisibility()
     }
     
     public override func clickInContent(point: NSPoint) -> Bool {
@@ -488,7 +583,9 @@ public class ChatMessageView: ChatRowView, ModalPreviewRowViewProtocol {
         let _ = item
         // `point` is in this row view's coordinates (see TableRowView.doubleClick); the text view tests
         // against its own local geometry, so convert — otherwise clicks left of the bubble land "inside".
-        if let text = self.text {
+        if let layerText {
+            return layerText.clickInContent(point: layerText.convert(point, from: self))
+        } else if let text = self.text {
             return text.clickInContent(point: text.convert(point, from: self))
         } else {
             return false

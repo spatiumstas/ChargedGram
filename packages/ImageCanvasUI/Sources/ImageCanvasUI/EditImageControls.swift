@@ -40,19 +40,21 @@ public struct EditedImageData : Equatable {
     public var dimensions: SelectionRectDimensions  = .none
     public var isHorizontalFlipped: Bool = false
     public var paintings: [EditImageDrawTouch] = []
+    public var entities: [EditImageCanvasEntity] = []
     public var selectedImage: AnyHashable?
     public var images: [Image] = []
 
     public var undo: [UndoRedoAction] = []
     public var redo: [UndoRedoAction] = []
 
-    public init(originalUrl: URL, selectedRect: NSRect = .zero, orientation: ImageOrientation? = nil, dimensions: SelectionRectDimensions = .none, isHorizontalFlipped: Bool = false, paintings: [EditImageDrawTouch] = [], selectedImage: AnyHashable? = nil, images: [Image] = [], undo: [UndoRedoAction] = [], redo: [UndoRedoAction] = []) {
+    public init(originalUrl: URL, selectedRect: NSRect = .zero, orientation: ImageOrientation? = nil, dimensions: SelectionRectDimensions = .none, isHorizontalFlipped: Bool = false, paintings: [EditImageDrawTouch] = [], entities: [EditImageCanvasEntity] = [], selectedImage: AnyHashable? = nil, images: [Image] = [], undo: [UndoRedoAction] = [], redo: [UndoRedoAction] = []) {
         self.originalUrl = originalUrl
         self.selectedRect = selectedRect
         self.orientation = orientation
         self.dimensions = dimensions
         self.isHorizontalFlipped = isHorizontalFlipped
         self.paintings = paintings
+        self.entities = entities
         self.selectedImage = selectedImage
         self.images = images
         self.undo = undo
@@ -60,7 +62,7 @@ public struct EditedImageData : Equatable {
     }
 
     public var hasntData: Bool {
-        return orientation == nil && dimensions == .none && !isHorizontalFlipped && paintings.isEmpty && images.isEmpty
+        return orientation == nil && dimensions == .none && !isHorizontalFlipped && paintings.isEmpty && entities.isEmpty && images.isEmpty
     }
 
     public func makeImage(_ image: CGImage, interface: Bool, applyPainting: Bool = true) -> CGImage {
@@ -78,6 +80,9 @@ public struct EditedImageData : Equatable {
             if other.paintings != self.paintings {
                 return true
             }
+            if other.entities != self.entities {
+                return true
+            }
             return false
         } else {
             return true
@@ -88,7 +93,9 @@ public struct EditedImageData : Equatable {
         var image: CGImage = image
         var orientation = data.orientation
         
-        if !data.paintings.isEmpty, applyPainting {
+        if !data.paintings.isEmpty || !data.entities.isEmpty, applyPainting {
+            let source = image
+            let blurImage = data.paintings.contains(where: { $0.action == .blur || $0.action == .blurAll }) ? editImageCanvasBlurredImage(source) : nil
             image = generateImage(image.size, scale: 1.0, rotatedContext: { size, context in
                 let rect = NSMakeRect(0, 0, size.width, size.height)
                 context.clear(rect)
@@ -102,7 +109,8 @@ public struct EditedImageData : Equatable {
                 
                 let paints = generateImage(size, contextGenerator: { size, ctx in
                     ctx.clear(rect)
-                    applyPaints(data.paintings, for: ctx, imageSize: size)
+                    applyPaints(data.paintings, for: ctx, imageSize: size, blurImage: blurImage)
+                    applyEntities(data.entities, for: ctx, size: size)
                 }, scale: 1.0)!
                 
                 context.draw(paints, in: rect)
@@ -136,7 +144,6 @@ public struct EditedImageData : Equatable {
                 ctx.scaleBy(x: -1.0, y: 1.0)
                 ctx.translateBy(x: -size.width / 2.0, y: -size.height / 2.0)
             }, scale: 1.0)!
-          //  image = NSImage(cgImage: image, size: image.backingSize).precomposed(flipHorizontal: true)
         }
         
         if !data.images.isEmpty, !interface {
@@ -193,7 +200,8 @@ public final class EditImageControlsArguments {
     public let rotate: () -> Void
     public let draw: ()->Void
     public let getDoneString:()->String?
-    public init(cancel:@escaping()->Void, success: @escaping()->Void, flip: @escaping()->Void, selectionDimensions: @escaping(SelectionRectDimensions)->Void, rotate: @escaping() -> Void, draw: @escaping()->Void, getDoneString:@escaping()->String?) {
+    public let cutout: (()->Void)?
+    public init(cancel:@escaping()->Void, success: @escaping()->Void, flip: @escaping()->Void, selectionDimensions: @escaping(SelectionRectDimensions)->Void, rotate: @escaping() -> Void, draw: @escaping()->Void, getDoneString:@escaping()->String?, cutout: (()->Void)? = nil) {
         self.cancel = cancel
         self.success = success
         self.flip = flip
@@ -201,6 +209,7 @@ public final class EditImageControlsArguments {
         self.getDoneString = getDoneString
         self.selectionDimensions = selectionDimensions
         self.draw = draw
+        self.cutout = cutout
     }
 }
 
@@ -212,6 +221,7 @@ public final class EditImageControlsView : View {
     private let draw = ImageButton()
     private let rotate = ImageButton()
     private let dimensions = ImageButton()
+    private let cutout = ImageButton()
     public required init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         
@@ -224,6 +234,7 @@ public final class EditImageControlsView : View {
         controlsContainer.addSubview(draw)
         controlsContainer.addSubview(rotate)
         controlsContainer.addSubview(dimensions)
+        controlsContainer.addSubview(cutout)
         
         controlsContainer.border = [.Left, .Right]
         controlsContainer.borderColor = NSColor.black.withAlphaComponent(0.2)
@@ -236,19 +247,28 @@ public final class EditImageControlsView : View {
         flipper.set(image: NSImage(resource: .iconEditImageFlip).precomposed(NSColor.white.withAlphaComponent(0.8)), for: .Normal)
         rotate.set(image: NSImage(resource: .iconEditImageRotate).precomposed(NSColor.white.withAlphaComponent(0.8)), for: .Normal)
         dimensions.set(image: NSImage(resource: .iconEditImageSizes).precomposed(NSColor.white.withAlphaComponent(0.8)), for: .Normal)
+        cutout.set(image: NSImage(resource: .iconEditImageCutout).precomposed(NSColor.white.withAlphaComponent(0.8)), for: .Normal)
 
         draw.set(image: NSImage(resource: .iconEditImageDraw).precomposed(.white), for: .Hover)
         flipper.set(image: NSImage(resource: .iconEditImageFlip).precomposed(.white), for: .Hover)
         rotate.set(image: NSImage(resource: .iconEditImageRotate).precomposed(.white), for: .Hover)
         dimensions.set(image: NSImage(resource: .iconEditImageSizes).precomposed(.white), for: .Hover)
+        cutout.set(image: NSImage(resource: .iconEditImageCutout).precomposed(.white), for: .Hover)
         
         draw.appTooltip = "⌘D"
         rotate.appTooltip = "⌘R"
+        draw.setAccessibilityLabel(strings().voiceOverCommonDraw)
+        rotate.setAccessibilityLabel(strings().voiceOverCommonRotate)
+        flipper.setAccessibilityLabel(strings().voiceOverCommonFlip)
+        dimensions.setAccessibilityLabel(strings().voiceOverCommonAspectRatio)
+        cutout.appTooltip = strings().editImageControlsCutOutObject
+        cutout.setAccessibilityLabel(strings().editImageControlsCutOutObject)
 
         _ = draw.sizeToFit(NSZeroSize, NSMakeSize(50, frame.height), thatFit: true)
         _ = flipper.sizeToFit(NSZeroSize, NSMakeSize(50, frame.height), thatFit: true)
         _ = rotate.sizeToFit(NSZeroSize, NSMakeSize(50, frame.height), thatFit: true)
         _ = dimensions.sizeToFit(NSZeroSize, NSMakeSize(50, frame.height), thatFit: true)
+        _ = cutout.sizeToFit(NSZeroSize, NSMakeSize(50, frame.height), thatFit: true)
         
         cancel.set(font: .medium(.title), for: .Normal)
         success.set(font: .medium(.title), for: .Normal)
@@ -265,16 +285,17 @@ public final class EditImageControlsView : View {
         flipper.isSelected = data.isHorizontalFlipped
         rotate.isSelected = data.orientation != nil
         dimensions.isSelected = data.dimensions != .none
-        draw.isSelected = !data.paintings.isEmpty
+        draw.isSelected = !data.paintings.isEmpty || !data.entities.isEmpty
     }
     
     public override func layout() {
         super.layout()
-        controlsContainer.setFrameSize(rotate.frame.width + flipper.frame.width + draw.frame.width + dimensions.frame.width, rotate.frame.height)
+        controlsContainer.setFrameSize(rotate.frame.width + flipper.frame.width + draw.frame.width + dimensions.frame.width + (cutout.isHidden ? 0 : cutout.frame.width), rotate.frame.height)
         rotate.setFrameOrigin(NSMakePoint(0, 0))
         flipper.setFrameOrigin(NSMakePoint(rotate.frame.maxX, 0))
         draw.setFrameOrigin(NSMakePoint(flipper.frame.maxX, 0))
         dimensions.setFrameOrigin(NSMakePoint(draw.frame.maxX, 0))
+        cutout.setFrameOrigin(NSMakePoint(dimensions.frame.maxX, 0))
         controlsContainer.center()
         
         cancel.centerY()
@@ -305,6 +326,11 @@ public final class EditImageControlsView : View {
         
         draw.set(handler: { _ in
             handlers.draw()
+        }, for: .Click)
+        
+        cutout.isHidden = handlers.cutout == nil
+        cutout.set(handler: { _ in
+            handlers.cutout?()
         }, for: .Click)
         
         
@@ -350,7 +376,7 @@ public class EditImageControls: GenericViewController<EditImageControlsView> {
         self.arguments = arguments
         self.stateValue = stateValue
         self.settings = settings
-        super.init(frame: NSMakeRect(0, 0, 350, 40))
+        super.init(frame: NSMakeRect(0, 0, arguments.cutout == nil ? 350 : 400, 40))
         bar = .init(height: 0)
     }
     

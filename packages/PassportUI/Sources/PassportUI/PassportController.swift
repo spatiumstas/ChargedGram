@@ -1094,6 +1094,7 @@ private final class AddressIntermediateState : Equatable {
         self.postcode = postcode
     }
     
+
     convenience init(_ data: [InputDataIdentifier : InputDataValue]) {
         self.init(street1: data[_id_street1], street2: data[_id_street2], city: data[_id_city], state: data[_id_state], countryCode: data[_id_country], postcode: data[_id_postcode])
     }

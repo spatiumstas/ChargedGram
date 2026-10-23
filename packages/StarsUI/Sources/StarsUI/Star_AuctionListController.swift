@@ -94,6 +94,15 @@ private final class RowItem : GeneralRowItem {
         return 10 + 40 + 5 + 40 + 10
     }
     
+    override var accessibilityLabel: String? {
+        return gift.title ?? titleLayout.attributedString.string
+    }
+    
+    override var accessibilityValue: String? {
+        let info = infoLayout.attributedString.string.replacingOccurrences(of: clown, with: "")
+        return [titleLayout.attributedString.string, info].joined(separator: ", ")
+    }
+    
     public override func viewClass() -> AnyClass {
         return RowView.self
     }
@@ -131,6 +140,8 @@ private final class RowView : GeneralContainableRowView {
             layout.measure(width: item.width - 60)
             
             textView.set(text: layout, context: item.context)
+            setAccessibilityLabel(strings().starAuctionActiveListRaiseBid)
+            setAccessibilityValue(timerText(Int(item.nextDropTimeout)))
             
             needsLayout = true
         }

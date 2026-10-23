@@ -61,7 +61,7 @@ open class MajorNavigationController: NavigationViewController {
             offset += header.height
         }
         let bounds = self.bounds
-        let frame = NSMakeRect(0, offset, bounds.width - slotLeadingInset, bounds.height - offset)
+        let frame = NSMakeRect(0, offset, bounds.width - slotLeadingInset - slotTrailingInset, bounds.height - offset)
         controller.loadViewIfNeeded(frame)
         self.controller.readyToDetach()
         

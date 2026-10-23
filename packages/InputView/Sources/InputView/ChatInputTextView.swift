@@ -565,6 +565,7 @@ public final class InputTextView: BaseTextView, NSLayoutManagerDelegate, NSTextS
     
     
     public weak var customDelegate: ChatInputTextViewDelegate?
+    private var quoteContinuation: (location: Int, quote: TextInputTextQuoteAttribute)?
     
     private var initialTypingForegroundColor: Any?
     private var capturedInitialTypingForegroundColor: Bool = false
@@ -1053,6 +1054,7 @@ public final class InputTextView: BaseTextView, NSLayoutManagerDelegate, NSTextS
                 collapseQuote.setFrameOrigin(NSMakePoint(boundingRect.maxX - collapseQuote.frame.width, boundingRect.minY))
                 
                 collapseQuote.userInteractionEnabled = blockQuote.collapsable
+                collapseQuote.setAccessibilityLabel(value.collapsed ? strings().voiceOverCommonExpand : strings().voiceOverCommonCollapse)
                 
                 collapseQuote.removeAllHandlers()
                 collapseQuote.set(handler: { [weak self] _ in
@@ -1349,7 +1351,10 @@ public final class InputTextView: BaseTextView, NSLayoutManagerDelegate, NSTextS
                         if handleBulletListContinuation() {
                             return
                         }
+                        let quote = self.quoteToContinueOnNewLine()
+                        self.quoteContinuation = nil
                         super.insertNewline(self)
+                        self.quoteContinuation = quote.map { (location: self.selectedRange().location, quote: $0) }
                         return
                     }
 
@@ -1369,13 +1374,39 @@ public final class InputTextView: BaseTextView, NSLayoutManagerDelegate, NSTextS
         }
     }
 
+    private func quoteToContinueOnNewLine() -> TextInputTextQuoteAttribute? {
+        let range = self.selectedRange()
+        guard range.length == 0, range.location > 0, let textStorage = self.textStorage else {
+            return nil
+        }
+        let text = textStorage.string as NSString
+        if text.character(at: range.location - 1) == 0x0a {
+            return nil
+        }
+        if range.location < text.length && text.character(at: range.location) != 0x0a {
+            return nil
+        }
+        return textStorage.attribute(TextInputAttributes.quote, at: range.location - 1, effectiveRange: nil) as? TextInputTextQuoteAttribute
+    }
+
+    public override func insertText(_ string: Any, replacementRange: NSRange) {
+        if let quoteContinuation = self.quoteContinuation {
+            self.quoteContinuation = nil
+            if self.selectedRange() == NSMakeRange(quoteContinuation.location, 0) {
+                var typingAttributes = self.typingAttributes
+                typingAttributes[TextInputAttributes.quote] = quoteContinuation.quote
+                self.typingAttributes = typingAttributes
+            }
+        }
+        super.insertText(string, replacementRange: replacementRange)
+    }
+
     private func handleBulletListContinuation() -> Bool {
         let currentText = self.attributedString()
         let insertionPoint = self.selectedRange().location
 
         if let (newText, newCursor) = continueBulletListIfNeeded(text: currentText, insertionPoint: insertionPoint, bulletEnabled: isAutomaticBulletListEnabled, numberedEnabled: isAutomaticNumberedListEnabled) {
-            self.textStorage?.setAttributedString(newText)
-            self.setSelectedRange(NSMakeRange(newCursor, 0))
+            self.addUndoItem(InputViewUndoItem(was: NSAttributedString(attributedString: currentText), be: newText, wasRange: self.selectedRange(), beRange: NSMakeRange(newCursor, 0)))
             self.customDelegate?.chatInputTextViewDidUpdateText()
             return true
         }
@@ -1429,9 +1460,12 @@ public final class InputTextView: BaseTextView, NSLayoutManagerDelegate, NSTextS
 
         if precedingText == "--" {
             let attrs = textStorage.attributes(at: checkStart, effectiveRange: nil)
+            let was = NSAttributedString(attributedString: textStorage)
+            let wasRange = self.selectedRange()
             textStorage.beginEditing()
             textStorage.replaceCharacters(in: precedingRange, with: NSAttributedString(string: "—", attributes: attrs))
             textStorage.endEditing()
+            self.undoManager?.registerUndo(withTarget: self, selector: #selector(removeUndoItem(_:)), object: InputViewUndoItem(was: was, be: NSAttributedString(attributedString: textStorage), wasRange: wasRange, beRange: self.selectedRange()))
         }
     }
 
@@ -1719,6 +1753,7 @@ private final class QuoteBackgroundView: View {
     required init(frame: CGRect) {
 //        self.lineLayer = SimpleLayer()
         self.iconView = ImageView()
+        self.iconView.isAccessibilityDecorative = true
         
         super.init(frame: frame)
         

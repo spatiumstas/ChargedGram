@@ -12,7 +12,151 @@ private struct StoryKey: Hashable {
     public var id: Int32
 }
 
-public final class StoryContentItem {
+private func storyPreloadInfos(_ items: [(EnginePeer, EngineStoryItem)], preferHighQualityStories: Bool) -> [StoryPreloadInfo] {
+    var result: [StoryPreloadInfo] = []
+    var keys = Set<StoryKey>()
+    for (peer, item) in items.prefix(3) {
+        guard let peerReference = PeerReference(peer._asPeer()) else { continue }
+        let selectedMedia = !preferHighQualityStories ? (item.alternativeMediaList.first ?? item.media) : item.media
+        guard selectedMedia.id != nil else { continue }
+        let key = StoryKey(peerId: peer.id, id: item.id)
+        guard keys.insert(key).inserted else { continue }
+        var reactions: [MessageReaction.Reaction] = []
+        for mediaArea in item.mediaAreas {
+            if case let .reaction(_, reaction, _) = mediaArea, !reactions.contains(reaction) {
+                reactions.append(reaction)
+            }
+        }
+        result.append(StoryPreloadInfo(peer: peerReference, storyId: item.id, media: selectedMedia, reactions: reactions, priority: .top(position: result.count)))
+    }
+    return result
+}
+
+private final class StoryMediaPreloadContext {
+    private final class Entry {
+        let info: StoryPreloadInfo
+        let disposable = MetaDisposable()
+        init(_ info: StoryPreloadInfo) { self.info = info }
+        func matches(_ info: StoryPreloadInfo) -> Bool {
+            return self.info.peer == info.peer && self.info.media == info.media && Set(self.info.reactions) == Set(info.reactions)
+        }
+    }
+
+    private var entries: [StoryKey: Entry] = [:]
+    private var revision = 0
+    private var isDisposed = false
+
+    func update(_ infos: [StoryPreloadInfo], preload: (StoryPreloadInfo) -> Signal<Never, NoError>) {
+        guard !self.isDisposed else { return }
+        self.revision += 1
+        let revision = self.revision
+        var desired: [StoryKey: StoryPreloadInfo] = [:]
+        var orderedKeys: [StoryKey] = []
+        for info in infos.sorted(by: { $0.priority < $1.priority }) {
+            let key = StoryKey(peerId: info.peer.id, id: info.storyId)
+            if desired[key] == nil {
+                desired[key] = info
+                orderedKeys.append(key)
+            }
+        }
+        var removed: [Entry] = []
+        for (key, entry) in self.entries {
+            if let info = desired[key], entry.matches(info) { continue }
+            self.entries.removeValue(forKey: key)
+            removed.append(entry)
+        }
+        for entry in removed { entry.disposable.dispose() }
+        for key in orderedKeys {
+            guard !self.isDisposed, self.revision == revision else { return }
+            guard self.entries[key] == nil, let info = desired[key] else { continue }
+            let entry = Entry(info)
+            self.entries[key] = entry
+            let signal = preload(info)
+            guard !self.isDisposed, self.entries[key] === entry else { return }
+            entry.disposable.set(signal.start())
+        }
+    }
+
+    func dispose() {
+        guard !self.isDisposed else { return }
+        self.isDisposed = true
+        self.revision += 1
+        let entries = self.entries
+        self.entries.removeAll()
+        for entry in entries.values { entry.disposable.dispose() }
+    }
+
+    deinit { self.dispose() }
+}
+
+private final class StoryMetadataRefreshContext {
+    private final class Entry {
+        let ids: [Int32]
+        let disposable = MetaDisposable()
+        var completedAt: Double?
+        init(_ ids: [Int32]) { self.ids = ids }
+    }
+
+    private let now: () -> Double
+    private var entries: [EnginePeer.Id: Entry] = [:]
+    private var revision = 0
+    private var isDisposed = false
+
+    init(now: @escaping () -> Double = { ProcessInfo.processInfo.systemUptime }) {
+        self.now = now
+    }
+
+    func update(_ items: [StoryKey], refresh: (EnginePeer.Id, [Int32]) -> Signal<Never, NoError>) {
+        guard !self.isDisposed else { return }
+        self.revision += 1
+        let revision = self.revision
+        var keys = Set<StoryKey>()
+        var desired: [EnginePeer.Id: [Int32]] = [:]
+        var peerOrder: [EnginePeer.Id] = []
+        for item in items {
+            guard item.id > 0, keys.insert(item).inserted else { continue }
+            if desired[item.peerId] == nil { peerOrder.append(item.peerId) }
+            desired[item.peerId, default: []].append(item.id)
+            if keys.count == 3 { break }
+        }
+        let now = self.now()
+        var removed: [Entry] = []
+        for (peerId, entry) in self.entries {
+            if let ids = desired[peerId], entry.ids == ids {
+                if entry.completedAt == nil || now - entry.completedAt! < 10.0 { continue }
+            }
+            self.entries.removeValue(forKey: peerId)
+            removed.append(entry)
+        }
+        for entry in removed { entry.disposable.dispose() }
+        for peerId in peerOrder {
+            guard !self.isDisposed, self.revision == revision else { return }
+            guard self.entries[peerId] == nil, let ids = desired[peerId] else { continue }
+            let entry = Entry(ids)
+            self.entries[peerId] = entry
+            let signal = refresh(peerId, ids) |> deliverOnMainQueue
+            guard !self.isDisposed, self.entries[peerId] === entry else { return }
+            entry.disposable.set(signal.start(completed: { [weak self, weak entry] in
+                guard let self, let entry, self.entries[peerId] === entry else { return }
+                entry.completedAt = self.now()
+                entry.disposable.dispose()
+            }))
+        }
+    }
+
+    func dispose() {
+        guard !self.isDisposed else { return }
+        self.isDisposed = true
+        self.revision += 1
+        let entries = self.entries
+        self.entries.removeAll()
+        for entry in entries.values { entry.disposable.dispose() }
+    }
+
+    deinit { self.dispose() }
+}
+
+public final class StoryContentItem: Equatable {
     
     public struct DayCounters: Equatable {
         public var position: Int
@@ -33,6 +177,15 @@ public final class StoryContentItem {
     public let itemPeer: EnginePeer?
 
     
+    public static func ==(lhs: StoryContentItem, rhs: StoryContentItem) -> Bool {
+        return lhs.position == rhs.position
+            && lhs.dayCounters == rhs.dayCounters
+            && lhs.peer == rhs.peer
+            && lhs.storyItem == rhs.storyItem
+            && lhs.entityFiles == rhs.entityFiles
+            && lhs.itemPeer == rhs.itemPeer
+    }
+
     public var peerId: EnginePeer.Id? {
         return self.peer?.id
     }
@@ -165,7 +318,7 @@ public final class StoryContentContextState {
             if lhs.peer != rhs.peer {
                 return false
             }
-            if lhs.item.storyItem != rhs.item.storyItem {
+            if lhs.additionalPeerData != rhs.additionalPeerData || lhs.item != rhs.item || lhs.allItems != rhs.allItems {
                 return false
             }
             if lhs.totalCount != rhs.totalCount {
@@ -809,8 +962,8 @@ public final class StoryContentContextImpl: StoryContentContext {
     private var requestedStoryKeys = Set<StoryKey>()
     private var requestStoryDisposables = DisposableSet()
     
-    private var preloadStoryResourceDisposables: [MediaId: Disposable] = [:]
-    private var pollStoryMetadataDisposables: [StoryId: Disposable] = [:]
+    private let preloadStoryResources = StoryMediaPreloadContext()
+    private let storyMetadataRefresh = StoryMetadataRefreshContext()
     
     private var singlePeerListContext: PeerExpiringStoryListContext?
     
@@ -1030,12 +1183,8 @@ public final class StoryContentContextImpl: StoryContentContext {
     deinit {
         self.storySubscriptionsDisposable?.dispose()
         self.requestStoryDisposables.dispose()
-        for (_, disposable) in self.preloadStoryResourceDisposables {
-            disposable.dispose()
-        }
-        for (_, disposable) in self.pollStoryMetadataDisposables {
-            disposable.dispose()
-        }
+        self.preloadStoryResources.dispose()
+        self.storyMetadataRefresh.dispose()
         self.storySubscriptionsDisposable?.dispose()
         self.currentStateUpdatedDisposable?.dispose()
         self.pendingStateReadyDisposable?.dispose()
@@ -1185,72 +1334,13 @@ public final class StoryContentContextImpl: StoryContentContext {
             }
         }
         
-        var nextPriority = 0
-        var resultResources: [EngineMedia.Id: StoryPreloadInfo] = [:]
-        for i in 0 ..< min(possibleItems.count, 3) {
-            let peer = possibleItems[i].0
-            let item = possibleItems[i].1
-            if let peerReference = PeerReference(peer._asPeer()), let mediaId = item.media.id {
-                var reactions: [MessageReaction.Reaction] = []
-                for mediaArea in item.mediaAreas {
-                    if case let .reaction(_, reaction, _) = mediaArea {
-                        if !reactions.contains(reaction) {
-                            reactions.append(reaction)
-                        }
-                    }
-                }
-                
-                var selectedMedia: EngineMedia
-                if let slice = stateValue.slice, let alternativeMedia = item.alternativeMediaList.first, !slice.additionalPeerData.preferHighQualityStories {
-                    selectedMedia = alternativeMedia
-                } else {
-                    selectedMedia = item.media
-                }
-                
-                resultResources[mediaId] = StoryPreloadInfo(
-                    peer: peerReference,
-                    storyId: item.id,
-                    media: selectedMedia,
-                    reactions: reactions,
-                    priority: .top(position: nextPriority)
-                )
-                nextPriority += 1
-            }
+        let preloadInfos = storyPreloadInfos(possibleItems, preferHighQualityStories: stateValue.slice?.additionalPeerData.preferHighQualityStories ?? false)
+        self.preloadStoryResources.update(preloadInfos) { info in
+            preloadStoryMedia(context: context, info: info)
         }
-        
-        var validIds: [EngineMedia.Id] = []
-        for (id, info) in resultResources.sorted(by: { $0.value.priority < $1.value.priority }) {
-            validIds.append(id)
-            if self.preloadStoryResourceDisposables[id] == nil {
-                self.preloadStoryResourceDisposables[id] = preloadStoryMedia(context: context, info: info).startStrict()
-            }
-        }
-        
-        var removeIds: [EngineMedia.Id] = []
-        for (id, disposable) in self.preloadStoryResourceDisposables {
-            if !validIds.contains(id) {
-                removeIds.append(id)
-                disposable.dispose()
-            }
-        }
-        for id in removeIds {
-            self.preloadStoryResourceDisposables.removeValue(forKey: id)
-        }
-        
-        var pollIdByPeerId: [EnginePeer.Id: [Int32]] = [:]
-        for storyKey in pollItems.prefix(3) {
-            if pollIdByPeerId[storyKey.peerId] == nil {
-                pollIdByPeerId[storyKey.peerId] = [storyKey.id]
-            } else {
-                pollIdByPeerId[storyKey.peerId]?.append(storyKey.id)
-            }
-        }
-        for (peerId, ids) in pollIdByPeerId {
-            for id in ids {
-                if self.pollStoryMetadataDisposables[StoryId(peerId: peerId, id: id)] == nil {
-                    self.pollStoryMetadataDisposables[StoryId(peerId: peerId, id: id)] = self.context.engine.messages.refreshStoryViews(peerId: peerId, ids: ids).startStrict()
-                }
-            }
+
+        self.storyMetadataRefresh.update(pollItems) { peerId, ids in
+            self.context.engine.messages.refreshStoryViews(peerId: peerId, ids: ids)
         }
     }
     
@@ -1643,8 +1733,8 @@ public final class PeerStoryListContentContextImpl: StoryContentContext {
     private var focusedId: Int32?
     private var focusedIdUpdated = Promise<Void>(Void())
     
-    private var preloadStoryResourceDisposables: [EngineMedia.Id: Disposable] = [:]
-    private var pollStoryMetadataDisposables = DisposableSet()
+    private let preloadStoryResources = StoryMediaPreloadContext()
+    private let storyMetadataRefresh = StoryMetadataRefreshContext()
     
     public init(context: any AccountContextProtocol, peerId: EnginePeer.Id, listContext: StoryListContext, initialId: Int32?) {
         self.context = context
@@ -1832,15 +1922,11 @@ public final class PeerStoryListContentContextImpl: StoryContentContext {
                 self.statePromise.set(.single(stateValue))
                 self.updatedPromise.set(.single(Void()))
                 
-                var resultResources: [EngineMedia.Id: StoryPreloadInfo] = [:]
+                var preloadInfos: [StoryPreloadInfo] = []
                 var pollItems: [StoryKey] = []
                 
                 if let focusedIndex = focusedIndex, let slice = stateValue.slice {
                     var possibleItems: [(EnginePeer, EngineStoryItem)] = []
-                    if peer.id == self.context.account.peerId {
-                        pollItems.append(StoryKey(peerId: peer.id, id: slice.item.storyItem.id))
-                    }
-                    
                     for i in focusedIndex ..< min(focusedIndex + 4, state.items.count) {
                         if i != focusedIndex {
                             possibleItems.append((slice.peer, state.items[i].storyItem))
@@ -1851,71 +1937,15 @@ public final class PeerStoryListContentContextImpl: StoryContentContext {
                         }
                     }
                     
-                    var nextPriority = 0
-                    for i in 0 ..< min(possibleItems.count, 3) {
-                        let peer = possibleItems[i].0
-                        let item = possibleItems[i].1
-                        if let peerReference = PeerReference(peer._asPeer()), let mediaId = item.media.id {
-                            var reactions: [MessageReaction.Reaction] = []
-                            for mediaArea in item.mediaAreas {
-                                if case let .reaction(_, reaction, _) = mediaArea {
-                                    if !reactions.contains(reaction) {
-                                        reactions.append(reaction)
-                                    }
-                                }
-                            }
-                            
-                            var selectedMedia: EngineMedia
-                            if let alternativeMedia = item.alternativeMediaList.first, !preferHighQualityStories {
-                                selectedMedia = alternativeMedia
-                            } else {
-                                selectedMedia = item.media
-                            }
+                    preloadInfos = storyPreloadInfos(possibleItems, preferHighQualityStories: preferHighQualityStories)
+                }
 
-                            
-                            resultResources[mediaId] = StoryPreloadInfo(
-                                peer: peerReference,
-                                storyId: item.id,
-                                media: selectedMedia,
-                                reactions: reactions,
-                                priority: .top(position: nextPriority)
-                            )
-                            nextPriority += 1
-                        }
-                    }
+                self.preloadStoryResources.update(preloadInfos) { info in
+                    preloadStoryMedia(context: context, info: info)
                 }
-                
-                var validIds: [EngineMedia.Id] = []
-                for (_, info) in resultResources.sorted(by: { $0.value.priority < $1.value.priority }) {
-                    if let mediaId = info.media.id {
-                        validIds.append(mediaId)
-                        if self.preloadStoryResourceDisposables[mediaId] == nil {
-                            self.preloadStoryResourceDisposables[mediaId] = preloadStoryMedia(context: context, info: info).startStrict()
-                        }
-                    }
-                }
-                
-                var removeIds: [EngineMedia.Id] = []
-                for (id, disposable) in self.preloadStoryResourceDisposables {
-                    if !validIds.contains(id) {
-                        removeIds.append(id)
-                        disposable.dispose()
-                    }
-                }
-                for id in removeIds {
-                    self.preloadStoryResourceDisposables.removeValue(forKey: id)
-                }
-                
-                var pollIdByPeerId: [EnginePeer.Id: [Int32]] = [:]
-                for storyKey in pollItems.prefix(3) {
-                    if pollIdByPeerId[storyKey.peerId] == nil {
-                        pollIdByPeerId[storyKey.peerId] = [storyKey.id]
-                    } else {
-                        pollIdByPeerId[storyKey.peerId]?.append(storyKey.id)
-                    }
-                }
-                for (peerId, ids) in pollIdByPeerId {
-                    self.pollStoryMetadataDisposables.add(self.context.engine.messages.refreshStoryViews(peerId: peerId, ids: ids).startStrict())
+
+                self.storyMetadataRefresh.update(pollItems) { peerId, ids in
+                    self.context.engine.messages.refreshStoryViews(peerId: peerId, ids: ids)
                 }
             }
         })
@@ -1925,10 +1955,8 @@ public final class PeerStoryListContentContextImpl: StoryContentContext {
         self.storyDisposable?.dispose()
         self.requestStoryDisposables.dispose()
         
-        for (_, disposable) in self.preloadStoryResourceDisposables {
-            disposable.dispose()
-        }
-        self.pollStoryMetadataDisposables.dispose()
+        self.preloadStoryResources.dispose()
+        self.storyMetadataRefresh.dispose()
     }
     
     public func resetSideStates() {
@@ -1974,6 +2002,54 @@ public final class PeerStoryListContentContextImpl: StoryContentContext {
     }
 }
 
+private func storyVideoPreloadRange(_ file: TelegramMediaFile) -> (Range<Int64>, MediaBoxFetchPriority)? {
+    for attribute in file.attributes {
+        if case let .Video(_, _, _, preloadSize, _, _) = attribute {
+            guard let preloadSize else { return nil }
+            var length = max(0, Int64(preloadSize))
+            if let size = file.size {
+                length = min(length, max(0, size))
+            }
+            return (0 ..< length, .default)
+        }
+    }
+    return nil
+}
+
+private func storyMediaPreload(status: Signal<Never, NoError>, fetch: Signal<Never, NoError>, priority: (() -> Disposable)? = nil, auxiliary: [Signal<Never, NoError>] = []) -> Signal<Never, NoError> {
+    return Signal { subscriber in
+        let finished = Atomic(value: false)
+        let disposables = DisposableSet()
+        let finish = {
+            if !finished.swap(true) {
+                disposables.dispose()
+                subscriber.putCompletion()
+            }
+        }
+        let statusDisposable = MetaDisposable()
+        disposables.add(statusDisposable)
+        statusDisposable.set(status.start(completed: finish))
+        if !finished.with({ $0 }), let priority {
+            disposables.add(priority())
+        }
+        if !finished.with({ $0 }) {
+            let fetchDisposable = MetaDisposable()
+            disposables.add(fetchDisposable)
+            fetchDisposable.set(fetch.start(completed: finish))
+        }
+        for signal in auxiliary {
+            if finished.with({ $0 }) { break }
+            let disposable = MetaDisposable()
+            disposables.add(disposable)
+            disposable.set(signal.start())
+        }
+        return ActionDisposable {
+            let _ = finished.swap(true)
+            disposables.dispose()
+        }
+    }
+}
+
 public func preloadStoryMedia(context: any AccountContextProtocol, info: StoryPreloadInfo) -> Signal<Never, NoError> {
     var signals: [Signal<Never, NoError>] = []
     
@@ -1989,15 +2065,7 @@ public func preloadStoryMedia(context: any AccountContextProtocol, info: StoryPr
             })
         }
     case let .file(file):
-        var fetchRange: (Range<Int64>, MediaBoxFetchPriority)?
-        for attribute in file.attributes {
-            if case let .Video(_, _, _, preloadSize, _, _) = attribute {
-                if let preloadSize {
-                    fetchRange = (0 ..< Int64(preloadSize), .default)
-                }
-                break
-            }
-        }
+        let fetchRange = storyVideoPreloadRange(file)
         
         signals.append(fetchedMediaResource(mediaBox: context.account.postbox.mediaBox, userLocation: .peer(info.peer.id), userContentType: .story, reference: .media(media: .story(peer: info.peer, id: info.storyId, media: selectedMedia._asMedia()), resource: file.resource), range: fetchRange)
         |> ignoreValues
@@ -2044,37 +2112,24 @@ public func preloadStoryMedia(context: any AccountContextProtocol, info: StoryPr
                 }
             }
             
-            return combineLatest(files.map { file -> Signal<Void, NoError> in
-                return Signal { subscriber in
-                    let loadSignal = fetchedMediaResource(mediaBox: context.account.postbox.mediaBox, userLocation: .other, userContentType: .sticker, reference: .standalone(resource: file.resource))
-                    |> ignoreValues
-                    |> `catch` { _ -> Signal<Never, NoError> in
-                        return .complete()
-                    }
-                    
-                    let statusSignal = context.account.postbox.mediaBox.resourceStatus(file.resource)
-                    |> filter { status in
-                        if case .Local = status {
-                            return true
-                        } else {
-                            return false
-                        }
-                    }
-                    |> take(1)
-                    |> map { _ -> Void in
-                        return Void()
-                    }
-                    
-                    let statusDisposable = statusSignal.start(completed: {
-                        subscriber.putCompletion()
-                    })
-                    let loadDisposable = loadSignal.start()
-                    
-                    return ActionDisposable {
-                        statusDisposable.dispose()
-                        loadDisposable.dispose()
+            return combineLatest(files.map { file -> Signal<Never, NoError> in
+                let loadSignal = fetchedMediaResource(mediaBox: context.account.postbox.mediaBox, userLocation: .other, userContentType: .sticker, reference: .standalone(resource: file.resource))
+                |> ignoreValues
+                |> `catch` { _ -> Signal<Never, NoError> in
+                    return .complete()
+                }
+
+                let statusSignal = context.account.postbox.mediaBox.resourceStatus(file.resource)
+                |> filter { status in
+                    if case .Local = status {
+                        return true
+                    } else {
+                        return false
                     }
                 }
+                |> take(1)
+                |> ignoreValues
+                return storyMediaPreload(status: statusSignal, fetch: loadSignal)
             })
             |> ignoreValues
         })
@@ -2091,37 +2146,24 @@ public func preloadStoryMedia(context: any AccountContextProtocol, info: StoryPr
                 }
             }
             
-            return combineLatest(files.map { file -> Signal<Void, NoError> in
-                return Signal { subscriber in
-                    let loadSignal = fetchedMediaResource(mediaBox: context.account.postbox.mediaBox, userLocation: .other, userContentType: .sticker, reference: .standalone(resource: file.resource))
-                    |> ignoreValues
-                    |> `catch` { _ -> Signal<Never, NoError> in
-                        return .complete()
-                    }
-                    
-                    let statusSignal = context.account.postbox.mediaBox.resourceStatus(file.resource)
-                    |> filter { status in
-                        if case .Local = status {
-                            return true
-                        } else {
-                            return false
-                        }
-                    }
-                    |> take(1)
-                    |> map { _ -> Void in
-                        return Void()
-                    }
-                    
-                    let statusDisposable = statusSignal.start(completed: {
-                        subscriber.putCompletion()
-                    })
-                    let loadDisposable = loadSignal.start()
-                    
-                    return ActionDisposable {
-                        statusDisposable.dispose()
-                        loadDisposable.dispose()
+            return combineLatest(files.map { file -> Signal<Never, NoError> in
+                let loadSignal = fetchedMediaResource(mediaBox: context.account.postbox.mediaBox, userLocation: .other, userContentType: .sticker, reference: .standalone(resource: file.resource))
+                |> ignoreValues
+                |> `catch` { _ -> Signal<Never, NoError> in
+                    return .complete()
+                }
+
+                let statusSignal = context.account.postbox.mediaBox.resourceStatus(file.resource)
+                |> filter { status in
+                    if case .Local = status {
+                        return true
+                    } else {
+                        return false
                     }
                 }
+                |> take(1)
+                |> ignoreValues
+                return storyMediaPreload(status: statusSignal, fetch: loadSignal)
             })
             |> ignoreValues
         })
@@ -2169,8 +2211,6 @@ public func waitUntilStoryMediaPreloaded(context: any AccountContextProtocol, pe
         }
         
         var statusSignals: [Signal<Never, NoError>] = []
-        var loadSignals: [Signal<Never, NoError>] = []
-        var fetchPriorityDisposable: Disposable?
         
         let selectedMedia: EngineMedia
         if !preferHighQualityStories, let alternativeMedia = storyItem.alternativeMediaList.first {
@@ -2179,53 +2219,26 @@ public func waitUntilStoryMediaPreloaded(context: any AccountContextProtocol, pe
             selectedMedia = storyItem.media
         }
         
-        var fetchPriorityResourceId: String?
         switch selectedMedia {
         case let .image(image):
             if let representation = largestImageRepresentation(image.representations) {
-                fetchPriorityResourceId = representation.resource.id.stringRepresentation
-            }
-        case let .file(file):
-            fetchPriorityResourceId = file.resource.id.stringRepresentation
-        default:
-            break
-        }
-        
-        if let fetchPriorityResourceId {
-            fetchPriorityDisposable = context.engine.resources.pushPriorityDownload(resourceId: fetchPriorityResourceId, priority: 2)
-        }
-        
-        switch selectedMedia {
-        case let .image(image):
-            if let representation = largestImageRepresentation(image.representations) {
-                statusSignals.append(
-                    context.account.postbox.mediaBox.resourceData(representation.resource)
-                    |> filter { data in
-                        return data.complete
-                    }
-                    |> take(1)
-                    |> ignoreValues
-                )
-                
-                loadSignals.append(fetchedMediaResource(mediaBox: context.account.postbox.mediaBox, userLocation: .peer(peer.id), userContentType: .story, reference: .media(media: .story(peer: peer, id: storyItem.id, media: selectedMedia._asMedia()), resource: representation.resource), range: nil)
+                let status = context.account.postbox.mediaBox.resourceData(representation.resource)
+                |> filter { $0.complete }
+                |> take(1)
+                |> ignoreValues
+                let fetch = fetchedMediaResource(mediaBox: context.account.postbox.mediaBox, userLocation: .peer(peer.id), userContentType: .story, reference: .media(media: .story(peer: peer, id: storyItem.id, media: selectedMedia._asMedia()), resource: representation.resource), range: nil)
                 |> ignoreValues
                 |> `catch` { _ -> Signal<Never, NoError> in
                     return .complete()
-                })
+                }
+                statusSignals.append(storyMediaPreload(status: status, fetch: fetch, priority: {
+                    context.engine.resources.pushPriorityDownload(resourceId: representation.resource.id.stringRepresentation, priority: 2)
+                }))
             }
         case let .file(file):
-            var fetchRange: (Range<Int64>, MediaBoxFetchPriority)?
-            for attribute in file.attributes {
-                if case let .Video(_, _, _, preloadSize, _, _) = attribute {
-                    if let preloadSize {
-                        fetchRange = (0 ..< Int64(preloadSize), .default)
-                    }
-                    break
-                }
-            }
+            let fetchRange = storyVideoPreloadRange(file)
             
-            statusSignals.append(
-                context.account.postbox.mediaBox.resourceRangesStatus(file.resource)
+            let status = context.account.postbox.mediaBox.resourceRangesStatus(file.resource)
                 |> filter { ranges in
                     if let fetchRange {
                         return ranges.isSuperset(of: RangeSet(fetchRange.0))
@@ -2235,15 +2248,18 @@ public func waitUntilStoryMediaPreloaded(context: any AccountContextProtocol, pe
                 }
                 |> take(1)
                 |> ignoreValues
-            )
-            
-            loadSignals.append(fetchedMediaResource(mediaBox: context.account.postbox.mediaBox, userLocation: .peer(peer.id), userContentType: .story, reference: .media(media: .story(peer: peer, id: storyItem.id, media: selectedMedia._asMedia()), resource: file.resource), range: fetchRange)
+
+            let fetch = fetchedMediaResource(mediaBox: context.account.postbox.mediaBox, userLocation: .peer(peer.id), userContentType: .story, reference: .media(media: .story(peer: peer, id: storyItem.id, media: selectedMedia._asMedia()), resource: file.resource), range: fetchRange)
             |> ignoreValues
             |> `catch` { _ -> Signal<Never, NoError> in
                 return .complete()
-            })
-            loadSignals.append(context.account.postbox.mediaBox.cachedResourceRepresentation(file.resource, representation: CachedVideoFirstFrameRepresentation(), complete: true, fetch: true, attemptSynchronously: false)
-            |> ignoreValues)
+            }
+            let firstFrame = context.account.postbox.mediaBox.cachedResourceRepresentation(file.resource, representation: CachedVideoFirstFrameRepresentation(), complete: true, fetch: true, attemptSynchronously: false)
+            |> take(1)
+            |> ignoreValues
+            statusSignals.append(storyMediaPreload(status: status, fetch: fetch, priority: {
+                context.engine.resources.pushPriorityDownload(resourceId: file.resource.id.stringRepresentation, priority: 2)
+            }, auxiliary: [firstFrame]))
         default:
             break
         }
@@ -2284,39 +2300,26 @@ public func waitUntilStoryMediaPreloaded(context: any AccountContextProtocol, pe
                     }
                 }
                 
-                return combineLatest(files.map { file -> Signal<Void, NoError> in
-                    return Signal { subscriber in
-                        let loadSignal = fetchedMediaResource(mediaBox: context.account.postbox.mediaBox, userLocation: .other, userContentType: .sticker, reference: .standalone(resource: file.resource))
-                        |> ignoreValues
-                        |> `catch` { _ -> Signal<Never, NoError> in
-                            return .complete()
-                        }
-                        
-                        let statusSignal = context.account.postbox.mediaBox.resourceStatus(file.resource)
-                        |> filter { status in
-                            if case .Local = status {
-                                return true
-                            } else {
-                                return false
-                            }
-                        }
-                        |> take(1)
-                        |> map { _ -> Void in
-                            return Void()
-                        }
-                        
-                        let statusDisposable = statusSignal.start(completed: {
-                            subscriber.putCompletion()
-                        })
-                        let loadDisposable = loadSignal.start()
-                        let fileFetchPriorityDisposable = context.engine.resources.pushPriorityDownload(resourceId: file.resource.id.stringRepresentation, priority: 1)
-                        
-                        return ActionDisposable {
-                            statusDisposable.dispose()
-                            loadDisposable.dispose()
-                            fileFetchPriorityDisposable.dispose()
+                return combineLatest(files.map { file -> Signal<Never, NoError> in
+                    let loadSignal = fetchedMediaResource(mediaBox: context.account.postbox.mediaBox, userLocation: .other, userContentType: .sticker, reference: .standalone(resource: file.resource))
+                    |> ignoreValues
+                    |> `catch` { _ -> Signal<Never, NoError> in
+                        return .complete()
+                    }
+
+                    let statusSignal = context.account.postbox.mediaBox.resourceStatus(file.resource)
+                    |> filter { status in
+                        if case .Local = status {
+                            return true
+                        } else {
+                            return false
                         }
                     }
+                    |> take(1)
+                    |> ignoreValues
+                    return storyMediaPreload(status: statusSignal, fetch: loadSignal, priority: {
+                        context.engine.resources.pushPriorityDownload(resourceId: file.resource.id.stringRepresentation, priority: 1)
+                    })
                 })
                 |> ignoreValues
             })
@@ -2333,56 +2336,32 @@ public func waitUntilStoryMediaPreloaded(context: any AccountContextProtocol, pe
                     }
                 }
                 
-                return combineLatest(files.map { file -> Signal<Void, NoError> in
-                    return Signal { subscriber in
-                        let loadSignal = fetchedMediaResource(mediaBox: context.account.postbox.mediaBox, userLocation: .other, userContentType: .sticker, reference: .standalone(resource: file.resource))
-                        |> ignoreValues
-                        |> `catch` { _ -> Signal<Never, NoError> in
-                            return .complete()
-                        }
-                        
-                        let statusSignal = context.account.postbox.mediaBox.resourceStatus(file.resource)
-                        |> filter { status in
-                            if case .Local = status {
-                                return true
-                            } else {
-                                return false
-                            }
-                        }
-                        |> take(1)
-                        |> map { _ -> Void in
-                            return Void()
-                        }
-                        
-                        let statusDisposable = statusSignal.start(completed: {
-                            subscriber.putCompletion()
-                        })
-                        let loadDisposable = loadSignal.start()
-                        let fileFetchPriorityDisposable = context.engine.resources.pushPriorityDownload(resourceId: file.resource.id.stringRepresentation, priority: 1)
-                        
-                        return ActionDisposable {
-                            statusDisposable.dispose()
-                            loadDisposable.dispose()
-                            fileFetchPriorityDisposable.dispose()
+                return combineLatest(files.map { file -> Signal<Never, NoError> in
+                    let loadSignal = fetchedMediaResource(mediaBox: context.account.postbox.mediaBox, userLocation: .other, userContentType: .sticker, reference: .standalone(resource: file.resource))
+                    |> ignoreValues
+                    |> `catch` { _ -> Signal<Never, NoError> in
+                        return .complete()
+                    }
+
+                    let statusSignal = context.account.postbox.mediaBox.resourceStatus(file.resource)
+                    |> filter { status in
+                        if case .Local = status {
+                            return true
+                        } else {
+                            return false
                         }
                     }
+                    |> take(1)
+                    |> ignoreValues
+                    return storyMediaPreload(status: statusSignal, fetch: loadSignal, priority: {
+                        context.engine.resources.pushPriorityDownload(resourceId: file.resource.id.stringRepresentation, priority: 1)
+                    })
                 })
                 |> ignoreValues
             })
         }
         
-        return Signal { subscriber in
-            let statusDisposable = combineLatest(statusSignals).start(completed: {
-                subscriber.putCompletion()
-            })
-            let loadDisposable = combineLatest(loadSignals).start()
-            
-            return ActionDisposable {
-                statusDisposable.dispose()
-                loadDisposable.dispose()
-                fetchPriorityDisposable?.dispose()
-            }
-        }
+        return combineLatest(statusSignals) |> ignoreValues
     }
 }
 

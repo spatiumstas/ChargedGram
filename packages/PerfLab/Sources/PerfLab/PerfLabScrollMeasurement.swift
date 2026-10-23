@@ -1,3 +1,4 @@
+#if DEBUG
 import AppKit
 
 public final class PerfLabScrollMeasurement {
@@ -93,3 +94,4 @@ public final class PerfLabScrollMeasurement {
         completion(result)
     }
 }
+#endif

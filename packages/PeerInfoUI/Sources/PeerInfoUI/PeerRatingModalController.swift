@@ -43,6 +43,28 @@ private final class LevelRowItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return LevelRowView.self
     }
+    
+    public override var accessibilityLabel: String? {
+        if rating.level < 0 {
+            return strings().peerRatingPreviewNegative
+        }
+        return strings().peerRatingPreviewLevel(Int(rating.level))
+    }
+    
+    public override var accessibilityValue: String? {
+        if let nextLevelStars = rating.nextLevelStars {
+            return "\(rating.stars.prettyNumber) / \(nextLevelStars.prettyNumber)"
+        }
+        return rating.stars.prettyNumber
+    }
+    
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .staticText
+    }
+    
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 private final class LevelRowView : GeneralRowView {
@@ -87,6 +109,7 @@ private final class LevelRowView : GeneralRowView {
 
             container.addSubview(textView)
             container.addSubview(crownView)
+            crownView.isAccessibilityDecorative = true
             addSubview(container)
             container.layer?.masksToBounds = false
         }
@@ -466,6 +489,11 @@ private final class RowItem : GeneralRowItem {
     }
     public override func viewClass() -> AnyClass {
         return RowView.self
+    }
+    
+    public override var accessibilityLabel: String? {
+        let text = headerLayout.attributedString.string
+        return text.isEmpty ? nil : text
     }
 }
 

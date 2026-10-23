@@ -27,6 +27,27 @@ private final class FeaturedHorizontalItem : TableRowItem {
         return item.unread
     }
     
+    override var accessibilityLabel: String? {
+        return item.info.title
+    }
+    
+    override var accessibilityValue: String? {
+        return item.unread ? strings().voiceOverCommonUnread : nil
+    }
+    
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+    
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+    
+    override func accessibilityPerformPress() -> Bool {
+        click(item)
+        return true
+    }
+    
     override var stableId: AnyHashable {
         return item.topItems.first?.file._parse().id?.id ?? arc4random64()
     }
@@ -292,6 +313,10 @@ public final class StickerPackTrendingItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return StickerPackTrendingView.self
     }
+    
+    public override var accessibilityLabel: String? {
+        return strings().stickersTrending
+    }
 }
 
 private final class HorizontalInsetItem : TableRowItem {
@@ -307,6 +332,10 @@ private final class HorizontalInsetItem : TableRowItem {
     override func viewClass() -> AnyClass {
         return HorizontalInsetView.self
     }
+    
+    override var accessibilityIsSpacer: Bool {
+        return true
+    }
 }
 private final class HorizontalInsetView: HorizontalRowView {
     
@@ -321,6 +350,7 @@ private final class StickerPackTrendingView : TableRowView {
         addSubview(tableView)
         addSubview(textView)
         addSubview(close)
+        close.setAccessibilityLabel(strings().voiceOverCommonClose)
 //        close.autohighlight = false
 //        close.scaleOnClick = true
         tableView.getBackgroundColor = {
@@ -343,7 +373,7 @@ private final class StickerPackTrendingView : TableRowView {
         super.updateColors()
     }
     override var backdorColor: NSColor {
-        return theme.colors.background
+        return .clear
     }
     
     override func set(item: TableRowItem, animated: Bool = false) {

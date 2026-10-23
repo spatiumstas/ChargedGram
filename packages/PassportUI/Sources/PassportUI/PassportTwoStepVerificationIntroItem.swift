@@ -52,6 +52,10 @@ class PassportTwoStepVerificationIntroItem: GeneralRowItem {
     override func viewClass() -> AnyClass {
         return PassportTwoStepVerificationIntroRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return headerLayout.attributedString.string
+    }
     
 }
 
@@ -66,6 +70,7 @@ private final class PassportTwoStepVerificationIntroRowView : TableRowView {
         addSubview(imageView)
         addSubview(descView)
         addSubview(button)
+        imageView.isAccessibilityDecorative = true
         
         descView.isSelectable = false
         descView.isSelectable = false

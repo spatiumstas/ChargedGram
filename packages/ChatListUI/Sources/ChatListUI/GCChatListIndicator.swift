@@ -29,9 +29,12 @@ public final class GCChatListIndicator : View {
         fatalError("init(frame:) has not been implemented")
     }
 
-    private var animator: DisplayLinkAnimator?
-
     private let keyDispose = MetaDisposable()
+    private var isAnimating = false
+    private var animatedBounds: NSRect = .zero
+    private lazy var keyObserver = WindowKeyObserver(update: { [weak self] in
+        self?.updatePlayback()
+    })
 
     deinit {
         keyDispose.dispose()
@@ -43,8 +46,6 @@ public final class GCChatListIndicator : View {
         if window == nil || TelegramUtilsHooks.shared.isLite(.animations) {
             stopAnimation()
             keyDispose.set(nil)
-            progressStage = 8
-            innerProgress = 0.5
         } else {
             startAnimation()
             if let window = window as? Window {
@@ -57,37 +58,55 @@ public final class GCChatListIndicator : View {
                 }))
             }
         }
-    }
-        
-
-    public func startAnimation() {
-        self.animator = DisplayLinkAnimator(duration: 0.4, from: innerProgress, to: 1, update: { [weak self] value in
-            self?.innerProgress = value
-        }, completion: { [weak self] in
-            self?.startAnimation()
-        })
-        
-    }
-    public func stopAnimation() {
-        self.animator = nil
+        keyObserver.observe(window)
+        updatePlayback()
     }
 
-    private var progressStage: Int = 0
-    private var innerProgress: CGFloat = 0 {
-        didSet {
-            if (innerProgress >= 1.0) {
-                progressStage += 1
-                if (progressStage >= 8) {
-                    progressStage = 0
-                }
-                innerProgress = 0
-            }
-            let layer = (self.layer as? CAShapeLayer)
-            layer?.path = genPath()
+    public override func layout() {
+        super.layout()
+        if isAnimating, animatedBounds != bounds {
+            startAnimation()
         }
     }
+
+    public func startAnimation() {
+        guard let layer = self.layer as? CAShapeLayer else {
+            return
+        }
+        isAnimating = true
+        animatedBounds = bounds
+        let animation = CAKeyframeAnimation(keyPath: "path")
+        animation.values = (0 ... 8).map { genPath(stage: $0 % 8, progress: 0) }
+        animation.keyTimes = (0 ... 8).map { NSNumber(value: Double($0) / 8.0) }
+        animation.timingFunctions = Array(repeating: CAMediaTimingFunction(name: .easeOut), count: 8)
+        animation.duration = 0.4 * 8
+        animation.repeatCount = .infinity
+        animation.isRemovedOnCompletion = false
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.path = genPath(stage: 0, progress: 0)
+        layer.add(animation, forKey: "path")
+        CATransaction.commit()
+    }
+
+    public func stopAnimation() {
+        isAnimating = false
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        self.layer?.removeAnimation(forKey: "path")
+        (self.layer as? CAShapeLayer)?.path = genPath(stage: 8, progress: 0.5)
+        CATransaction.commit()
+    }
+
+    var isIndicatorPlaying: Bool {
+        return isAnimating && !(self.layer?.isTimelineFrozen ?? true)
+    }
+
+    private func updatePlayback() {
+        self.layer?.setTimelineFrozen(!WindowKeyObserver.isKey(window))
+    }
     
-    private func genPath() -> CGPath {
+    func genPath(stage progressStage: Int, progress innerProgress: CGFloat) -> CGPath {
         let rect = self.bounds
 
         var size1: CGFloat = 0;

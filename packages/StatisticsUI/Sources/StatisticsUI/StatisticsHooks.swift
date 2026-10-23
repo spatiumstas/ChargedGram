@@ -17,9 +17,33 @@ public struct StatisticsHooks {
     public let makeStarMonetizationController: (any AccountContextProtocol, PeerId) -> ViewController
     public let makeBoostStatsController: (any AccountContextProtocol, PeerId) -> ViewController
     public let openPeerInfo: (any AccountContextProtocol, PeerId) -> Void
+    public var openPeerInfoWithContext: ((any AccountContextProtocol, PeerId) -> Void)?
+    public func openPeerInfoObserved(_ context: any AccountContextProtocol, _ peerId: PeerId) {
+        if let openPeerInfoWithContext {
+            openPeerInfoWithContext(context, peerId)
+        } else {
+            openPeerInfo(context, peerId)
+        }
+    }
     public let makeSharedRowItem: (NSSize, AnyHashable, any AccountContextProtocol, StoryStatsPublicForwardsContext.State.Forward, GeneralViewType, @escaping () -> Void) -> TableRowItem
     public let openMessage: (any AccountContextProtocol, MessageId) -> Void
+    public var openMessageWithContext: ((any AccountContextProtocol, MessageId) -> Void)?
+    public func openMessageObserved(_ context: any AccountContextProtocol, _ message: EngineMessage) {
+        if let openMessageWithContext {
+            openMessageWithContext(context, message.id)
+        } else {
+            openMessage(context, message.id)
+        }
+    }
     public let showStory: (any AccountContextProtocol, PeerId, Int32) -> Void
+    public var showStoryWithContext: ((any AccountContextProtocol, PeerId, Int32) -> Void)?
+    public func showStoryObserved(_ context: any AccountContextProtocol, _ peerId: PeerId, _ storyId: Int32) {
+        if let showStoryWithContext {
+            showStoryWithContext(context, peerId, storyId)
+        } else {
+            showStory(context, peerId, storyId)
+        }
+    }
     public let shareLink: (any AccountContextProtocol, String) -> Void
     public let openGiftSlug: (any AccountContextProtocol, String) -> Void
 

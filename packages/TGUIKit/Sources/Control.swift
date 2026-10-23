@@ -24,7 +24,6 @@ public enum ControlEvent {
 }
 
 private let longHandleDisposable = MetaDisposable()
-private let longOverHandleDisposable = MetaDisposable()
 
 
 internal struct ControlEventHandler : Hashable {
@@ -119,6 +118,8 @@ open class Control: View {
     
     private var mouseMovedInside: Bool = true
     private var longInvoked: Bool = false
+    private var longOverHandleDisposable: MetaDisposable?
+    private var longOverScheduled = false
     private var mouseDownWindowOrigin: NSPoint?
     public var handleLongEvent: Bool = true
     public var isMoving: Bool = false
@@ -204,6 +205,7 @@ open class Control: View {
     open override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
+            cancelLongOver()
             self.controlState = .Normal
         }
         updateTrackingAreas()
@@ -235,17 +237,17 @@ open class Control: View {
     
     public func apply(state:ControlState) -> Void {
         let state:ControlState = self.isSelected ? .Highlight : state
-        if isEnabled {
-            if let color = backgroundState[state] {
-                self.layer?.backgroundColor = color.cgColor
-            } else {
-                self.layer?.backgroundColor = backgroundState[.Normal]?.cgColor ?? self.backgroundColor.cgColor
-            }
+        let color: CGColor
+        if isEnabled, let stateColor = backgroundState[state] {
+            color = stateColor.cgColor
         } else {
-            self.layer?.backgroundColor = backgroundState[.Normal]?.cgColor ?? self.backgroundColor.cgColor
+            color = backgroundState[.Normal]?.cgColor ?? self.backgroundColor.cgColor
         }
-        if animates {
-            self.layer?.animateBackground()
+        if let layer = self.layer, layer.backgroundColor != color {
+            layer.backgroundColor = color
+            if animates {
+                layer.animateBackground()
+            }
         }
         
         let cursor: NSCursor? = cursorState[state]
@@ -311,9 +313,9 @@ open class Control: View {
             self.removeTrackingArea(trackingArea)
         }
         self.popover?.hide()
+        longOverHandleDisposable?.dispose()
         
     //    longHandleDisposable.dispose()
-     //   longOverHandleDisposable.dispose()
     }
     
     public var controlIsHidden: Bool {
@@ -450,7 +452,7 @@ open class Control: View {
     override open func mouseDown(with event: NSEvent) {
         longInvoked = false
         mouseDownWindowOrigin = self.window?.frame.origin
-        longOverHandleDisposable.set(nil)
+        cancelLongOver()
 
         if userInteractionEnabled, isEnabled, let effect = glassTouchEffect, interactiveGlassView != nil {
             glassTouchInitialLocation = self.convert(event.locationInWindow, from: nil)
@@ -515,7 +517,7 @@ open class Control: View {
     
     override open func mouseUp(with event: NSEvent) {
         longHandleDisposable.set(nil)
-        longOverHandleDisposable.set(nil)
+        cancelLongOver()
 
         if let effect = glassTouchEffect {
             effect.setIsTracking(false)
@@ -581,6 +583,90 @@ open class Control: View {
         super.mouseDown(with: event)
     }
     public var contextMenu:(()->ContextMenu?)? = nil
+
+    public var isAccessibilityDecorative: Bool = false
+
+    open var accessibilityDefaultLabel: String? {
+        return nil
+    }
+
+    open override func isAccessibilityElement() -> Bool {
+        guard TGUIKitAccessibility.isEnabled, !isAccessibilityDecorative, !isHidden else {
+            return false
+        }
+        if let label = super.accessibilityLabel(), !label.isEmpty {
+            return true
+        }
+        return hasHandlers || contextMenu != nil
+    }
+
+    open override func accessibilityRole() -> NSAccessibility.Role? {
+        guard isAccessibilityElement() else {
+            return super.accessibilityRole()
+        }
+        return containsAccessibleControls ? .group : .button
+    }
+
+    public var containsAccessibleControls: Bool {
+        var stack: [NSView] = subviews
+        while let view = stack.popLast() {
+            if view.isHidden {
+                continue
+            }
+            if let control = view as? Control, control.isAccessibilityElement(), control.accessibilityRole() != .staticText {
+                return true
+            }
+            stack.append(contentsOf: view.subviews)
+        }
+        return false
+    }
+
+    open override func accessibilityLabel() -> String? {
+        if let label = super.accessibilityLabel(), !label.isEmpty {
+            return label
+        }
+        if let tooltip = appTooltip, !tooltip.isEmpty {
+            return tooltip
+        }
+        if let tooltip = toolTip, !tooltip.isEmpty {
+            return tooltip
+        }
+        return accessibilityDefaultLabel
+    }
+
+    open override func isAccessibilityEnabled() -> Bool {
+        return isEnabled
+    }
+
+    open override func isAccessibilitySelected() -> Bool {
+        return isSelected
+    }
+
+    open override func accessibilityPerformPress() -> Bool {
+        guard isEnabled, userInteractionEnabled else {
+            return false
+        }
+        if !hasHandlers, contextMenu != nil {
+            return accessibilityPerformShowMenu()
+        }
+        send(event: .Down)
+        send(event: .Up)
+        send(event: .SingleClick)
+        send(event: .Click)
+        return true
+    }
+
+    open override func accessibilityPerformShowMenu() -> Bool {
+        guard let menu = contextMenu?(), let window = window else {
+            return false
+        }
+        let point = convert(NSMakePoint(bounds.midX, bounds.midY), to: nil)
+        guard let event = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else {
+            return false
+        }
+        AppMenu.show(menu: menu, event: event, for: self)
+        return true
+    }
    
     open func showContextMenu() {
         if let menu = self.contextMenu?(), let event = NSApp.currentEvent {
@@ -588,7 +674,12 @@ open class Control: View {
         }
     }
     
+    public private(set) static weak var currentEventSource: Control?
+
     public func send(event:ControlEvent) -> Void {
+        let previousSource = Control.currentEventSource
+        Control.currentEventSource = self
+        defer { Control.currentEventSource = previousSource }
         for value in handlers {
             if value.event == event {
                 value.handler(self)
@@ -600,7 +691,7 @@ open class Control: View {
     override open func mouseMoved(with event: NSEvent) {
         updateState()
         if userInteractionEnabled {
-            
+            scheduleLongOver()
         } else {
             super.mouseMoved(with: event)
         }
@@ -662,18 +753,37 @@ open class Control: View {
     }
     
     public var continuesAction: Bool = false
+
+    private func cancelLongOver() {
+        longOverScheduled = false
+        longOverHandleDisposable?.set(nil)
+    }
+
+    private func scheduleLongOver() {
+        guard controlState == .Hover, userInteractionEnabled, isEnabled else {
+            cancelLongOver()
+            return
+        }
+        guard !longOverScheduled, handlers.contains(where: { $0.event == .LongOver }) else {
+            return
+        }
+        longOverScheduled = true
+        if longOverHandleDisposable == nil {
+            longOverHandleDisposable = MetaDisposable()
+        }
+        longOverHandleDisposable?.set((Signal<Void, Void>.single(()) |> delay(0.3, queue: Queue.mainQueue())).start(next: { [weak self] in
+            guard let self, self.mouseInside(), self.controlState == .Hover, self.userInteractionEnabled, self.isEnabled else {
+                self?.cancelLongOver()
+                return
+            }
+            self.send(event: .LongOver)
+        }))
+    }
     
     override open func mouseEntered(with event: NSEvent) {
         updateState()
         if userInteractionEnabled {
-            
-            let disposable = (Signal<Void,Void>.single(Void()) |> delay(0.3, queue: Queue.mainQueue())).start(next: { [weak self] in
-                if let strongSelf = self, strongSelf.mouseInside(), strongSelf.controlState == .Hover {
-                    strongSelf.send(event: .LongOver)
-                }
-            })
-            longOverHandleDisposable.set(disposable)
-            
+            scheduleLongOver()
         } else {
             super.mouseEntered(with: event)
         }
@@ -682,7 +792,7 @@ open class Control: View {
     
     override open func mouseExited(with event: NSEvent) {
         updateState()
-        longOverHandleDisposable.set(nil)
+        cancelLongOver()
         if userInteractionEnabled {
         } else {
             super.mouseExited(with: event)

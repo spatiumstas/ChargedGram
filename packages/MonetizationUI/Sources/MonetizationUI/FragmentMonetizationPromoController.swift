@@ -100,6 +100,10 @@ private final class RowItem : GeneralRowItem {
     override func viewClass() -> AnyClass {
         return RowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return headerLayout.attributedString.string
+    }
 }
 
 private final class RowView: GeneralContainableRowView {
@@ -125,6 +129,7 @@ private final class RowView: GeneralContainableRowView {
         infoBlock.addSubview(infoView)
         addSubview(infoBlock)
         iconView.addSubview(stickerView)
+        stickerView.isAccessibilityDecorative = true
         
         addSubview(optionsView)
         

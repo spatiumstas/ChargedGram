@@ -16,8 +16,8 @@ let deps: [(String, String)] = [
     ("AlertsUI", "../AlertsUI"),
     ("FilePanels", "../FilePanels"),
     ("MessageTextUtils", "../MessageTextUtils"),
-    ("TelegramApi", "../../submodules/telegram-ios/submodules/TelegramApi"),
     ("MtProtoKit", "../../submodules/telegram-ios/submodules/MtProtoKit"),
+
 ]
 
 let package = Package(

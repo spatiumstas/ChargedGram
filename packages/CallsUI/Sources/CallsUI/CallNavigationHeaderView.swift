@@ -244,6 +244,8 @@ open class CallHeaderBasicView : NavigationHeaderView {
         callInfo.userInteractionEnabled = false
         
         endCall.disableActions()
+        endCall.setAccessibilityLabel(strings().voiceOverCommonEndCall)
+        muteControl.setAccessibilityLabel(strings().voiceOverCommonMute)
         container.addSubview(endCall)
         
         endCall.scaleOnClick = true
@@ -293,7 +295,10 @@ open class CallHeaderBasicView : NavigationHeaderView {
     public func setInfo(_ text: String) {
         self.callInfo.set(text: text, for: .Normal)
     }
-    public func setMicroIcon(_ image: CGImage) {
+    public func setMicroIcon(_ image: CGImage, isMuted: Bool? = nil) {
+        if let isMuted {
+            muteControl.setAccessibilityLabel(isMuted ? strings().voiceOverCommonUnmute : strings().voiceOverCommonMute)
+        }
         muteControl.set(image: image, for: .Normal)
         _ = muteControl.sizeToFit()
     }
@@ -431,7 +436,7 @@ public class CallNavigationHeaderView: CallHeaderBasicView {
         if animated {
             backgroundView.layer?.animateBackground()
         }
-        setMicroIcon(!state.isMuted ? theme.icons.callInlineUnmuted : theme.icons.callInlineMuted)
+        setMicroIcon(!state.isMuted ? theme.icons.callInlineUnmuted : theme.icons.callInlineMuted, isMuted: state.isMuted)
         needsLayout = true
         
         switch state.state {

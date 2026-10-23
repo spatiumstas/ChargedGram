@@ -120,6 +120,18 @@ public final class Fragment_OverviewRowItem : GeneralRowItem {
         return true
     }
     
+    public override var accessibilityLabel: String? {
+        return info.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        var parts: [String] = [amount.attributedString.string]
+        if let stars = overview.stars {
+            parts.append(strings().starListItemCountOther(Int(stars.amount.value)))
+        }
+        return parts.joined(separator: ", ")
+    }
+
     public override func viewClass() -> AnyClass {
         return OverviewRowView.self
     }

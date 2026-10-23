@@ -239,6 +239,15 @@ private final class HeaderItem : GeneralRowItem {
         }
     }
     
+    override var accessibilityLabel: String? {
+        return headerLayout.attributedString.string
+    }
+    
+    override var accessibilityValue: String? {
+        let balance = balanceLayout.attributedString.string.replacingOccurrences(of: clown, with: "")
+        return [info.attributedString.string, balance].joined(separator: ", ")
+    }
+    
     override func viewClass() -> AnyClass {
         return HeaderItemView.self
     }
@@ -268,6 +277,7 @@ private final class AcceptView : Control {
         layout.measure(width: item.width - 60)
         
         textView.set(text: layout, context: item.context)
+        setAccessibilityLabel(attr.string.replacingOccurrences(of: clown, with: ""))
         
         self.removeAllHandlers()
         self.set(handler: { [weak item] _ in
@@ -360,6 +370,7 @@ private final class SendersView: View {
             self.badgeView.layer?.addSublayer(badgeGradient)
             self.badgeView.addSubview(amountView)
             self.badgeView.addSubview(amountIcon)
+            amountIcon.isAccessibilityDecorative = true
             addSubview(self.badgeView)
             addSubview(nameView)
             
@@ -405,6 +416,8 @@ private final class SendersView: View {
             
             sender.amountLayout.measure(width: .greatestFiniteMagnitude)
             amountView.set(text: sender.amountLayout, context: context)
+            setAccessibilityLabel(sender.titleLayout.attributedString.string)
+            setAccessibilityValue("\(sender.amount.formattedWithSeparator) \(strings().voiceOverCommonStars)")
             
             badgeView.layer?.borderColor = item.presentation.colors.background.cgColor
             badgeView.layer?.borderWidth = 2
@@ -534,6 +547,7 @@ private final class ShowMeInTopView: View {
         textView.userInteractionEnabled = false
         textView.isSelectable = false
         selection.userInteractionEnabled = false
+        selection.isAccessibilityDecorative = true
         
         container.set(handler: { [weak self] _ in
             self?.callback?()
@@ -552,6 +566,8 @@ private final class ShowMeInTopView: View {
         let layout = TextViewLayout(.initialize(string: strings().starsReactScreenShowMeInTop, color: presentation.colors.text, font: .normal(.text)))
         layout.measure(width: .greatestFiniteMagnitude)
         self.textView.update(layout)
+        container.setAccessibilityLabel(layout.attributedString.string)
+        container.setAccessibilityValue(showMe ? strings().voiceOverCommonChecked : strings().voiceOverCommonUnchecked)
         
         container.setFrameSize(NSMakeSize(layout.layoutSize.width + selection.frame.width + 10, 40))
         separator.backgroundColor = presentation.colors.border
@@ -587,6 +603,7 @@ private final class FromPeerView: Control {
     
     func set(_ peer: EnginePeer, sendas: [EnginePeer], _ context: any AccountContextProtocol, presentation: TelegramPresentationTheme, maxWidth: CGFloat, selectAction:@escaping(EnginePeer)->Void) {
         self.avatarView.setPeer(account: context.account, peer: peer._asPeer(), disableForum: true)
+        setAccessibilityLabel(peer._asPeer().displayTitle)
         
         self.userInteractionEnabled = !sendas.isEmpty
         self.scaleOnClick = true
@@ -597,6 +614,7 @@ private final class FromPeerView: Control {
                 current = view
             } else {
                 current = ImageView()
+                current.isAccessibilityDecorative = true
                 self.select = current
                 addSubview(current)
             }
@@ -753,6 +771,7 @@ private final class HeaderItemView : GeneralContainableRowView {
         dismiss.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
         dismiss.scaleOnClick = true
         dismiss.autohighlight = false
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
         
         balance.set(text: item.balanceLayout, context: item.context)
         header.set(text: item.headerLayout, context: item.context)
@@ -1130,7 +1149,6 @@ public func Star_ReactionsController(context: any AccountContextProtocol, source
     }
     
     let controller = InputDataController(dataSignal: signal, title: "")
-    
     controller.validateData = { _ in
         react()
         return .none

@@ -346,6 +346,7 @@ class CreateGroupViewController<Context: AccountContextProtocol>: ComposeViewCon
         super.init(titles: titles, context: context)
     }
     
+    
     override func restart(with result: ComposeState<[PeerId]>) {
         super.restart(with: result)
         assert(isLoaded())
@@ -469,6 +470,8 @@ class CreateGroupViewController<Context: AccountContextProtocol>: ComposeViewCon
             }
         }, addMembers: {
             actionsDisposable.add(selectModalPeers(window: context.window, context: context, title: strings().composeSelectUsers, settings: [.contacts, .remote], excludePeerIds: stateValue.with { $0.peerIds }).start(next: { peerIds in
+                if !peerIds.isEmpty {
+                }
                 updateState { current in
                     var current = current
                     current.peerIds.append(contentsOf: peerIds)

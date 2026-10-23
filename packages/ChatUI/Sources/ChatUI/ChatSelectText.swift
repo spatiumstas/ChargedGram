@@ -14,6 +14,7 @@ public struct SelectContainer {
     public let range:NSRange
     public let index: Int
     public let header:String?
+    public var richText: [RichText]? = nil
 }
 
 public class SelectManager : NSResponder {
@@ -44,17 +45,40 @@ public class SelectManager : NSResponder {
 
     private var ranges:Atomic<[RangeEntry]> = Atomic(value: [])
 
-    private final class BubbleSourceBox {
+    fileprivate final class BubbleSourceBox {
         weak var source: AnyObject?
-        init(_ source: AnyObject) { self.source = source }
+        let isRichText: Bool
+        init(_ source: AnyObject?, isRichText: Bool? = nil) {
+            self.source = source
+            self.isRichText = isRichText ?? (source is ChatRichTextRowView)
+        }
+    }
+
+    private final class SelectionOrder {
+        var positions: [AnyHashable: Int] = [:]
+    }
+
+    private let selectionOrder = Atomic(value: SelectionOrder())
+
+    @discardableResult private func registerSelection(_ stableId: AnyHashable) -> Bool {
+        var inserted = false
+        _ = selectionOrder.modify { order in
+            if order.positions[stableId] == nil {
+                order.positions[stableId] = order.positions.count
+                inserted = true
+            }
+            return order
+        }
+        return inserted
     }
     private var bubbleRanges: Atomic<[(AnyHashable, BubbleSourceBox, SelectContainer)]> = Atomic(value: [])
 
     public func addBubble(fragment: ChatBubbleSelectionFragment, source: ChatBubbleCustomTextSelection, header: String?, stableId: AnyHashable) {
+        let isNewRow = registerSelection(stableId)
         _ = bubbleRanges.modify { entries in
             var entries = entries
-            let container = SelectContainer(text: fragment.attributedString, range: fragment.range, index: fragment.index, header: header)
-            entries.removeAll(where: { $0.0 == stableId && $0.2.index == fragment.index })
+            let container = SelectContainer(text: fragment.attributedString, range: fragment.range, index: fragment.index, header: header, richText: fragment.richText)
+            if !isNewRow { entries.removeAll(where: { $0.0 == stableId && $0.2.index == fragment.index }) }
             entries.append((stableId, BubbleSourceBox(source), container))
             return entries
         }
@@ -62,10 +86,11 @@ public class SelectManager : NSResponder {
 
     public func add(range:NSRange, textView: TextView?, layout: TextViewLayout?, text: NSAttributedString, header: String?, stableId: AnyHashable, index: Int) {
 
+        let isNewRow = registerSelection(stableId)
         _ = ranges.modify { ranges in
             var ranges = ranges
             let value = RangeEntry(stableId: stableId, textView: textView, layout: layout, container: SelectContainer(text: text, range: range, index: index, header: header))
-            if let index = ranges.firstIndex(where: { $0.stableId == stableId }) {
+            if !isNewRow, let index = ranges.firstIndex(where: { $0.stableId == stableId }) {
                 ranges.insert(value, at: index)
             } else {
                 ranges.append(value)
@@ -87,7 +112,27 @@ public class SelectManager : NSResponder {
         }
     }
 
+    fileprivate func currentBubbleRanges() -> [AnyHashable: [(AnyHashable, BubbleSourceBox, SelectContainer)]] {
+        return bubbleRanges.with { Dictionary(grouping: $0, by: { $0.0 }) }
+    }
+
+    fileprivate func restoreBubbleRanges(_ entries: [(AnyHashable, BubbleSourceBox, SelectContainer)]) {
+        for entry in entries { registerSelection(entry.0) }
+        _ = bubbleRanges.modify { current in
+            var current = current
+            for entry in entries {
+                current.removeAll(where: { $0.0 == entry.0 && $0.2.index == entry.2.index })
+                current.append((entry.0, BubbleSourceBox(nil, isRichText: entry.1.isRichText), entry.2))
+            }
+            return current
+        }
+    }
+
     public func removeAll() {
+        _ = selectionOrder.modify { order in
+            order.positions.removeAll()
+            return order
+        }
         _ = ranges.modify { ranges in
             for selection in ranges {
                 let layout = selection.effectiveLayout
@@ -103,10 +148,11 @@ public class SelectManager : NSResponder {
             return []
         }
         var sourcesToClear: [ChatBubbleCustomTextSelection] = []
+        var seenSources = Set<ObjectIdentifier>()
         _ = bubbleRanges.modify { entries in
             for entry in entries {
                 if let source = entry.1.source as? ChatBubbleCustomTextSelection,
-                   !sourcesToClear.contains(where: { $0 === source }) {
+                   seenSources.insert(ObjectIdentifier(source)).inserted {
                     sourcesToClear.append(source)
                 }
             }
@@ -132,7 +178,14 @@ public class SelectManager : NSResponder {
         ranges.with { for r in $0 { combined.append((r.stableId, r.container)) } }
         bubbleRanges.with { for r in $0 { combined.append((r.0, r.2)) } }
 
-        let addHeaders: Bool = combined.map { $0.0 }.uniqueElements.count > 1
+        let positions = selectionOrder.with { $0.positions }
+        combined.sort {
+            let lhs = positions[$0.0] ?? Int.max
+            let rhs = positions[$1.0] ?? Int.max
+            if lhs != rhs { return lhs < rhs }
+            return $0.1.index > $1.1.index
+        }
+        let addHeaders = positions.count > 1
 
         var stableId: AnyHashable? = combined.last?.0
         for i in stride(from: combined.count - 1, to: -1, by: -1) {
@@ -146,7 +199,7 @@ public class SelectManager : NSResponder {
                 _ = string.append(string: header + "\n", color: nil, font: .normal(.text))
             }
 
-            if container.range.location != NSNotFound {
+            if container.range.location >= 0, container.range.location <= container.text.length, container.range.length >= 0, container.range.length <= container.text.length - container.range.location {
                 if container.range.location != 0, combined.count > 1, addHeaders {
                     _ = string.append(string: "...", color: nil, font: .normal(.text))
                 }
@@ -155,7 +208,8 @@ public class SelectManager : NSResponder {
                     _ = string.append(string: "...", color: nil, font: .normal(.text))
                 }
             }
-            if i != 0, string.string.last != "\n" {
+            let endsInNewline = string.length > 0 && string.mutableString.character(at: string.length - 1) == 10 && (string.length == 1 || string.mutableString.character(at: string.length - 2) != 13)
+            if i != 0, !endsInNewline {
                 string.append(string: "\n")
             }
 
@@ -189,6 +243,20 @@ public class SelectManager : NSResponder {
         return joined
     }
 
+    public func richSelectedQuote(for messageId: MessageId) -> EngineMessageReplyQuote? {
+        let parts: [RichText] = bubbleRanges.with { entries in
+            entries.filter { entry in
+                guard let view = entry.1.source as? ChatRichTextRowView,
+                      let item = view.item as? ChatRichTextRowItem else { return false }
+                return item.message?.id == messageId
+            }
+            .sorted(by: { $0.2.index < $1.2.index })
+            .flatMap { $0.2.richText ?? [] }
+        }
+        guard !parts.isEmpty else { return nil }
+        return EngineMessageReplyQuote(richText: parts, offset: nil, media: nil)
+    }
+
     @objc public func copy(_ sender:Any) {
         
         if let window = self.chatInteraction?.interactionContext.window, let peer = self.chatInteraction?.peer, peer.isCopyProtected(cachedData: self.chatInteraction?.presentation.cachedData) {
@@ -205,7 +273,7 @@ public class SelectManager : NSResponder {
             // For a rich-message-origin copy, also carry the selection as a serialized editor Document (which,
             // unlike the flat clipboard, preserves formulas) so a paste into the composer rebuilds it in the
             // rich editor. Built now from the formatted selection (incl. formula marks).
-            let isRichOrigin = bubbleRanges.with { entries in entries.contains { $0.1.source is ChatRichTextRowView } }
+            let isRichOrigin = bubbleRanges.with { entries in entries.contains { $0.1.isRichText } }
             if isRichOrigin, let data = try? JSONEncoder().encode(documentFromRichSelection(selectedText)) {
                 NSPasteboard.general.addTypes([.kRichTextMessage], owner: nil)
                 NSPasteboard.general.setData(data, forType: .kRichTextMessage)
@@ -382,17 +450,6 @@ public protocol MultipleSelectable {
     var header: String? { get }
 }
 
-public struct ChatBubbleSelectionFragment {
-    public let attributedString: NSAttributedString
-    public let range: NSRange
-    public let index: Int
-}
-
-public protocol ChatBubbleCustomTextSelection: AnyObject {
-    func applyBubbleSelection(begin: NSPoint, end: NSPoint, isStartRow: Bool, isEndRow: Bool, reversed: Bool) -> [ChatBubbleSelectionFragment]
-    func clearBubbleSelection()
-}
-
 public class ChatSelectText : NSObject {
 
     private var beginInnerLocation:NSPoint = NSMakePoint(-1, -1)
@@ -567,17 +624,7 @@ public class ChatSelectText : NSObject {
                     
                     if event.clickCount > 1, selectManager.isEmpty {
                         if !view.isAllowedToDoubleAction(view.convert(event.locationInWindow, from: nil)) {
-                            var set: Bool = false
-                            inner: for view in view.selectableTextViews {
-                                if view == window.firstResponder {
-                                    _ = window.makeFirstResponder(view)
-                                    set = true
-                                    break inner
-                                }
-                            }
-                            if !set {
-                                _ = window.makeFirstResponder(view.selectableTextViews.first)
-                            }
+                            view.textSelectionSources.restoreFocus(in: window)
                         }
                     }
 
@@ -694,6 +741,7 @@ public class ChatSelectText : NSObject {
         if selectingText {
 
             let preserved = selectManager.currentRanges()
+            let preservedBubbles = selectManager.currentBubbleRanges()
 
             selectManager.removeAll()
 
@@ -718,6 +766,7 @@ public class ChatSelectText : NSObject {
                 }
                 guard let rowView = table.viewNecessary(at: i) else {
                     let stableId = table.item(at: i).stableId
+                    selectManager.restoreBubbleRanges(preservedBubbles[stableId] ?? [])
                     for entry in preserved[stableId] ?? [] {
                         entry.layout?.selectedRange.range = entry.container.range
                         selectManager.add(range: entry.container.range, textView: nil, layout: entry.layout, text: entry.container.text, header: entry.container.header, stableId: stableId, index: entry.container.index)
@@ -725,19 +774,14 @@ public class ChatSelectText : NSObject {
                     continue
                 }
                 let view = rowView as? MultipleSelectable
-                if let views = view?.selectableTextViews {
+                if let views = (rowView as? ChatTextSelectionProvider)?.textSelectionSources ?? view.map({ .views($0.selectableTextViews) }) {
 
                     var start_j:Int? = nil
                     var end_j:Int? = nil
                     
                     inner: for j in 0 ..< views.count {
                         let selectableView = views[j]
-                        var viewRect: NSRect
-                        if let view = selectableView.superview, view.frame.height < selectableView.frame.height {
-                            viewRect = view.convert(CGRect(origin: .zero, size: view.frame.size), to: table.documentView)
-                        } else {
-                            viewRect = selectableView.convert(CGRect(origin: .zero, size: selectableView.frame.size), to: table.documentView)
-                        }
+                        let viewRect = selectableView.selectionFrame(in: table.documentView)
                         let rect = NSRect(x: viewRect.midX, y: min(beginInnerLocation.y, endInnerLocation.y), width: abs(endInnerLocation.x - beginInnerLocation.x), height: abs(endInnerLocation.y - beginInnerLocation.y))
                         
                         if rect.intersects(viewRect) {
@@ -849,11 +893,7 @@ public class ChatSelectText : NSObject {
                             }
                             
                             
-                            selectableView.canBeResponder = false
-                            layout.selectedRange.range = layout.selectedRange(startPoint:startPoint, currentPoint:endPoint)
-                            layout.selectedRange.cursorAlignment = startPoint.x > endPoint.x ? .min(layout.selectedRange.range.max) : .max(layout.selectedRange.range.min)
-                            selectManager.add(range: layout.selectedRange.range, textView: selectableView, layout: layout, text:layout.attributedString, header: j == 0 ? view?.header : nil, stableId: table.item(at: i).stableId, index: j)
-                            selectableView.setNeedsDisplayLayer()
+                            selectableView.select(layout: layout, start: startPoint, end: endPoint, manager: selectManager, header: j == 0 ? view?.header : nil, stableId: table.item(at: i).stableId, index: j)
 
                         }
                     }

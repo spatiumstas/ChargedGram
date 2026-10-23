@@ -1516,6 +1516,13 @@ public func serviceMessageText(_ message:Message, account:Account, isReplied: Bo
                     text = strings().chatServiceCopyProtectionWouldLikeEnable(name)
                 }
             }
+        case .noPaidMessagesTokenUsed:
+            let peerName = message.peers[message.id.peerId]?.compactDisplayTitle ?? ""
+            let serviceText = noPaidMessagesTokenUsedText(peerName: peerName, isAuthor: authorId == account.peerId)
+            text = serviceText.text
+            if serviceText.peerRange.location != NSNotFound, serviceText.peerRange.length > 0 {
+                entities.append(.init(range: serviceText.peerRange.location ..< NSMaxRange(serviceText.peerRange), type: .TextMention(peerId: message.id.peerId)))
+            }
         case let .managedBotCreated(botId):
             let botName = message.peers[botId]?.displayTitle ?? ""
             text = strings().textUtilsManagedBotCreated(authorName, botName)

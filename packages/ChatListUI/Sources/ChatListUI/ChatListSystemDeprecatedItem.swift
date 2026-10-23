@@ -39,12 +39,36 @@ public final class ChatListSystemDeprecatedItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return ChatListSystemDeprecatedItemView.self
     }
+    
+    public override var accessibilityLabel: String? {
+        return title.attributedString.string
+    }
+    
+    public override var accessibilityValue: String? {
+        return text.attributedString.string
+    }
+    
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+    
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+    
+    public override func accessibilityPerformPress() -> Bool {
+        guard let view = view as? ChatListSystemDeprecatedItemView else {
+            return false
+        }
+        view.control.send(event: .Click)
+        return true
+    }
 }
 
 private final class ChatListSystemDeprecatedItemView : TableRowView {
     private let title = TextView()
     private let text = TextView()
-    private let control = Control()
+    fileprivate let control = Control()
     private let next = ImageView()
     required init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -54,6 +78,7 @@ private final class ChatListSystemDeprecatedItemView : TableRowView {
         addSubview(next)
         
         next.isEventLess = true
+        next.isAccessibilityDecorative = true
         
         title.isSelectable = false
         title.userInteractionEnabled = false
@@ -101,6 +126,7 @@ private final class ChatListSystemDeprecatedItemView : TableRowView {
             return
         }
         title.update(item.title)
+        control.setAccessibilityLabel(item.title.attributedString.string)
         text.update(item.text)
         
         control.set(background: theme.colors.background, for: .Normal)

@@ -22,6 +22,7 @@ public class SecretChatKeyView : View {
         super.init(frame: frameRect)
         addSubview(scrollView)
         documentView.addSubview(imageView)
+        imageView.isAccessibilityDecorative = true
         documentView.addSubview(textView)
         documentView.addSubview(descriptionView)
         scrollView.documentView = documentView

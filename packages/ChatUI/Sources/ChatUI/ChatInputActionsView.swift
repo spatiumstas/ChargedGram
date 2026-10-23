@@ -31,6 +31,7 @@ public final class StarsSendActionView : Control {
         text.isSelectable = false
 
         image.isEventLess = true
+        image.isAccessibilityDecorative = true
 
     }
 
@@ -68,8 +69,8 @@ public final class StarsSendActionView : Control {
 public class ChatInputActionsView: View, Notifable {
 
     public let chatInteraction:ChatInteraction
-    private let muteChannelMessages:ImageButton = ImageButton()
-    public let entertaiments:ImageButton = ImageButton()
+    private let muteChannelMessages:ImageButton = ChatAccessibleImageButton()
+    public let entertaiments:ImageButton = ChatAccessibleImageButton()
     private let keyboard:ImageButton = ImageButton()
     private let gift:ImageButton = ImageButton()
     private let suggestPost:ImageButton = ImageButton()
@@ -82,6 +83,18 @@ public class ChatInputActionsView: View, Notifable {
         super.init(frame: frameRect)
 
         keyboard.autohighlight = false
+
+        (muteChannelMessages as? ChatAccessibleImageButton)?.accessibilityLabelProvider = { [weak self] in
+            guard let self else { return nil }
+            return FastSettings.isChannelMessagesMuted(self.chatInteraction.peerId) ? strings().voiceOverSilentPostOn : strings().voiceOverSilentPostOff
+        }
+        (entertaiments as? ChatAccessibleImageButton)?.accessibilityLabelProvider = { [weak self] in
+            guard let self else { return nil }
+            return self.chatInteraction.presentation.isEmojiSection || self.chatInteraction.presentation.state == .editing ? strings().voiceOverCommonEmoji : strings().voiceOverStickers
+        }
+        keyboard.setAccessibilityLabel(strings().voiceOverBotKeyboard)
+        gift.setAccessibilityLabel(strings().voiceOverCommonGift)
+        suggestPost.setAccessibilityLabel(strings().voiceOverSuggestPost)
 
         isEventLess = true
         addSubview(entertaiments)
@@ -123,6 +136,7 @@ public class ChatInputActionsView: View, Notifable {
         }, for: .Up)
 
         entertaiments.highlightHovered = true
+        entertaiments.autohighlight = true
         addHoverObserver()
         addClickObserver()
         entertaiments.canHighlight = false
@@ -173,22 +187,30 @@ public class ChatInputActionsView: View, Notifable {
     }
 
     private func addHoverObserver() {
-        entertaiments.set(handler: { [weak self] (state) in
-            guard let self else { return }
+        entertaiments.set(handler: { [weak self] _ in
+            guard let self, !ChatInputUIHooks.shared.isEntertainmentSidebarVisible(self.window) else { return }
             self.showEntertainment()
-        }, for: .Hover)
+        }, for: .LongOver)
     }
 
     private func showEntertainment() {
+        let controller = entertaimentsPopover
         let rect = NSMakeRect(0, 0, 350, min(max(chatInteraction.interactionContext.window.frame.height - 250, 300), 550))
-        entertaimentsPopover._frameRect = rect
-        entertaimentsPopover.view.frame = rect
-        showPopover(for: entertaiments, with: entertaimentsPopover, edge: .maxX, inset:NSMakePoint(frame.width - entertaiments.frame.maxX + 38, 10), delayBeforeShown: 0.0)
+        controller._frameRect = rect
+        controller.view.frame = rect
+        showPopover(for: entertaiments, with: controller, edge: .maxX, inset:NSMakePoint(frame.width - entertaiments.frame.maxX + 38, 10), delayBeforeShown: 0.0)
     }
 
     private func addClickObserver() {
-        entertaiments.set(handler: { [weak self] (state) in
-            self?.showEntertainment()
+        entertaiments.set(handler: { [weak self] _ in
+            guard let self else { return }
+            if ChatInputUIHooks.shared.isEntertainmentSidebarAvailable(self.window) {
+                self.entertaiments.popover?.animates = false
+                self.entertaiments.popover?.hide()
+                self.chatInteraction.toggleSidebar()
+            } else {
+                self.showEntertainment()
+            }
         }, for: .Click)
     }
 
@@ -222,7 +244,14 @@ public class ChatInputActionsView: View, Notifable {
 
                 if chatInteraction.hasSetDestructiveTimer, value.interfaceState.messageEffect == nil {
                     if secretTimer == nil {
-                        secretTimer = ImageButton()
+                        let timer = ChatAccessibleImageButton()
+                        timer.accessibilityLabelProvider = { [weak self] in
+                            if let timeout = self?.chatInteraction.presentation.messageSecretTimeout?.timeout?.effectiveValue {
+                                return strings().voiceOverSelfDestructTimerOn(shortTimeIntervalString(value: timeout))
+                            }
+                            return strings().voiceOverSelfDestructTimerOff
+                        }
+                        secretTimer = timer
                         secretTimer?.set(image: theme.icons.chatSecretTimer, for: .Normal)
                         _ = secretTimer?.sizeToFit(.zero, NSMakeSize(40, 40), thatFit: true)
                         addSubview(secretTimer!)
@@ -260,7 +289,7 @@ public class ChatInputActionsView: View, Notifable {
                 }
 
                 entertaiments.apply(state: .Normal)
-                entertaiments.isSelected = value.isShowSidebar
+                entertaiments.isSelected = ChatInputUIHooks.shared.isEntertainmentSidebarVisible(self.window)
 
                 setExtraButton(keyboard, hidden: !value.isKeyboardActive, animated: animated)
                 let inputIsEmpty = value.effectiveInput.inputText.isEmpty
@@ -278,6 +307,7 @@ public class ChatInputActionsView: View, Notifable {
                 if value.hasScheduled && value.effectiveInput.inputText.isEmpty && value.interfaceState.editState == nil {
                     if scheduled == nil {
                         scheduled = ImageButton()
+                        scheduled?.setAccessibilityLabel(strings().voiceOverScheduledMessages)
                         scheduled!.set(image: theme.icons.chatInputScheduled, for: .Normal)
                         _ = scheduled!.sizeToFit()
                         addSubview(scheduled!)

@@ -51,6 +51,37 @@ public final class ChatListTextActionRowItem : GeneralRowItem {
         return ChatListTextActionRowView.self
     }
 
+    public override var accessibilityLabel: String? {
+        return title.attributedString.string
+    }
+    
+    public override var accessibilityValue: String? {
+        return info.attributedString.string
+    }
+    
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+    
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+    
+    public override func accessibilityPerformPress() -> Bool {
+        invoke()
+        return true
+    }
+    
+    public override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        guard canDismiss else {
+            return nil
+        }
+        return [NSAccessibilityCustomAction(name: strings().voiceOverCommonClose, handler: { [weak self] in
+            self?.dismiss()
+            return true
+        })]
+    }
+
     public override var height: CGFloat {
         return 5 + 8 + title.layoutSize.height + 3 + info.layoutSize.height + 8
     }
@@ -79,6 +110,8 @@ private final class ChatListTextActionRowView: TableRowView {
         container.addSubview(infoView)
         container.addSubview(overlay)
         iconView.isEventLess = true
+        iconView.isAccessibilityDecorative = true
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
         container.addSubview(dismiss)
         titleView.userInteractionEnabled = false
 
@@ -138,6 +171,7 @@ private final class ChatListTextActionRowView: TableRowView {
 
         self.titleView.set(text: item.title, context: item.context)
         self.infoView.set(text: item.info, context: item.context)
+        overlay.setAccessibilityLabel(item.title.attributedString.string)
 
         dismiss.set(image: TelegramThemeHooks.shared.image(.iconVoiceChatTooltipClose).precomposed(theme.colors.grayIcon), for: .Normal)
         dismiss.autohighlight = false

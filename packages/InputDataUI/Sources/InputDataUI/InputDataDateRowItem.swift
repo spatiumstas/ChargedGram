@@ -55,6 +55,10 @@ public class InputDataDateRowItem: GeneralRowItem, InputDataRowDataValue {
     public override func viewClass() -> AnyClass {
         return InputDataDateRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return placeholderLayout.attributedString.string
+    }
     
 }
 

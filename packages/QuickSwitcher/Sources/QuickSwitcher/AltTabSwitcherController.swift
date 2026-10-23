@@ -157,6 +157,13 @@ private final class AltTabPeersRowItem: GeneralRowItem {
         return AltTabPeersRowView.self
     }
 
+    public override var accessibilityLabel: String? {
+        if selectedIndex >= 0 && selectedIndex < peers.count {
+            return peers[selectedIndex].displayTitle
+        }
+        return peers.map { $0.displayTitle }.joined(separator: ", ")
+    }
+
     public override var height: CGFloat {
         let cellHeight: CGFloat = 80
         let padding: CGFloat = 10

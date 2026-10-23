@@ -222,7 +222,8 @@ private final class AdaptedCallVideoSource: VideoSource {
                         followsDeviceOrientation: followsDeviceOrientation,
                         mirrorDirection: mirrorDirection,
                         sourceId: sourceId,
-                        textureReferences: [cvMetalTexture]
+                        textureReferences: [cvMetalTexture],
+                        textureCache: textureCache
                     )
                 case let .bgra(nativeBuffer):
                     let width = CVPixelBufferGetWidth(nativeBuffer.pixelBuffer)
@@ -241,7 +242,8 @@ private final class AdaptedCallVideoSource: VideoSource {
                         followsDeviceOrientation: followsDeviceOrientation,
                         mirrorDirection: mirrorDirection,
                         sourceId: sourceId,
-                        textureReferences: [cvMetalTexture]
+                        textureReferences: [cvMetalTexture],
+                        textureCache: textureCache
                     )
                 case let .native(nativeBuffer):
                     guard CVPixelBufferGetPlaneCount(nativeBuffer.pixelBuffer) == 2 else {
@@ -272,7 +274,8 @@ private final class AdaptedCallVideoSource: VideoSource {
                         followsDeviceOrientation: followsDeviceOrientation,
                         mirrorDirection: mirrorDirection,
                         sourceId: sourceId,
-                        textureReferences: [cvMetalTextureY, cvMetalTextureUV]
+                        textureReferences: [cvMetalTextureY, cvMetalTextureUV],
+                        textureCache: textureCache
                     )
                 case let .i420(i420Buffer):
                     guard let pixelBufferPoolState = pixelBufferPoolState.unsafeGet() else {
@@ -330,7 +333,8 @@ private final class AdaptedCallVideoSource: VideoSource {
                         followsDeviceOrientation: followsDeviceOrientation,
                         mirrorDirection: mirrorDirection,
                         sourceId: sourceId,
-                        textureReferences: [cvMetalTextureY, cvMetalTextureUV]
+                        textureReferences: [cvMetalTextureY, cvMetalTextureUV],
+                        textureCache: textureCache
                     )
                 default:
                     return

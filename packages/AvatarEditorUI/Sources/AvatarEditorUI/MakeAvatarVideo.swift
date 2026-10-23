@@ -8,17 +8,17 @@ import TGUIKit
 public func makeAvatarVideo(_ object: MediaObjectToAvatar, updatePhoto: @escaping(Signal<NSImage, NoError>) -> Void, updateVideo: @escaping(Signal<VideoAvatarGeneratorState, NoError>) -> Void) {
     
     switch object.object.foreground.type {
-    case .emoji:
+    case .emoji, .sticker:
         updatePhoto(object.start() |> mapToSignal { value in
             if let result = value.result {
                 switch result {
                 case let .image(image):
                     return .single(image)
                 default:
-                    return .never()
+                    return .complete()
                 }
             } else {
-                return .never()
+                return .complete()
             }
         })
     default:

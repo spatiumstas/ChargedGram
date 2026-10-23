@@ -295,6 +295,11 @@ public final class RichTextEditorView: NSView {
         set { canvas.hostPasteFragmentProvider = newValue }
     }
 
+    public var withPasteContext: ((() -> Void) -> Void)? {
+        get { canvas.withPasteContext }
+        set { canvas.withPasteContext = newValue }
+    }
+
     /// True when `windowPoint` (window coordinates) sits over a table that pans horizontally — a host's
     /// global horizontal-swipe handlers (e.g. navigation-back) should yield so the pan reaches the table.
     public func consumesHorizontalPan(atWindowPoint windowPoint: NSPoint) -> Bool {

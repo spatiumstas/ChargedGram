@@ -92,6 +92,53 @@ private final class PopularPeerItem : TableRowItem {
     override func viewClass() -> AnyClass {
         return PopularPeerItemView.self
     }
+    
+    override var accessibilityLabel: String? {
+        switch type {
+        case .savedMessages:
+            return strings().searchPopularSavedMessages
+        case .articles:
+            return strings().searchPopularArticles
+        case let .peer(peer, _, _):
+            return peer.displayTitle
+        }
+    }
+    
+    override var accessibilityValue: String? {
+        var parts: [String] = []
+        switch type {
+        case let .articles(unreadCount):
+            if unreadCount > 0 {
+                parts.append(strings().voiceOverChatUnreadMessagesOther(Int(unreadCount)))
+            }
+        case let .peer(_, unreadBadge, isActive):
+            if isActive {
+                parts.append(strings().voiceOverCommonOnline)
+            }
+            switch unreadBadge {
+            case let .some(.muted(count)), let .some(.unmuted(count)):
+                parts.append(strings().voiceOverChatUnreadMessagesOther(Int(count)))
+            default:
+                break
+            }
+        case .savedMessages:
+            break
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+    
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+    
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+    
+    override func accessibilityPerformPress() -> Bool {
+        actionHandler(type)
+        return true
+    }
 }
 
 
@@ -108,6 +155,7 @@ private final class PopularPeerItemView : HorizontalRowView {
         addSubview(textView)
         addSubview(activeImage)
         activeImage.isEventLess = true
+        activeImage.isAccessibilityDecorative = true
         textView.isSelectable = false
         textView.userInteractionEnabled = false
         badgeView.userInteractionEnabled = false
@@ -232,6 +280,10 @@ public class PopularPeersRowItem: GeneralRowItem {
     
     public override func viewClass() -> AnyClass {
         return PopularPeersRowView.self
+    }
+    
+    public override var accessibilityLabel: String? {
+        return strings().searchSeparatorPopular
     }
     
 }

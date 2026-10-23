@@ -79,9 +79,10 @@ public final class VideoSourceOutput {
     public let followsDeviceOrientation: Bool
     public let mirrorDirection: MirrorDirection
     public let sourceId: Int
-    public let textureReferences: [CVMetalTexture]
+    public private(set) var textureReferences: [CVMetalTexture]
+    private let textureCache: CVMetalTextureCache?
     
-    public init(resolution: CGSize, textureLayout: TextureLayout, dataBuffer: DataBuffer, rotationAngle: Float, followsDeviceOrientation: Bool, mirrorDirection: MirrorDirection, sourceId: Int, textureReferences: [CVMetalTexture] = []) {
+    public init(resolution: CGSize, textureLayout: TextureLayout, dataBuffer: DataBuffer, rotationAngle: Float, followsDeviceOrientation: Bool, mirrorDirection: MirrorDirection, sourceId: Int, textureReferences: [CVMetalTexture] = [], textureCache: CVMetalTextureCache? = nil) {
         self.resolution = resolution
         self.textureLayout = textureLayout
         self.dataBuffer = dataBuffer
@@ -90,6 +91,11 @@ public final class VideoSourceOutput {
         self.mirrorDirection = mirrorDirection
         self.sourceId = sourceId
         self.textureReferences = textureReferences
+        self.textureCache = textureCache
+    }
+    
+    deinit {
+        self.textureReferences.removeAll()
     }
 }
 

@@ -849,6 +849,9 @@ private final class StoryMusicBadgeView: Control {
         artistView.isSelectable = false
         dot.userInteractionEnabled = false
         dot.isSelectable = false
+        titleView.isAccessibilityDecorative = true
+        artistView.isAccessibilityDecorative = true
+        dot.isAccessibilityDecorative = true
         self.layer?.cornerRadius = frame.height / 2
         self.backgroundColor = NSColor.black.withAlphaComponent(0.5)
         scaleOnClick = true
@@ -872,6 +875,8 @@ private final class StoryMusicBadgeView: Control {
 
         iconView.image = TelegramThemeHooks.shared.image(.iconPeerMusicWaveform).precomposed(.white)
         iconView.sizeToFit()
+        iconView.isAccessibilityDecorative = true
+        setAccessibilityLabel(artist.isEmpty ? title : strings().voiceOverChatMusicTitle(title, artist))
 
         let titleLayout = TextViewLayout(.initialize(string: title, color: .white, font: .medium(.small)), maximumNumberOfLines: 1, truncationType: .end)
         titleLayout.measure(width: 150)
@@ -1131,10 +1136,11 @@ public final class StoryListView : Control, Notifable {
             container.set(handler: { control in
                 toggleState(.revealed)
             }, for: .Click)
-            
             let cantReveal = state == .concealed && layout.isPerfectSized
             
             self.container.userInteractionEnabled = state == .concealed && !cantReveal
+            self.container.isAccessibilityDecorative = !self.container.userInteractionEnabled
+            self.container.setAccessibilityLabel(self.container.userInteractionEnabled ? strings().voiceOverCommonExpand : nil)
             self.userInteractionEnabled = state == .revealed
             self.textView?.userInteractionEnabled = state == .revealed || cantReveal
             
@@ -1368,10 +1374,10 @@ public final class StoryListView : Control, Notifable {
     
     
     var textView: NSTextView? {
-        return self.inputView.input
+        return self.inputView?.input
     }
     var inputTextView: UITextView? {
-        return self.inputView.text
+        return self.inputView?.text
     }
     
     
@@ -1649,7 +1655,7 @@ public final class StoryListView : Control, Notifable {
     
 
     func resetInputView() {
-        self.inputView.resetInputView()
+        self.inputView?.resetInputView()
         self.arguments?.interaction.update { current in
             var current = current
             current.hasReactions = false
@@ -1725,6 +1731,7 @@ public final class StoryListView : Control, Notifable {
             } else {
                 current = Control(frame: storyView.frame)
                 current.layer?.cornerRadius = 10
+                current.setAccessibilityLabel(strings().voiceOverCommonClose)
                 self.content.addSubview(current, positioned: .below, relativeTo: navigator)
                 self.pauseOverlay = current
                 

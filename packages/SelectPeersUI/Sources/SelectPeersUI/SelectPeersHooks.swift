@@ -13,14 +13,14 @@ public protocol SelectBotRequestStickerView: View {
 public struct SelectPeersHooks {
     public let makeStickerView: (NSRect) -> SelectBotRequestStickerView
     public let stringForRight: (TelegramChatAdminRightsFlags, Bool, TelegramChatBannedRights?) -> String
-    public let makeCreateBotModalController: (any AccountContextProtocol, String, String, String?) -> ModalViewController
+    public let makeCreateBotModalController: (any AccountContextProtocol, String, String, String?, @escaping (PeerId?) -> Void) -> ModalViewController
     public let createGroupDirectly: (any AccountContextProtocol, [PeerId], CreateGroupRequires, @escaping (PeerId) -> Void) -> Void
     public let makeCreateChannelController: (any AccountContextProtocol, CreateChannelRequires, @escaping (PeerId, Bool) -> Void) -> ViewController
     public let navigateToChat: (NavigationViewController?, any AccountContextProtocol, ChatLocation) -> Void
 
     public init(makeStickerView: @escaping (NSRect) -> SelectBotRequestStickerView,
                 stringForRight: @escaping (TelegramChatAdminRightsFlags, Bool, TelegramChatBannedRights?) -> String,
-                makeCreateBotModalController: @escaping (any AccountContextProtocol, String, String, String?) -> ModalViewController,
+                makeCreateBotModalController: @escaping (any AccountContextProtocol, String, String, String?, @escaping (PeerId?) -> Void) -> ModalViewController,
                 createGroupDirectly: @escaping (any AccountContextProtocol, [PeerId], CreateGroupRequires, @escaping (PeerId) -> Void) -> Void,
                 makeCreateChannelController: @escaping (any AccountContextProtocol, CreateChannelRequires, @escaping (PeerId, Bool) -> Void) -> ViewController,
                 navigateToChat: @escaping (NavigationViewController?, any AccountContextProtocol, ChatLocation) -> Void) {
@@ -55,7 +55,7 @@ public struct SelectPeersHooks {
         SelectBotRequestPlaceholderStickerView(frame: frame)
     }, stringForRight: { _, _, _ in
         ""
-    }, makeCreateBotModalController: { _, _, _, _ in
+    }, makeCreateBotModalController: { _, _, _, _, _ in
         ModalViewController()
     }, createGroupDirectly: { _, _, _, _ in
     }, makeCreateChannelController: { _, _, _ in

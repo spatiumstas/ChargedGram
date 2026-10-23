@@ -298,7 +298,7 @@ public final class UITextView : View, Notifable, ChatInputTextViewDelegate {
         guard let context = self.context, let window = _window else { return }
 
         if !context.isPremium {
-            InputTextViewHooks.shared.showPremiumBoarding(context, window)
+            InputTextViewHooks.shared.showPremiumBoardingObserved(context, window)
             return
         }
 
@@ -306,16 +306,15 @@ public final class UITextView : View, Notifable, ChatInputTextViewDelegate {
         let textRange = NSMakeRange(range.lowerBound, range.upperBound - range.lowerBound)
         guard textRange.length > 0 else { return }
 
-        let selectedText = self.interactions.presentation.inputText.attributedSubstring(from: textRange).string
+        let selected = self.interactions.presentation.inputText.attributedSubstring(from: textRange)
+        let selectedText = selected.string
 
         let language = Translate.detectLanguage(for: selectedText)
 
-        InputTextViewHooks.shared.showTranslate(context, window, language, selectedText, { [weak self] translated in
-            self?.interactions.update { current in
-                let inputText = current.inputText.mutableCopy() as! NSMutableAttributedString
-                inputText.replaceCharacters(in: textRange, with: translated)
-                let newCursor = textRange.location + translated.length
-                return Updated_ChatTextInputState(inputText: inputText, selectionRange: newCursor ..< newCursor)
+        InputTextViewHooks.shared.showTranslateObserved(context, window, language, selectedText, onUse: { [weak self] translated in
+            guard let self else { return }
+            self.interactions.update { current in
+                return chatTextInputReplaceSelectedText(current, selectionRange: textRange.min..<textRange.max, text: translated)
             }
         })
     }
@@ -454,7 +453,6 @@ public final class UITextView : View, Notifable, ChatInputTextViewDelegate {
     
     public var context: (any AccountContextProtocol)?
     public var isSecretChat: Bool = false
-
     public required init(frame frameRect: NSRect, interactions: TextView_Interactions) {
         self.view = ChatInputTextView(frame: frameRect.size.bounds)
         self.interactions = interactions

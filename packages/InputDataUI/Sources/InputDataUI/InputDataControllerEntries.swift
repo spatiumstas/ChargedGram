@@ -22,9 +22,6 @@ public enum InputDataEntryId : Hashable {
     case search(InputDataIdentifier)
     case loading
     case sectionId(Int32)
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(0)
-    }
     
     public var identifier: InputDataIdentifier? {
         switch self {

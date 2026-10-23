@@ -423,7 +423,14 @@ public struct ChatInterfaceState: Codable, Equatable {
         var result = self
         if let state = state {
             let selectRange = state.textSelection ?? state.text.length ..< state.text.length
-            result = result.withUpdatedInputState(ChatTextInputState(inputText: state.text, selectionRange: selectRange, attributes: chatTextAttributes(from: TextEntitiesMessageAttribute(entities: state.entities))))
+            let inputState: ChatTextInputState
+            if self.inputState.inputText == state.text && self.inputState.messageTextEntities() == state.entities {
+                inputState = self.inputState.withUpdatedRange(selectRange)
+            } else {
+                let restored = ChatTextInputState(inputText: state.text, selectionRange: selectRange, attributes: chatTextAttributes(from: TextEntitiesMessageAttribute(entities: state.entities)))
+                inputState = ChatTextInputState(attributedText: restored.attributedString(), selectionRange: selectRange)
+            }
+            result = result.withUpdatedInputState(inputState)
                 .withUpdatedReplyMessageId(state.replySubject)
                 .withUpdatedTimestamp(timestamp)
         } else {

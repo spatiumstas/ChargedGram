@@ -229,8 +229,10 @@ public final class BrowserStateContext {
     private let context: (any AccountContextProtocol)
     
     private let browserState: Promise<[BrowserTabData]> = Promise([])
+    private var joinChatOperations: [BrowserTabData.Unique: JoinChatWebViewOperation] = [:]
     
     public func show(_ browser: WebappBrowserController) {
+        guard !browser.markAsDeinit else { return }
         self.browser = browser
         browser.show()
         
@@ -238,12 +240,17 @@ public final class BrowserStateContext {
     }
     
     public func hide(close: Bool = true) {
-        self.browser?.hide({ [weak self] in
-            if close {
-                self?.browser = nil
-            }
+        hide(close: close, cancelJoinOperations: true)
+    }
+
+    func hide(close: Bool, cancelJoinOperations: Bool) {
+        if close, cancelJoinOperations { cancelJoinChatOperations() }
+        let browser = self.browser
+        browser?.hide({ [weak self, weak browser] in
+            guard close, let self, let browser, self.browser === browser else { return }
+            self.browser = nil
         }, close: close)
-        if close {
+        if close, self.browser == nil || self.browser === browser {
             browserState.set(.single([]))
         }
     }
@@ -393,66 +400,109 @@ public final class BrowserStateContext {
         }
     }
     
-    public func open(tab: BrowserTabData.Data, uniqueId: BrowserTabData.Unique? = nil) {
-        
-        let context = self.context
-        
-        let invoke:()->Void = { [weak self] in
-            guard let self else {
-                return
-            }
-            if let browser = self.browser, !browser.markAsDeinit {
-                browser.add(tab, uniqueId: uniqueId)
-                browser.makeKeyAndOrderFront()
-            } else {
-                let controller = WebappBrowserController(context: context, initialTab: tab)
-                self.show(controller)
-            }
-
-        }
-        let verify_age_bot = context.appConfiguration.getStringValue("verify_age_bot_username", orElse: "")
-
-        
-        if let peer = tab.peer {
-            
-            
-            let peerId = peer.id
-            
-            if FastSettings.shouldConfirmWebApp(peerId), peer.addressName != verify_age_bot {
-                
-                let signal = context.engine.data.get(TelegramEngine.EngineData.Item.Peer.BotPrivacyPolicyUrl(id: peerId)) |> deliverOnMainQueue
-                _ = signal.startStandalone(next: { [weak self] privacyUrl in
-                    var window: Window?
-                    if self?.browser?.markAsDeinit == false {
-                        window = self?.browser?.window
-                    } else {
-                        window = self?.context.window
-                    }
-                    if let window, let context = self?.context {
-                        let privacyUrl = privacyUrl ?? strings().botInfoLaunchInfoPrivacyUrl
-                                                
-                        let data = ModalAlertData(title: nil, info: strings().webAppFirstOpenTerms(privacyUrl), description: nil, ok: strings().botLaunchApp, options: [], mode: .confirm(text: strings().modalCancel, isThird: false), header: .init(id: "header", value: { initialSize, stableId, presentation in
-                            return AlertHeaderItem(initialSize, stableId: stableId, presentation: presentation, context: context, peer: peer, info: strings().botMoreAbout, callback: { _ in
-                                BrowserHooks.shared.openChat(context, peerId)
-                                closeAllModals(window: context.window)
-                            })
-                        }))
-                        
-                        showModalAlert(for: window, data: data, completion: { result in
-                            invoke()
-                            FastSettings.markWebAppAsConfirmed(peerId)
-                        })
-                    }
-                })
-            } else {
-                invoke()
-            }
-            
-        } else {
-            invoke()
-        }
-        
+    func openJoinChatWebView(botId: PeerId, url: String?, queryId: Int64, peerId: PeerId?) {
+        let uniqueId: BrowserTabData.Unique = .webapp(queryId)
+        joinChatOperations.removeValue(forKey: uniqueId)?.cancel(closeTab: true)
+        let operation = JoinChatWebViewOperation(context: context, owner: self, botId: botId, url: url, queryId: queryId, peerId: peerId, finished: { [weak self] operation in
+            guard self?.joinChatOperations[uniqueId] === operation else { return }
+            self?.joinChatOperations.removeValue(forKey: uniqueId)
+        })
+        joinChatOperations[uniqueId] = operation
+        operation.start()
     }
+
+    func cancelJoinChatOperation(uniqueId: BrowserTabData.Unique) {
+        joinChatOperations.removeValue(forKey: uniqueId)?.cancel(closeTab: false)
+    }
+
+    private func cancelJoinChatOperations() {
+        let operations = Array(joinChatOperations.values)
+        joinChatOperations.removeAll()
+        for operation in operations { operation.cancel(closeTab: false) }
+    }
+
+    func closeJoinChatTab(uniqueId: BrowserTabData.Unique) {
+        browser?.removeTab(uniqueId)
+    }
+
+
+    public func open(tab: BrowserTabData.Data, uniqueId: BrowserTabData.Unique? = nil) {
+        _ = openCancellable(tab: tab, uniqueId: uniqueId)
+    }
+
+    func openCancellable(tab: BrowserTabData.Data, uniqueId: BrowserTabData.Unique? = nil, completion: ((Bool) -> Void)? = nil) -> Disposable {
+        let cancelled = Atomic(value: false)
+        let policyDisposable = MetaDisposable()
+        var presented = false
+        var completed = false
+        let complete: (Bool) -> Void = { opened in
+            guard !completed else { return }
+            completed = true
+            completion?(opened)
+        }
+        let context = self.context
+        let request = BrowserDecision()
+        let invoke: (Bool) -> Void = { [weak self] confirmed in
+            request.resolve {
+                guard !cancelled.with({ $0 }), let self else { complete(false); return }
+                if confirmed, let peer = tab.peer { FastSettings.markWebAppAsConfirmed(peer.id) }
+                if let browser = self.browser, !browser.markAsDeinit {
+                    browser.add(tab, uniqueId: uniqueId)
+                    browser.makeKeyAndOrderFront()
+                } else {
+                    let controller = WebappBrowserController(context: context, initialTab: tab, initialUniqueId: uniqueId)
+                    self.show(controller)
+                }
+                complete(true)
+            }
+        }
+        let verifyAgeBot = context.appConfiguration.getStringValue("verify_age_bot_username", orElse: "")
+        if let peer = tab.peer, FastSettings.shouldConfirmWebApp(peer.id), peer.addressName != verifyAgeBot {
+            let signal = context.engine.data.get(TelegramEngine.EngineData.Item.Peer.BotPrivacyPolicyUrl(id: peer.id)) |> take(1) |> deliverOnMainQueue
+            policyDisposable.set((signal).start(next: { [weak self] privacyUrl in
+                guard !cancelled.with({ $0 }), let self else { return }
+                let window = self.browser?.markAsDeinit == false ? self.browser?.window : context.window
+                guard let window else { return }
+                let data = ModalAlertData(title: nil, info: strings().webAppFirstOpenTerms(privacyUrl ?? strings().botInfoLaunchInfoPrivacyUrl), description: nil, ok: strings().botLaunchApp, options: [], mode: .confirm(text: strings().modalCancel, isThird: false), header: .init(id: "header", value: { initialSize, stableId, presentation in
+                    return AlertHeaderItem(initialSize, stableId: stableId, presentation: presentation, context: context, peer: peer, info: strings().botMoreAbout, callback: { _ in
+                        guard !cancelled.with({ $0 }) else { return }
+                        request.resolve {
+                            BrowserHooks.shared.openChatObserved(context, peer.id)
+                            closeAllModals(window: window)
+                            complete(false)
+                        }
+                    })
+                }))
+                presented = true
+                showModalAlert(for: window, data: data, completion: { _ in
+                    invoke(true)
+                }, cancel: {
+                    request.resolve { complete(false) }
+                }, onDeinit: {
+                    request.dismissed()
+                    DispatchQueue.main.async { complete(false) }
+                })
+            }, completed: {
+                if !presented { request.resolve { complete(false) } }
+            }))
+        } else {
+            invoke(false)
+        }
+        return ActionDisposable {
+            _ = cancelled.swap(true)
+            let cleanup: () -> Void = {
+                policyDisposable.dispose()
+                if !presented { request.resolve {} }
+                complete(false)
+            }
+            if Queue.mainQueue().isCurrent() {
+                cleanup()
+            } else {
+                Queue.mainQueue().async(cleanup)
+            }
+        }
+    }
+
 }
 
 

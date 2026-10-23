@@ -200,6 +200,23 @@ private final class MonoforumToggleItem : TableRowItem {
     override func viewClass() -> AnyClass {
         return MonoforumToggleView.self
     }
+
+    override var accessibilityLabel: String? {
+        return strings().voiceOverChatSwitchTopicsView
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
+    }
     
     override var height: CGFloat {
         return 34
@@ -213,6 +230,8 @@ private final class MonoforumToggleView : TableRowView {
         super.init(frame: frameRect)
         addSubview(imageView)
         addSubview(overlay)
+        imageView.isAccessibilityDecorative = true
+        overlay.setAccessibilityLabel(strings().voiceOverChatSwitchTopicsView)
     }
     
     required init?(coder: NSCoder) {
@@ -389,11 +408,43 @@ private final class Monoforum_VerticalItem : TableRowItem {
     override func viewClass() -> AnyClass {
         return Monoforum_VerticalView.self
     }
+
+    override var accessibilityLabel: String? {
+        return item.title
+    }
+
+    override var accessibilityValue: String? {
+        var parts: [String] = []
+        if selected {
+            parts.append(strings().voiceOverCommonSelected)
+        }
+        if let count = item.item?.readCounters?.count, count > 0 {
+            parts.append(count == 1 ? strings().voiceOverChatUnreadMessagesOne(Int(count)) : strings().voiceOverChatUnreadMessagesOther(Int(count)))
+        }
+        if pinnedState != nil {
+            parts.append(strings().voiceOverCommonPinned)
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        select()
+        return true
+    }
 }
 
 private final class Monoforum_VerticalView : TableRowView {
     private let textView = TextView()
     private var animatedView: InlineStickerView?
+    private var topicIconIdentity: ChatTopicIconIdentity?
     private var imageView: ImageView?
     private var photoView: AvatarControl?
 //    private let control = Control()
@@ -404,6 +455,7 @@ private final class Monoforum_VerticalView : TableRowView {
         addSubview(badgeView)
 
         badgeView.isEventLess = true
+        badgeView.isAccessibilityDecorative = true
         textView.userInteractionEnabled = false
         textView.isSelectable = false
         
@@ -443,8 +495,10 @@ private final class Monoforum_VerticalView : TableRowView {
                     self.imageView = nil
                 }
                 
-                if let view = self.animatedView, view.animateLayer.fileId == fileId || view.animateLayer.fileId == item.item.uniqueId {
-                } else {
+                let info = item.item.item?.threadData?.info
+                let identity = ChatTopicIconIdentity(account: item.context.account, fileId: fileId, title: info?.title, iconColor: info?.iconColor ?? 0, isGeneral: item.item.uniqueId == 1, generalColor: theme.chatList.badgeMutedBackgroundColor, customColor: theme.colors.accent, fallbackId: item.item.uniqueId)
+                if self.animatedView == nil || topicIconIdentity != identity {
+                    topicIconIdentity = identity
                     if let animatedView {
                         performSubviewRemoval(animatedView, animated: animated)
                         self.animatedView = nil
@@ -497,6 +551,7 @@ private final class Monoforum_VerticalView : TableRowView {
                     current = view
                 } else {
                     current = ImageView()
+                    current.isAccessibilityDecorative = true
                     self.addSubview(current, positioned: .below, relativeTo: self)
                     self.imageView = current
                 }
@@ -583,6 +638,7 @@ public class MonoforumVerticalView : View, TableViewDelegate {
         toggleButton.autohighlight = false
         toggleButton.animates = false
         toggleButton.scaleOnClick = true
+        toggleButton.setAccessibilityLabel(strings().voiceOverChatSwitchTopicsView)
         addSubview(toggleButton)
 
 

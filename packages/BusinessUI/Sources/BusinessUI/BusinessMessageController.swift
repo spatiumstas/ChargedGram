@@ -82,6 +82,27 @@ private final class MessageRowItem : GeneralRowItem {
     override var height: CGFloat {
         return 70
     }
+
+    override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    override var accessibilityValue: String? {
+        return textLayout.attributedString.string
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        open()
+        return true
+    }
     
     var leftInset: CGFloat {
         return 20
@@ -938,8 +959,6 @@ public func BusinessMessageController(context: (any AccountContextProtocol), typ
     }
     
     let controller = InputDataController(dataSignal: signal, title: type.title, removeAfterDisappear: false, hasDone: true, identifier: "business_message")
-    
-    
     controller.validateData = { _ in
         let state = stateValue.with { $0 }
         

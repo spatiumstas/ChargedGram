@@ -68,6 +68,7 @@ let deps: [(String, String)] = [
     ("InlineStickerLayer", "../InlineStickerLayer"),
     ("UniqueGiftBackground", "../UniqueGiftBackground"),
     ("TGVideoCameraMovie", "../TGVideoCameraMovie"),
+
 ]
 
 let package = Package(
@@ -96,7 +97,10 @@ let package = Package(
                 .product(name: "TelegramMediaPlayer", package: "TelegramMediaPlayer", condition: nil),
                 .product(name: "MetalEngine", package: "MetalEngine", condition: nil),
             ] + deps.map { .product(name: $0.0, package: $0.0, condition: nil) },
-            path: "Sources/ChatUI"),
-        .testTarget(name: "ChatUITests", dependencies: ["ChatUI", .product(name: "SceneEffects", package: "SceneEffects", condition: nil), .product(name: "TGUIKit", package: "TGUIKit", condition: nil), .product(name: "TelegramTheme", package: "TelegramTheme", condition: nil), .product(name: "GeneralRows", package: "GeneralRows", condition: nil), .product(name: "InAppSettings", package: "InAppSettings", condition: nil), .product(name: "ColorPalette", package: "ColorPalette", condition: nil), .product(name: "ThemeSettings", package: "ThemeSettings", condition: nil), .product(name: "rnoise", package: "rnoise", condition: nil)], path: "Tests/ChatUITests"),
+            path: "Sources/ChatUI",
+            linkerSettings: [
+                .linkedFramework("Speech"),
+            ]),
+        .testTarget(name: "ChatUITests", dependencies: ["ChatUI", .product(name: "SceneEffects", package: "SceneEffects", condition: nil), .product(name: "TGUIKit", package: "TGUIKit", condition: nil), .product(name: "TelegramTheme", package: "TelegramTheme", condition: nil), .product(name: "GeneralRows", package: "GeneralRows", condition: nil), .product(name: "InAppSettings", package: "InAppSettings", condition: nil), .product(name: "ColorPalette", package: "ColorPalette", condition: nil), .product(name: "ThemeSettings", package: "ThemeSettings", condition: nil), .product(name: "rnoise", package: "rnoise", condition: nil), .product(name: "Localization", package: "Localization", condition: nil), .product(name: "TelegramCore", package: "TelegramCore", condition: nil)], path: "Tests/ChatUITests"),
     ]
 )

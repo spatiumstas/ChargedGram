@@ -55,6 +55,7 @@ public class InstantVideoPIP: GenericViewController<InstantVideoPIPView>, APDele
     private var context: any AccountContextProtocol
     private weak var tableView:TableView?
     private var listener:TableScrollListener!
+    private var navigationListener: WeakReference<ViewController>!
     
     private let dataDisposable = MetaDisposable()
     private let fetchDisposable = MetaDisposable()
@@ -63,11 +64,16 @@ public class InstantVideoPIP: GenericViewController<InstantVideoPIPView>, APDele
     private var scrollTime: TimeInterval = CFAbsoluteTimeGetCurrent()
     private var alignment:InstantVideoPIPCornerAlignment = .topRight
     private var isShown:Bool = false
-    private let __window: Window
+    private var __window: Window
+    private var presentationGeneration: UInt64 = 0
+    private var displayedMessageId: MessageId?
+    private var displayedResourceId: MediaResourceId?
     
     private var timebase: CMTimebase? = nil {
         didSet {
-            genericView.reset(with: timebase)
+            if isLoaded(), oldValue !== timebase {
+                genericView.reset(with: timebase)
+            }
         }
     }
     
@@ -80,7 +86,8 @@ public class InstantVideoPIP: GenericViewController<InstantVideoPIPView>, APDele
             self?.updateScrolled()
         })
         controller.add(listener: self)
-        context.bindings.rootNavigation().add(listener: WeakReference(value: self))
+        navigationListener = WeakReference(value: self)
+        context.bindings.rootNavigation().add(listener: navigationListener)
     }
     
     public override var window:Window? {
@@ -146,19 +153,31 @@ public class InstantVideoPIP: GenericViewController<InstantVideoPIPView>, APDele
     deinit {
         tableView?.removeScroll(listener: listener)
         controller.remove(listener: self)
+        context.bindings.rootNavigation().remove(listener: navigationListener)
         window?.removeAllHandlers(for: self)
-        if isShown {
-            hide()
+        if isLoaded() {
+            genericView.set(data: nil)
+            genericView.clear()
+            genericView.removeFromSuperview()
         }
         dataDisposable.dispose()
         fetchDisposable.dispose()
     }
     
     func showIfNeeded(animated: Bool = true) {
+        guard let message = currentMessage, let media = message.anyMedia as? TelegramMediaFile, window?.contentView != nil else {
+            return
+        }
         loadViewIfNeeded()
+        let wasShown = isShown
         isShown = true
         genericView.animatesAlphaOnFirstTransition = false
-        if let message = currentMessage, let media = message.anyMedia as? TelegramMediaFile {
+        if !wasShown || displayedMessageId != message.id || displayedResourceId != media.resource.id {
+            presentationGeneration &+= 1
+            displayedMessageId = message.id
+            displayedResourceId = media.resource.id
+            let generation = presentationGeneration
+            genericView.set(data: nil)
             let signal:Signal<ImageDataTransformation, NoError> = chatMessageVideo(account: context.account, fileReference: FileMediaReference.message(message: MessageReference(message), media: media), scale: view.backingScaleFactor)
             
             let resource = FileMediaReference.message(message: MessageReference(message), media: media)
@@ -176,7 +195,10 @@ public class InstantVideoPIP: GenericViewController<InstantVideoPIPView>, APDele
             genericView.setSignal(signal)
             
             dataDisposable.set(data.start(next: { [weak self] data in
-                self?.genericView.set(data: data, timebase: self?.timebase)
+                guard let self, self.isShown, self.presentationGeneration == generation else {
+                    return
+                }
+                self.genericView.set(data: data, timebase: self.timebase)
             }))
             
         }
@@ -201,22 +223,26 @@ public class InstantVideoPIP: GenericViewController<InstantVideoPIPView>, APDele
                 }
             }
 
-            alignToCorner(alignment)
         }
-        
-        let context = self.context
+        if !wasShown {
+            alignToCorner(alignment, animated)
+        }
+        guard !wasShown else {
+            return
+        }
         
         var startDragPosition:NSPoint? = nil
         var startViewPosition:NSPoint = view.frame.origin
         window?.set(mouseHandler: { [weak self] (_) -> KeyHandlerResult in
             if let strongSelf = self, let _ = startDragPosition {
                 if startViewPosition.x == strongSelf.view.frame.origin.x && startViewPosition.y == strongSelf.view.frame.origin.y {
-                    _ = ChatUIHooks.shared.getAudioPlayer(context)?.playOrPause()
+                    _ = strongSelf.controller.playOrPause()
                 }
                 startDragPosition = nil
                 if let opacity = strongSelf.view.layer?.opacity, opacity < 0.5 {
-                    ChatUIHooks.shared.getAudioPlayer(context)?.notifyCompleteQueue(animated: true)
-                    ChatUIHooks.shared.getAudioPlayer(context)?.cleanup()
+                    let controller = strongSelf.controller
+                    controller.notifyCompleteQueue(animated: true)
+                    controller.cleanup()
                 } else {
                     strongSelf.findCorner()
                 }
@@ -261,6 +287,16 @@ public class InstantVideoPIP: GenericViewController<InstantVideoPIPView>, APDele
     
     public func hide(_ animated:Bool = true) {
         isShown = false
+        presentationGeneration &+= 1
+        let generation = presentationGeneration
+        displayedMessageId = nil
+        displayedResourceId = nil
+        dataDisposable.set(nil)
+        fetchDisposable.set(nil)
+        window?.removeAllHandlers(for: self)
+        guard isLoaded() else {
+            return
+        }
         if let contentView = window?.contentView, genericView.superview != nil {
             let point:NSPoint
             switch alignment {
@@ -274,12 +310,18 @@ public class InstantVideoPIP: GenericViewController<InstantVideoPIPView>, APDele
                 point = NSMakePoint(-view.frame.width, 100)
             }
             
-            genericView._change(pos: point, animated: animated, completion: { [weak view] completed in
+            genericView._change(pos: point, animated: animated, completion: { [weak self, weak view] completed in
+                if let self, self.isShown || self.presentationGeneration != generation {
+                    return
+                }
+                (view as? InstantVideoPIPView)?.set(data: nil)
+                (view as? InstantVideoPIPView)?.clear()
                 view?.removeFromSuperview()
             })
+        } else {
+            genericView.set(data: nil)
+            genericView.clear()
         }
-        
-        window?.removeAllHandlers(for: self)
     }
     
     func alignToCorner(_ corner:InstantVideoPIPCornerAlignment, _ animated: Bool = true) {
@@ -320,25 +362,48 @@ public class InstantVideoPIP: GenericViewController<InstantVideoPIPView>, APDele
     }
     
     public func updateTableView(_ tableView:TableView?, context: any AccountContextProtocol, controller: APController) {
+        let previousNavigation = self.context.bindings.rootNavigation()
+        let navigation = context.bindings.rootNavigation()
+        if controller !== self.controller || context.window !== __window {
+            hide(false)
+            self.currentMessage = nil
+            self.timebase = nil
+        }
+        if previousNavigation !== navigation {
+            previousNavigation.remove(listener: navigationListener)
+            navigation.add(listener: navigationListener)
+        }
         self.tableView?.removeScroll(listener: listener)
         self.tableView = tableView
         self.context = context
+        self.__window = context.window
         self.tableView?.addScroll(listener: listener)
-        if controller != self.controller {
+        if controller !== self.controller {
+            self.controller.remove(listener: self)
             self.controller = controller
             controller.add(listener: self)
         }
-        
-        updateScrolled()
+        if let song = controller.currentSong {
+            songDidChanged(song: song, for: controller, animated: false)
+            playerDidChangedTimebase(song: song, for: controller, animated: false)
+            songDidChangedState(song: song, for: controller, animated: false)
+        } else {
+            currentMessage = nil
+            timebase = nil
+            updateScrolled()
+        }
     }
     
     
     
     public func songDidChanged(song:APSongItem, for controller:APController, animated: Bool) {
+        guard controller === self.controller, controller.currentSong?.stableId == song.stableId else {
+            return
+        }
         var msg:Message? = nil
         switch song.entry {
         case let .song(message):
-            if let md = (message.anyMedia as? TelegramMediaFile), md.isInstantVideo {
+            if let md = (message.anyMedia as? TelegramMediaFile), md.isInstantVideo, song.state != .stoped {
                 msg = message
             }
         default:
@@ -362,6 +427,9 @@ public class InstantVideoPIP: GenericViewController<InstantVideoPIPView>, APDele
         updateScrolled()
     }
     public func songDidChangedState(song: APSongItem, for controller: APController, animated: Bool) {
+        guard controller === self.controller, song.stableId == currentMessage?.chatStableId else {
+            return
+        }
         switch song.state {
         case let .playing(_, _, progress):
             genericView.playingProgressView.state = .ImpossibleFetching(progress: Float(progress), force: false)
@@ -380,13 +448,21 @@ public class InstantVideoPIP: GenericViewController<InstantVideoPIPView>, APDele
         }
     }
     public func playerDidChangedTimebase(song:APSongItem, for controller:APController, animated: Bool) {
+        guard controller === self.controller else {
+            return
+        }
         if song.stableId == currentMessage?.chatStableId {
             self.timebase = controller.timebase
         }
     }
 
     public func audioDidCompleteQueue(for controller:APController, animated: Bool) {
-        hide()
+        guard controller === self.controller else {
+            return
+        }
+        currentMessage = nil
+        timebase = nil
+        hide(animated)
     }
     
 }

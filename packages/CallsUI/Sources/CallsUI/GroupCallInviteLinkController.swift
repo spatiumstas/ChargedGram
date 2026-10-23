@@ -71,6 +71,14 @@ private final class HeaderItem : GeneralRowItem {
     public override var height: CGFloat {
         return 80 + 20 + headerLayout.layoutSize.height + 10 + infoLayout.layoutSize.height + 20 + 20
     }
+
+    public override var accessibilityLabel: String? {
+        return headerLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return infoLayout.attributedString.string
+    }
     
     public override func viewClass() -> AnyClass {
         return HeaderItemView.self
@@ -102,6 +110,8 @@ private final class HeaderItemView: GeneralRowView {
         
         dismiss.autohighlight = false
         dismiss.scaleOnClick = true
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
+        stickerView.isAccessibilityDecorative = true
         
         addSubview(iconView)
         gradient.frame = iconView.bounds
@@ -188,6 +198,10 @@ private final class ButtonsRowItem: GeneralRowItem {
         return true
     }
     
+    public override var accessibilityLabel: String? {
+        return strings().groupCallInviteLinkTitle
+    }
+
     public override var height: CGFloat {
         var height: CGFloat = 40
         if case .basic = mode {
@@ -391,7 +405,7 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
             
             AppMenu.show(menu: menu, event: event, for: view)
             
-        }), singleLine: true, customTheme: .initialize(arguments.presentation, background: arguments.presentation.colors.listBackground))
+        }, accessibilityLabel: strings().voiceOverCommonMore), singleLine: true, customTheme: .initialize(arguments.presentation, background: arguments.presentation.colors.listBackground))
     }))
     
     entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: .init("h1"), equatable: nil, comparable: nil, item: { initialSize, stableId in

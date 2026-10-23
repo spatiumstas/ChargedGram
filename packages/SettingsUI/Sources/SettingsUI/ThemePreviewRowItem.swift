@@ -104,6 +104,10 @@ public class ThemePreviewRowItem: GeneralRowItem {
         return ThemePreviewRowView.self
     }
     
+    public override var accessibilityLabel: String? {
+        return strings().appearanceSettingsChatPreviewHeader
+    }
+    
 }
 
 private final class ThemePreviewRowView : TableRowView {

@@ -1,5 +1,6 @@
 import Foundation
 import Cocoa
+import ColorPalette
 import TGUIKit
 import TelegramMedia
 import SwiftSignalKit
@@ -9,12 +10,279 @@ import TelegramUtils
 import LocalAnimations
 import InlineStickerLayer
 
+
 private let quoteIcon: CGImage = {
     return TelegramThemeHooks.shared.image(.iconQuote).precomposed(flipVertical: false)
 }()
 
+public final class FoldingTextQuoteLayer: SimpleLayer {
+    private final class CopyIconCache {
+        static let shared = CopyIconCache()
+
+        private struct Key: Hashable {
+            let source: ObjectIdentifier
+            let color: CGColor
+            let width: CGFloat
+            let height: CGFloat
+            let scale: CGFloat
+
+            static func ==(lhs: Key, rhs: Key) -> Bool {
+                return lhs.source == rhs.source && lhs.width == rhs.width && lhs.height == rhs.height && lhs.scale == rhs.scale && CFEqual(lhs.color, rhs.color)
+            }
+
+            func hash(into hasher: inout Hasher) {
+                hasher.combine(source)
+                hasher.combine(width)
+                hasher.combine(height)
+                hasher.combine(scale)
+                hasher.combine(CFHash(color))
+            }
+        }
+
+        private struct Entry {
+            let source: CGImage
+            let image: CGImage
+        }
+
+        private let lock = NSLock()
+        private var settings: DeviceGraphicsContextSettings?
+        private var images: [Key: Entry] = [:]
+        private var order: [Key] = []
+
+        func image(_ source: NSImage, color: NSColor, scale: CGFloat) -> CGImage {
+            guard color.type == .componentBased else {
+                return source.precomposed(color, flipVertical: true, scale: scale)
+            }
+            var rect = CGRect(origin: .zero, size: source.size)
+            guard let bitmap = source.cgImage(forProposedRect: &rect, context: nil, hints: nil) else {
+                return source.precomposed(color, flipVertical: true, scale: scale)
+            }
+            let key = Key(source: ObjectIdentifier(bitmap), color: color.cgColor, width: source.size.width, height: source.size.height, scale: scale)
+            let settings = DeviceGraphicsContextSettings.shared
+            lock.lock()
+            if self.settings != settings {
+                images.removeAll(keepingCapacity: true)
+                order.removeAll(keepingCapacity: true)
+                self.settings = settings
+            }
+            if let entry = images[key] {
+                lock.unlock()
+                return entry.image
+            }
+            lock.unlock()
+
+            let drawingContext = DrawingContext(size: NSSize(width: key.width, height: key.height), scale: scale, clear: true)
+            drawingContext.withFlippedContext(vertical: true) { context in
+                let rect = CGRect(origin: .zero, size: drawingContext.size)
+                context.interpolationQuality = .high
+                context.clear(rect)
+                context.clip(to: rect, mask: bitmap)
+                context.setFillColor(key.color)
+                context.fill(rect)
+            }
+            let image = drawingContext.generateImage()!
+            guard bitmap.bytesPerRow * bitmap.height + image.bytesPerRow * image.height <= 16 * 1024 else { return image }
+            lock.lock()
+            defer { lock.unlock() }
+            guard self.settings == settings, DeviceGraphicsContextSettings.shared == settings else { return image }
+            if let entry = images[key] { return entry.image }
+            if order.count == 16 {
+                images.removeValue(forKey: order.removeFirst())
+            }
+            images[key] = Entry(source: bitmap, image: image)
+            order.append(key)
+            return image
+        }
+    }
+
+    private struct DrawingState {
+        private struct Quote {
+            let frame: CGRect
+            let main: NSColor
+            let secondary: NSColor?
+            let tertiary: NSColor?
+            let isCode: Bool
+
+            static func canCache(_ quote: TextViewBlockQuote) -> Bool {
+                return quote.header == nil && quote.colors.main.type == .componentBased && (quote.colors.secondary?.type ?? .componentBased) == .componentBased && (quote.colors.tertiary?.type ?? .componentBased) == .componentBased
+            }
+
+            func matches(_ quote: TextViewBlockQuote) -> Bool {
+                return Self.canCache(quote) && frame == quote.frame && main == quote.colors.main && secondary == quote.colors.secondary && tertiary == quote.colors.tertiary && isCode == quote.isCode
+            }
+        }
+
+        private let quotes: [Quote]
+        private let bounds: CGRect
+        private let contentsScale: CGFloat
+        private let systemScale: CGFloat
+        private let settings: DeviceGraphicsContextSettings
+
+        init?(_ layer: FoldingTextQuoteLayer) {
+            guard layer.blockQuotes.allSatisfy(Quote.canCache) else { return nil }
+            quotes = layer.blockQuotes.map { Quote(frame: $0.frame, main: $0.colors.main, secondary: $0.colors.secondary, tertiary: $0.colors.tertiary, isCode: $0.isCode) }
+            bounds = layer.bounds
+            contentsScale = layer.contentsScale
+            systemScale = System.backingScale
+            settings = DeviceGraphicsContextSettings.shared
+        }
+
+        func matches(_ layer: FoldingTextQuoteLayer) -> Bool {
+            guard bounds == layer.bounds, contentsScale == layer.contentsScale, systemScale == System.backingScale, settings == DeviceGraphicsContextSettings.shared, quotes.count == layer.blockQuotes.count else { return false }
+            for index in quotes.indices {
+                if !quotes[index].matches(layer.blockQuotes[index]) { return false }
+            }
+            return true
+        }
+    }
+
+    private var drawingState: DrawingState?
+
+    public override var bounds: CGRect {
+        didSet {
+            if bounds != oldValue { setNeedsDisplay() }
+        }
+    }
+
+    public override var contentsScale: CGFloat {
+        didSet {
+            if contentsScale != oldValue { setNeedsDisplay() }
+        }
+    }
+
+    public var blockQuotes: [TextViewBlockQuote] = [] {
+        didSet {
+            if contents == nil || drawingState?.matches(self) != true {
+                setNeedsDisplay()
+            }
+        }
+    }
+
+    public override func display() {
+        let state = DrawingState(self)
+        super.display()
+        drawingState = contents == nil ? nil : state
+    }
+    public override func draw(in ctx: CGContext) {
+        for blockQuote in blockQuotes {
+            let radius: CGFloat = 3.0
+            let lineWidth: CGFloat = 3.0
+
+
+            let blockFrame = blockQuote.frame
+            let blockColor = blockQuote.isCode ? blockQuote.colors.tertiary ?? blockQuote.colors.main : blockQuote.colors.main
+            let tintColor = blockQuote.colors.main
+            let secondaryTintColor = blockQuote.colors.secondary
+            let tertiaryTintColor = blockQuote.colors.tertiary
+
+
+            var bg = blockColor
+            if blockQuote.isCode {
+                bg = bg.darker(amount: 0.5).withAlphaComponent(0.5)
+            } else {
+                bg = bg.withAlphaComponent(0.1)
+            }
+            ctx.setFillColor(bg.cgColor)
+            ctx.addPath(CGPath(roundedRect: blockFrame, cornerWidth: radius, cornerHeight: radius, transform: nil))
+            ctx.fillPath()
+
+            ctx.setFillColor(tintColor.cgColor)
+
+            if !blockQuote.isCode {
+                let iconSize = quoteIcon.backingSize
+                let quoteRect = CGRect(origin: CGPoint(x: blockFrame.maxX - 4.0 - iconSize.width, y: blockFrame.minY + 4.0), size: iconSize)
+                ctx.saveGState()
+                ctx.translateBy(x: quoteRect.midX, y: quoteRect.midY)
+                ctx.scaleBy(x: 1.0, y: -1.0)
+                ctx.translateBy(x: -quoteRect.midX, y: -quoteRect.midY)
+                ctx.clip(to: quoteRect, mask: quoteIcon)
+                ctx.fill(quoteRect)
+                ctx.restoreGState()
+                ctx.resetClip()
+            }
+
+
+            drawBlockQuoteLine(ctx: ctx, blockFrame: blockFrame, radius: radius, lineWidth: lineWidth, tintColor: tintColor, secondaryTintColor: secondaryTintColor, tertiaryTintColor: tertiaryTintColor)
+
+            if let header = blockQuote.header {
+                let headerHeight = blockQuote.headerInset + 2
+                ctx.setFillColor(blockQuote.colors.main.withAlphaComponent(0.2).cgColor)
+                let rect = NSMakeRect(blockFrame.minX, blockFrame.minY, blockFrame.width, headerHeight)
+                ctx.drawRoundedRect(rect: rect, topLeftRadius: radius, topRightRadius: radius)
+                header.1.draw(CGRect(x: blockFrame.minX + 8, y: blockFrame.minY + (headerHeight - header.0.size.height) / 2 - 1, width: header.0.size.width, height: header.0.size.height), in: ctx, backingScaleFactor: System.backingScale, backgroundColor: .clear)
+                let image = CopyIconCache.shared.image(TelegramThemeHooks.shared.image(.iconCopyCode), color: blockQuote.colors.main, scale: System.backingScale)
+                ctx.draw(image, in: CGRect(origin: NSMakePoint(blockFrame.width - image.backingSize.width - 3, blockFrame.minY + (headerHeight - image.backingSize.height) / 2), size: image.backingSize))
+            }
+        }
+    }
+}
+
+private final class FoldingQuoteMaskCache {
+    static let shared = FoldingQuoteMaskCache()
+
+    private struct Key: Hashable {
+        let width: CGFloat
+        let height: CGFloat
+        let y: CGFloat
+        let scale: CGFloat
+    }
+
+    private let lock = NSLock()
+    private let maximumCount: Int
+    private let maximumBytes: Int
+    private var settings: DeviceGraphicsContextSettings?
+    private var images: [Key: CGImage] = [:]
+    private var order: [Key] = []
+    private var retainedBytes = 0
+
+    init(maximumCount: Int = 32, maximumBytes: Int = 2 * 1024 * 1024) {
+        self.maximumCount = maximumCount
+        self.maximumBytes = maximumBytes
+    }
+
+    func image(size: NSSize, y: CGFloat, scale: CGFloat) -> CGImage? {
+        let key = Key(width: size.width, height: size.height, y: y, scale: scale)
+        let settings = DeviceGraphicsContextSettings.shared
+        lock.lock()
+        if self.settings != settings {
+            images.removeAll(keepingCapacity: true)
+            order.removeAll(keepingCapacity: true)
+            retainedBytes = 0
+            self.settings = settings
+        }
+        if let image = images[key] {
+            lock.unlock()
+            return image
+        }
+        lock.unlock()
+
+        guard let image = renderFoldingQuoteMask(size: size, y: y, scale: scale) else { return nil }
+        let cost = image.bytesPerRow * image.height
+        guard maximumCount > 0, cost <= maximumBytes else { return image }
+
+        lock.lock()
+        defer { lock.unlock() }
+        guard self.settings == settings, DeviceGraphicsContextSettings.shared == settings else { return image }
+        if let existing = images[key] { return existing }
+        while !order.isEmpty && (order.count >= maximumCount || retainedBytes > maximumBytes - cost) {
+            let removed = order.removeFirst()
+            if let previous = images.removeValue(forKey: removed) {
+                retainedBytes -= previous.bytesPerRow * previous.height
+            }
+        }
+        images[key] = image
+        order.append(key)
+        retainedBytes += cost
+        return image
+    }
+}
+
 private func generateMaskImage(size: NSSize, y: CGFloat) -> CGImage? {
-    return generateImage(size, rotatedContext: { size, context in
+    return FoldingQuoteMaskCache.shared.image(size: size, y: y, scale: System.backingScale)
+}
+
+private func renderFoldingQuoteMask(size: NSSize, y: CGFloat, scale: CGFloat) -> CGImage? {
+    return generateImage(size, scale: scale, rotatedContext: { size, context in
         context.clear(CGRect(origin: .zero, size: size))
         
         context.setFillColor(NSColor.white.cgColor)
@@ -37,9 +305,9 @@ public class FoldingTextLayout {
     
     public struct ViewLayout {
         public let text: TextViewLayout
-        let arrowDown: CGImage?
-        let arrowUp: CGImage?
-        let mask: CGImage?
+        public let arrowDown: CGImage?
+        public let arrowUp: CGImage?
+        public let mask: CGImage?
         public let isRevealed: Bool
         public let collapsable: Bool
         public let size: NSSize
@@ -149,8 +417,8 @@ public class FoldingTextLayout {
     
     public func applyRanges(_ ranges: [(NSRange, Int)]) {
         for range in ranges {
-            if blocks.count > range.1 {
-                self.blocks[range.1].text.selectedRange.range = range.0
+            if blocks.count > range.1, let clamped = blocks[range.1].text.attributedString.range.intersection(range.0) {
+                self.blocks[range.1].text.selectedRange.range = clamped
             }
         }
     }
@@ -341,16 +609,17 @@ public class FoldingTextLayout {
 
         var results = [NSRange]()
         let length = string.length
+        let text = string.string as NSString
 
         var rangeStart = 0
         var insideBlockquote = false
 
-        string.enumerateAttributes(in: NSRange(location: 0, length: length), options: []) { (attributes, range, _) in
-            if attributes[TextInputAttributes.quote] != nil {
+        string.enumerateAttribute(TextInputAttributes.quote, in: NSRange(location: 0, length: length), options: []) { (quote, range, _) in
+            if quote != nil {
                 if !insideBlockquote {
                     if rangeStart < range.location {
                         var textRange = NSRange(location: rangeStart, length: range.location - rangeStart)
-                        if string.attributedSubstring(from: textRange).string.hasPrefix("\n") {
+                        if text.character(at: textRange.location) == 0x0A {
                             textRange = NSRange(location: textRange.location + 1, length: textRange.length - 1)
                         }
                         if textRange.length > 0 {
@@ -374,7 +643,7 @@ public class FoldingTextLayout {
 
         if rangeStart < length {
             var finalRange = NSRange(location: rangeStart, length: length - rangeStart)
-            if string.attributedSubstring(from: finalRange).string.hasPrefix("\n") {
+            if text.character(at: finalRange.location) == 0x0A {
                 finalRange = NSRange(location: finalRange.location + 1, length: finalRange.length - 1)
             }
             if finalRange.length > 0 {
@@ -393,9 +662,26 @@ public class FoldingTextLayout {
 
 private final class FoldingInlineStickers {
     private var inlineStickerItemViews: [InlineStickerItemLayer.Key: SimpleLayer] = [:]
+    var isEmpty: Bool { inlineStickerItemViews.isEmpty }
+
+    func resetForContentChange(previous: TextViewLayout?, next: TextViewLayout?) {
+        guard !inlineStickerItemViews.isEmpty else { return }
+        func requiresRestart(_ layout: TextViewLayout?) -> Bool {
+            return layout?.embeddedItems.contains { item in
+                guard let sticker = item.value as? InlineStickerItem else { return false }
+                if case .avatar = sticker.source { return true }
+                return (sticker.playPolicy ?? .loop) != .loop
+            } ?? false
+        }
+        if requiresRestart(previous) || requiresRestart(next) {
+            for layer in inlineStickerItemViews.values { layer.removeFromSuperlayer() }
+            inlineStickerItemViews.removeAll(keepingCapacity: true)
+        }
+    }
 
     func update(textView: TextView, context: any AccountContextProtocol, textLayout: TextViewLayout) {
-        var validIds: [InlineStickerItemLayer.Key] = []
+        guard !textLayout.embeddedItems.isEmpty || !inlineStickerItemViews.isEmpty else { return }
+        var validIds = InlineStickerKeyCollection()
         var index: Int = textView.hashValue
         
         let textColor: NSColor
@@ -417,7 +703,7 @@ private final class FoldingInlineStickers {
                     let rect = item.rect.insetBy(dx: 0, dy: 0)
                     
                     let view: InlineStickerItemLayer
-                    if let current = self.inlineStickerItemViews[id] as? InlineStickerItemLayer, current.frame.size == rect.size && current.textColor == id.color {
+                    if let current = self.inlineStickerItemViews[id] as? InlineStickerItemLayer, current.frame.size == rect.size && current.textColor == textColor && current.color == emoji.color {
                         view = current
                     } else {
                         self.inlineStickerItemViews[id]?.removeFromSuperlayer()
@@ -463,22 +749,21 @@ private final class FoldingInlineStickers {
     }
 
     func updateAnimatableContent(window: NSWindow?, isLite: Bool) {
-        for (_, value) in inlineStickerItemViews {
-            if let value = value as? InlineStickerItemLayer {
-                if let superview = value.superview {
-                    value.isPlayable = NSIntersectsRect(value.frame, superview.visibleRect) && window != nil && window!.isKeyWindow && !isLite
-                }
-            }
-        }
+        updateInlineStickerPlayback(inlineStickerItemViews.values, window: window, isLite: isLite)
     }
 }
 
-private final class PlainTextBlock: NSObject {
+private protocol FoldingBlockInteractionState: AnyObject {
+    var ignoreNextClick: Bool { get set }
+}
+
+private final class PlainTextBlock: NSObject, FoldingBlockInteractionState {
+    var ignoreNextClick = false
     let textView = TextView()
     private(set) var currentLayout: FoldingTextLayout.ViewLayout?
     private var isLite: Bool = false
-    private let inlineStickers = FoldingInlineStickers()
-    private let animatableContentObserver = AnimatableContentObserver()
+    fileprivate let inlineStickers = FoldingInlineStickers()
+    private var animatableContentObserver: AnimatableContentObserver?
 
     func update(_ layout: FoldingTextLayout.ViewLayout, context: any AccountContextProtocol, transition: ContainedViewLayoutTransition) {
         self.currentLayout = layout
@@ -492,7 +777,12 @@ private final class PlainTextBlock: NSObject {
     }
 
     func updateListeners() {
-        animatableContentObserver.update(for: textView, target: self, selector: #selector(updateAnimatableContent), options: [.contentBounds, .documentFrame, .ownFrame])
+        guard !inlineStickers.isEmpty else {
+            animatableContentObserver = nil
+            return
+        }
+        if animatableContentObserver == nil { animatableContentObserver = AnimatableContentObserver() }
+        animatableContentObserver?.update(for: textView, target: self, selector: #selector(updateAnimatableContent), options: [.contentBounds, .documentFrame, .ownFrame])
     }
 
     @objc func updateAnimatableContent() {
@@ -510,6 +800,25 @@ private enum FoldingBlock {
             return view
         case let .plain(block):
             return block.textView
+        }
+    }
+
+    var inlineStickers: FoldingInlineStickers {
+        switch self {
+        case let .wrapper(view): return view.inlineStickers
+        case let .plain(block): return block.inlineStickers
+        }
+    }
+
+    var hasActiveContentAnimation: Bool {
+        if case let .wrapper(view) = self { return view.hasActiveContentAnimation }
+        return false
+    }
+
+    var interactionState: any FoldingBlockInteractionState {
+        switch self {
+        case let .wrapper(view): return view
+        case let .plain(block): return block
         }
     }
 
@@ -547,72 +856,14 @@ private enum FoldingBlock {
     }
 }
 
-private final class WrapperView : View {
+private final class WrapperView : View, FoldingBlockInteractionState {
+    var ignoreNextClick = false
     
-    class BlockLayer: SimpleLayer {
-        var blockQuotes: [TextViewBlockQuote] = [] {
-            didSet {
-                setNeedsDisplay()
-            }
-        }
-        override func draw(in ctx: CGContext) {
-            for blockQuote in blockQuotes {
-                let radius: CGFloat = 3.0
-                let lineWidth: CGFloat = 3.0
-                
-                
-                let blockFrame = blockQuote.frame
-                let blockColor = blockQuote.isCode ? blockQuote.colors.tertiary ?? blockQuote.colors.main : blockQuote.colors.main
-                let tintColor = blockQuote.colors.main
-                let secondaryTintColor = blockQuote.colors.secondary
-                let tertiaryTintColor = blockQuote.colors.tertiary
-                
-                
-                var bg = blockColor
-                if blockQuote.isCode {
-                    bg = bg.darker(amount: 0.5).withAlphaComponent(0.5)
-                } else {
-                    bg = bg.withAlphaComponent(0.1)
-                }
-                ctx.setFillColor(bg.cgColor)
-                ctx.addPath(CGPath(roundedRect: blockFrame, cornerWidth: radius, cornerHeight: radius, transform: nil))
-                ctx.fillPath()
-                
-                ctx.setFillColor(tintColor.cgColor)
-                
-                if !blockQuote.isCode {
-                    let iconSize = quoteIcon.backingSize
-                    let quoteRect = CGRect(origin: CGPoint(x: blockFrame.maxX - 4.0 - iconSize.width, y: blockFrame.minY + 4.0), size: iconSize)
-                    ctx.saveGState()
-                    ctx.translateBy(x: quoteRect.midX, y: quoteRect.midY)
-                    ctx.scaleBy(x: 1.0, y: -1.0)
-                    ctx.translateBy(x: -quoteRect.midX, y: -quoteRect.midY)
-                    ctx.clip(to: quoteRect, mask: quoteIcon)
-                    ctx.fill(quoteRect)
-                    ctx.restoreGState()
-                    ctx.resetClip()
-                }
-                
-                
-                drawBlockQuoteLine(ctx: ctx, blockFrame: blockFrame, radius: radius, lineWidth: lineWidth, tintColor: tintColor, secondaryTintColor: secondaryTintColor, tertiaryTintColor: tertiaryTintColor)
-                
-                if let header = blockQuote.header {
-                    let headerHeight = blockQuote.headerInset + 2
-                    ctx.setFillColor(blockQuote.colors.main.withAlphaComponent(0.2).cgColor)
-                    let rect = NSMakeRect(blockFrame.minX, blockFrame.minY, blockFrame.width, headerHeight)
-                    ctx.drawRoundedRect(rect: rect, topLeftRadius: radius, topRightRadius: radius)
-                    header.1.draw(CGRect(x: blockFrame.minX + 8, y: blockFrame.minY + (headerHeight - header.0.size.height) / 2 - 1, width: header.0.size.width, height: header.0.size.height), in: ctx, backingScaleFactor: System.backingScale, backgroundColor: .clear)
-                    let image = TelegramThemeHooks.shared.image(.iconCopyCode).precomposed(blockQuote.colors.main, flipVertical: true)
-                    ctx.draw(image, in: CGRect(origin: NSMakePoint(blockFrame.width - image.backingSize.width - 3, blockFrame.minY + (headerHeight - image.backingSize.height) / 2), size: image.backingSize))
-                }
-            }
-        }
-    }
     
     let textView = TextView()
     private let mask: SimpleShapeLayer = SimpleShapeLayer()
     private var textMask: SimpleLayer?
-    private var blockLayer: BlockLayer?
+    private var blockLayer: FoldingTextQuoteLayer?
     private var arrow: SimpleLayer?
     
     
@@ -620,9 +871,13 @@ private final class WrapperView : View {
     
     var isLite: Bool = false
     
-    private let inlineStickers = FoldingInlineStickers()
+    fileprivate let inlineStickers = FoldingInlineStickers()
 
     
+    var hasActiveContentAnimation: Bool {
+        return mask.animationKeys()?.isEmpty == false || arrow?.animationKeys()?.isEmpty == false
+    }
+
     required init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         addSubview(textView)
@@ -656,8 +911,8 @@ private final class WrapperView : View {
         }
         
         
-        let animation = mask.makeAnimation(from: self.mask.path ?? CGMutablePath(), to: path, keyPath: "path", timingFunction: transition.timingFunction, duration: transition.duration)
         if transition.isAnimated {
+            let animation = mask.makeAnimation(from: self.mask.path ?? CGMutablePath(), to: path, keyPath: "path", timingFunction: transition.timingFunction, duration: transition.duration)
             mask.add(animation, forKey: "path")
         }
         mask.path = path
@@ -667,11 +922,11 @@ private final class WrapperView : View {
 
 
         if layout.canReveal {
-            let current: BlockLayer
+            let current: FoldingTextQuoteLayer
             if let layer = self.blockLayer {
                 current = layer
             } else {
-                current = BlockLayer(frame: size.bounds)
+                current = FoldingTextQuoteLayer(frame: size.bounds)
                 self.layer?.addSublayer(current)
                 self.blockLayer = current
             }
@@ -732,6 +987,7 @@ private final class WrapperView : View {
         self.textView.setIsShimmering(true, animated: transition.isAnimated)
         
         self.updateInlineStickers(context: context, textLayout: layout.text)
+        self.updateListeners()
         self.updateAnimatableContent()
         
         transition.updateFrame(view: self, frame: CGRect(origin: self.frame.origin, size: size))
@@ -775,10 +1031,15 @@ private final class WrapperView : View {
     @objc func updateAnimatableContent() -> Void {
         inlineStickers.updateAnimatableContent(window: window, isLite: isLite)
     }
-    private let animatableContentObserver = AnimatableContentObserver()
+    private var animatableContentObserver: AnimatableContentObserver?
 
     private func updateListeners() {
-        animatableContentObserver.update(for: self, target: self, selector: #selector(updateAnimatableContent), options: [.contentBounds, .documentFrame, .ownFrame])
+        guard !inlineStickers.isEmpty else {
+            animatableContentObserver = nil
+            return
+        }
+        if animatableContentObserver == nil { animatableContentObserver = AnimatableContentObserver() }
+        animatableContentObserver?.update(for: self, target: self, selector: #selector(updateAnimatableContent), options: [.contentBounds, .documentFrame, .ownFrame])
     }
 
 }
@@ -798,12 +1059,13 @@ public class FoldingTextView : View {
 
     public var textSelectable: Bool = true {
         didSet {
-            self.updateLayouts()
+            if textSelectable != oldValue { self.updateLayouts() }
         }
     }
     
     public override var userInteractionEnabled: Bool {
         didSet {
+            if userInteractionEnabled != oldValue { self.updateLayouts() }
         }
     }
     
@@ -826,6 +1088,23 @@ public class FoldingTextView : View {
         fatalError("init(coder:) has not been implemented")
     }
     
+    @discardableResult public func updateForReusedContent(layout: FoldingTextLayout) -> Bool {
+        guard let previous = layouts, previous.context === layout.context,
+              !previous.appendingAnimation, !layout.appendingAnimation,
+              !contextMenuOnScreen(), layer?.animationKeys()?.isEmpty != false,
+              blocks.allSatisfy({
+                  $0.textView.canReuseForContentChange && !$0.hasActiveContentAnimation
+                      && $0.view.layer?.animationKeys()?.isEmpty != false
+                      && $0.view.layer?.mask?.animationKeys()?.isEmpty != false
+              }) else { return false }
+        for (index, block) in blocks.enumerated() {
+            guard block.textView.resetForContentChange() else { return false }
+            block.inlineStickers.resetForContentChange(previous: block.currentLayout?.text, next: index < layout.blocks.count ? layout.blocks[index].text : nil)
+        }
+        update(layout: layout, animated: false)
+        return true
+    }
+
     public func update(layout: FoldingTextLayout, animated: Bool, appendingAnimationView: LottiePlayerView? = nil) {
         self.layouts = layout
 
@@ -840,24 +1119,34 @@ public class FoldingTextView : View {
 
         var blocks = self.blocks
         while blocks.count > layout.blocks.count {
-            blocks.removeLast().view.removeFromSuperview()
+            let block = blocks.removeLast()
+            block.textView.removeAllHandlers()
+            block.view.removeFromSuperview()
         }
         for (i, textLayout) in layout.blocks.enumerated() {
             let isPlain = FoldingBlock.isPlain(textLayout)
             if i < blocks.count {
                 if blocks[i].isPlain != isPlain {
+                    blocks[i].textView.removeAllHandlers()
                     blocks[i].view.removeFromSuperview()
                     blocks[i] = FoldingBlock.make(isPlain: isPlain)
+                    configureActions(for: blocks[i], index: i)
                 }
             } else {
                 blocks.append(FoldingBlock.make(isPlain: isPlain))
+                configureActions(for: blocks[i], index: i)
             }
         }
         self.blocks = blocks
-        let blockViews = blocks.map { $0.view }
-        let orderedSubviews: [NSView] = blockViews + self.subviews.filter { subview in !blockViews.contains(where: { $0 === subview }) }
-        if self.subviews.count != orderedSubviews.count || zip(self.subviews, orderedSubviews).contains(where: { $0 !== $1 }) {
-            self.subviews = orderedSubviews
+        let currentSubviews = self.subviews
+        if currentSubviews.count < blocks.count || zip(blocks, currentSubviews).contains(where: { $0.view !== $1 }) {
+            let blockViews = blocks.map { $0.view }
+            if currentSubviews.isEmpty {
+                self.subviews = blockViews
+            } else {
+                let blockIds = Set(blockViews.map { ObjectIdentifier($0) })
+                self.subviews = blockViews + currentSubviews.filter { !blockIds.contains(ObjectIdentifier($0)) }
+            }
         }
         for (i, textLayout) in layout.blocks.enumerated() {
             let block = blocks[i]
@@ -870,21 +1159,9 @@ public class FoldingTextView : View {
             }
             let textView = block.textView
             textView.userInteractionEnabled = userInteractionEnabled
+            textView.isSelectable = textSelectable
             textView.sendDownAnyway = true
-            textView.removeAllHandlers()
-            
-            var ignoreNext: Bool = false
-            textView.set(handler: { control in
-                if let view = control as? TextView {
-                    ignoreNext = view.selectionWasCleared
-                }
-            }, for: .Down)
-            
-            textView.set(handler: { [weak self] control in
-                if self?.hasSelectedText == false, !ignoreNext {
-                    self?.revealBlockAtIndex?(i)
-                }
-            }, for: .Click)
+            block.interactionState.ignoreNextClick = false
         }
         
         if layout.appendingAnimation {
@@ -893,9 +1170,15 @@ public class FoldingTextView : View {
             
             let current: LottiePlayerView
             if let appendingAnimationView {
+                if self.appendingAnimationView !== appendingAnimationView {
+                    self.appendingAnimationView?.removeFromSuperview()
+                }
                 current = appendingAnimationView
+                if let owner = current.superview as? FoldingTextView, owner !== self, owner.appendingAnimationView === current {
+                    owner.appendingAnimationView = nil
+                }
                 self.appendingAnimationView = current
-                addSubview(current)
+                if current.superview !== self { addSubview(current) }
             } else if let view = self.appendingAnimationView {
                 current = view
             } else {
@@ -917,7 +1200,10 @@ public class FoldingTextView : View {
                 current.set(LottieAnimation(compressed: compressed, key: .init(key: .bundle("dots_\(animation.rawValue)"), size: size, colors: colors), playPolicy: .loop, colors: colors))
             }
             
-        } else if let view = appendingAnimationView {
+        } else if let view = self.appendingAnimationView ?? appendingAnimationView {
+            if let owner = view.superview as? FoldingTextView, owner.appendingAnimationView === view {
+                owner.appendingAnimationView = nil
+            }
             self.appendingAnimationView = nil
             performSubviewRemoval(view, animated: animated)
         }
@@ -925,6 +1211,21 @@ public class FoldingTextView : View {
         self.updateLayout(size: layout.size, transition: transition)
     }
     
+    private func configureActions(for block: FoldingBlock, index: Int) {
+        let textView = block.textView
+        textView.removeAllHandlers()
+        textView.set(handler: { [weak self] control in
+            guard let self, self.blocks.indices.contains(index), self.blocks[index].textView === control else { return }
+            self.blocks[index].interactionState.ignoreNextClick = self.blocks[index].textView.selectionWasCleared
+        }, for: .Down)
+        textView.set(handler: { [weak self] control in
+            guard let self, self.blocks.indices.contains(index), self.blocks[index].textView === control else { return }
+            if !self.hasSelectedText, !self.blocks[index].interactionState.ignoreNextClick {
+                self.revealBlockAtIndex?(index)
+            }
+        }, for: .Click)
+    }
+
     private func computeStreamingState(layout: FoldingTextLayout) {
         layout.updateStreamingStateIfNeeded()
         if layout.streamingState.currentGlyphCount < layout.streamingState.toGlyphCount {

@@ -22,6 +22,8 @@ private final class GroupCallControlsTooltipView: Control {
         addSubview(cornerView)
         addSubview(closeView)
         cornerView.isEventLess = true
+        cornerView.isAccessibilityDecorative = true
+        closeView.setAccessibilityLabel(strings().voiceOverCommonClose)
         backgroundView.isEventLess = true
         textView.userInteractionEnabled = false
         textView.isSelectable = false
@@ -255,13 +257,23 @@ public final class GroupCallControlsView : View {
                         }
                     }
                     leftButton2.updateWithData(CallControlData(text: hasText ? strings().voiceChatVideoStreamScreencast : nil, mode: .animated(!hasScreencast ? .screenoff : .screenon, GroupCallTheme.settingsColor), iconSize: NSMakeSize(48, 48)), animated: animated)
+                    leftButton2.setAccessibilityLabel(strings().voiceOverCommonShareScreen)
+                    leftButton2.setAccessibilityValue(hasScreencast ? strings().voiceOverCommonOn : strings().voiceOverCommonOff)
                     
                     rightButton1.updateWithData(CallControlData(text: hasText ? (canMessage ? strings().voiceChatVideoStreamMessage : strings().voiceChatSettings) : nil, mode: .normal(GroupCallTheme.settingsColor, canMessage ? GroupCallTheme.messageIcon : GroupCallTheme.settingsIcon), iconSize: NSMakeSize(48, 48)), animated: animated)
+                    rightButton1.setAccessibilityLabel(canMessage ? strings().voiceChatVideoStreamMessage : strings().voiceChatSettings)
                 }
             }
             
             end.updateWithData(CallControlData(text: hasText ? strings().voiceChatLeaveGrupCall : nil, mode: .normal(GroupCallTheme.declineColor, GroupCallTheme.declineIcon), iconSize: NSMakeSize(48, 48)), animated: animated)
             leftButton1.updateWithData(CallControlData(text: hasText ? leftButton1Text : nil, mode: leftBg, iconSize: NSMakeSize(48, 48)), animated: animated)
+            end.setAccessibilityLabel(strings().voiceChatLeaveGrupCall)
+            leftButton1.setAccessibilityLabel(leftButton1Text)
+            if callMode == .video, !isStream {
+                leftButton1.setAccessibilityValue(hasVideo ? strings().voiceOverCommonOn : strings().voiceOverCommonOff)
+            } else {
+                leftButton1.setAccessibilityValue(nil)
+            }
 
             let view = self.backgroundView
 

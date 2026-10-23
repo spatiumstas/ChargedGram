@@ -179,6 +179,21 @@ public class ChannelOverviewStatsRowItem: GeneralRowItem {
         return height + viewType.innerInset.bottom + viewType.innerInset.top
     }
     
+    public override var accessibilityLabel: String? {
+        return isSkeleton ? strings().voiceOverCommonLoading : strings().channelStatsOverview
+    }
+
+    public override var accessibilityValue: String? {
+        if isSkeleton {
+            return nil
+        }
+        return layoutItems.map { "\($0.name.attributedString.string): \($0.title.attributedString.string)" }.joined(separator: ", ")
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
     public override func viewClass() -> AnyClass {
         return ChannelOverviewStatsRowView.self
     }

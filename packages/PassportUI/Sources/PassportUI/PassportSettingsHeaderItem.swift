@@ -31,6 +31,10 @@ class PassportSettingsHeaderItem: GeneralRowItem {
     override func viewClass() -> AnyClass {
         return PassportSettingsHeaderItemView.self
     }
+
+    override var accessibilityIsSpacer: Bool {
+        return true
+    }
 }
 
 private final class PassportSettingsHeaderItemView : TableRowView {
@@ -38,6 +42,7 @@ private final class PassportSettingsHeaderItemView : TableRowView {
     required init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         addSubview(imageView)
+        imageView.isAccessibilityDecorative = true
     }
     
     required init?(coder: NSCoder) {

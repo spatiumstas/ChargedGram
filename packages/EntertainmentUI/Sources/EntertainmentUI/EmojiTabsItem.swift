@@ -1,6 +1,7 @@
 import Foundation
 import TGUIKit
 import TelegramTheme
+import Localization
 import Cocoa
 
 
@@ -33,6 +34,10 @@ public final class EmojiTabsItem: TableRowItem {
     
     public override func viewClass() -> AnyClass {
         return EmojiTabsView.self
+    }
+    
+    public override var accessibilityLabel: String? {
+        return strings().voiceOverCommonEmoji
     }
 }
 
@@ -135,6 +140,7 @@ private final class EmojiTabsView: HorizontalRowView {
             for (i, segment) in item.segments.enumerated() {
                 views[i].set(image: tabIcons[segment.hashValue], for: .Normal)
                 views[i].set(image: tabIconsSelected[segment.hashValue], for: .Highlight)
+                views[i].setAccessibilityLabel(segment.localizedString)
                 let frame = CGRect(origin: NSMakePoint(CGFloat(i) * container.frame.height, 0), size: NSMakeSize(item.width, item.width))
                 views[i].frame = frame
                 views[i].isSelected = (item.selected == segment || (item.selected == nil && i == 0)) && item.isSelected

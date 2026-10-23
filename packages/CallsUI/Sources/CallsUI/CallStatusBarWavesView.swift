@@ -67,20 +67,25 @@ final class CallStatusBarWavesView: View {
             }
         }
 
-        func crestShape(level: CGFloat) -> LiquidGlassCrestShape {
+        func crestShape(level: CGFloat, inset: CGFloat) -> LiquidGlassCrestShape {
+            var offset: CGFloat = 0.0
+            if self.motion.minOffset > 0.0 {
+                offset = (self.motion.minOffset + (self.motion.maxOffset - self.motion.minOffset) * level) * Constants.travel
+            }
+            let lift = offset / Constants.amplitude
+
             func crestPoints(_ points: [CGPoint]) -> LiquidGlassCrestPoints {
                 func point(_ index: Int) -> SIMD2<Float> {
-                    return SIMD2<Float>(Float(points[index].x), Float(points[index].y))
+                    let isEnd = index == 0 || index == points.count - 1
+                    let x = inset + points[index].x * (1.0 - inset * 2.0)
+                    let y = isEnd ? points[index].y : points[index].y + lift
+                    return SIMD2<Float>(Float(x), Float(y))
                 }
                 return (point(0), point(1), point(2), point(3), point(4), point(5))
             }
 
             let progress = bezierPoint(0.42, 0.0, 0.58, 1.0, max(0.0, min(1.0, self.elapsed / self.duration)))
-            var offset: CGFloat = 0.0
-            if self.motion.minOffset > 0.0 {
-                offset = (self.motion.minOffset + (self.motion.maxOffset - self.motion.minOffset) * level) * Constants.travel
-            }
-            return LiquidGlassCrestShape(fromPoints: crestPoints(self.fromPoints), toPoints: crestPoints(self.toPoints), progress: Float(progress), offset: Float(offset))
+            return LiquidGlassCrestShape(fromPoints: crestPoints(self.fromPoints), toPoints: crestPoints(self.toPoints), progress: Float(progress), offset: 0.0)
         }
 
         private func startNextShape() {
@@ -235,9 +240,17 @@ final class CallStatusBarWavesView: View {
         let cornerRadius = min(self.barHeight, size.width) / 2.0
         self.barMask.frame = CGRect(origin: CGPoint(), size: size)
         self.barMask.path = CGPath(roundedRect: CGRect(x: 0.0, y: 0.0, width: size.width, height: self.barHeight), cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
-        self.overflowMask.frame = CGRect(x: 0.0, y: cornerRadius, width: size.width, height: max(0.0, size.height - cornerRadius))
-        let edge = Double(min(cornerRadius / size.width, 0.25))
-        self.overflowMask.locations = [0.0, edge, edge * 2.0, 1.0 - edge * 2.0, 1.0 - edge, 1.0].map { NSNumber(value: $0) }
+        self.overflowMask.frame = CGRect(x: 0.0, y: self.barHeight, width: size.width, height: max(0.0, size.height - self.barHeight))
+        let edge = Double(CallStatusBarWavesView.edgeInset(barHeight: self.barHeight, width: size.width))
+        self.overflowMask.locations = [0.0, edge * 0.5, edge, 1.0 - edge, 1.0 - edge * 0.5, 1.0].map { NSNumber(value: $0) }
+    }
+
+    private static func edgeInset(barHeight: CGFloat, width: CGFloat) -> CGFloat {
+        guard width > 0.0 else {
+            return 0.0
+        }
+        let cornerRadius = min(barHeight, width) / 2.0
+        return min(cornerRadius / width, 0.25)
     }
 }
 
@@ -262,10 +275,11 @@ extension CallStatusBarWavesView: LiquidGlassShapesSource {
             smoothness: Float(Constants.smoothness)
         )
         if !isFlat {
+            let inset = CallStatusBarWavesView.edgeInset(barHeight: self.barHeight, width: size.width)
             parameters.shapes = (
-                self.waves[0].crestShape(level: self.presentationAudioLevel),
-                self.waves[1].crestShape(level: self.presentationAudioLevel),
-                self.waves[2].crestShape(level: self.presentationAudioLevel)
+                self.waves[0].crestShape(level: self.presentationAudioLevel, inset: inset),
+                self.waves[1].crestShape(level: self.presentationAudioLevel, inset: inset),
+                self.waves[2].crestShape(level: self.presentationAudioLevel, inset: inset)
             )
         }
         return .crest(parameters)

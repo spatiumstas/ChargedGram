@@ -45,6 +45,9 @@ open class AppMenuBasicItem : TableRowItem {
     open override func viewClass() -> AnyClass {
         return AppMenuBasicItemView.self
     }
+    open override var accessibilityIsSpacer: Bool {
+        return menuItem == nil && type(of: self) == AppMenuBasicItem.self
+    }
 }
 open class AppMenuBasicItemView: TableRowView {
     
@@ -100,6 +103,9 @@ public class AppMenuSeparatorItem : AppMenuBasicItem {
     }
     public override func viewClass() -> AnyClass {
         return AppMenuSeparatorItemView.self
+    }
+    public override var accessibilityIsSpacer: Bool {
+        return true
     }
 }
 private final class AppMenuSeparatorItemView: AppMenuBasicItemView {
@@ -191,6 +197,42 @@ open class AppMenuRowItem : AppMenuBasicItem {
     
     public override var searchable: String {
         return item.title
+    }
+
+    open override var accessibilityLabel: String? {
+        let title = item.attributedTitle?.string ?? text.attributedString.string
+        return title.isEmpty ? item.title : title
+    }
+
+    open override var accessibilityValue: String? {
+        if item.state == .on {
+            return localizedString("VoiceOver.Common.Checked")
+        }
+        return nil
+    }
+
+    open override var accessibilityRole: NSAccessibility.Role? {
+        return .menuItem
+    }
+
+    open override var accessibilityIsEnabled: Bool {
+        return item.isEnabled
+    }
+
+    open override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    open override func accessibilityPerformPress() -> Bool {
+        guard item.isEnabled, let interaction = interaction else {
+            return false
+        }
+        if item.submenu != nil {
+            interaction.presentSubmenu(item)
+        } else {
+            interaction.action(item)
+        }
+        return true
     }
     
     public override func redraw(animated: Bool = false, options: NSTableView.AnimationOptions = .effectFade, presentAsNew: Bool = false) {

@@ -98,6 +98,8 @@ public final class DateSelectorModalView : View {
             let selectedLayout = TextViewLayout(.initialize(string: period, color: theme.colors.text, font: .normal(.text)))
             selectedLayout.measure(width: .greatestFiniteMagnitude)
             selected.update(selectedLayout)
+            container.setAccessibilityLabel(strings().dateSelectorScheduleRepeat)
+            container.setAccessibilityValue(period)
             
             if !context.isPremium {
                 let current: ImageView
@@ -105,6 +107,7 @@ public final class DateSelectorModalView : View {
                     current = view
                 } else {
                     current = ImageView()
+                    current.setAccessibilityLabel(strings().voiceOverCommonLock)
                     self.lockedView = current
                     container.addSubview(current)
                 }
@@ -379,6 +382,8 @@ public class DateSelectorModalController: ModalViewController {
     
     private let context: any AccountContextProtocol
     private let selectedAt: (Date, Int32?)->Void
+    public var onCancelled: (() -> Void)?
+    public var onDismissed: (() -> Void)?
     private let defaultDate: Date?
     private var sendWhenOnline: Bool = false
     private let repeatPeriod: Int32?
@@ -432,7 +437,7 @@ public class DateSelectorModalController: ModalViewController {
             title = value
         }
         return (left: ModalHeaderData(title: nil, image: theme.icons.modalClose, handler: { [weak self] in
-            self?.close()
+            self?.cancelSelection()
         }), center: ModalHeaderData(title: title, handler: {
             
         }), right: nil)
@@ -547,8 +552,23 @@ public class DateSelectorModalController: ModalViewController {
                 return
             }
         }
+        self.onCancelled = nil
+        self.onDismissed = nil
         self.selectedAt(date, genericView.repeatContainer.currentPeriod)
         self.close()
+    }
+
+    private func cancelSelection() {
+        let onCancelled = self.onCancelled
+        self.onCancelled = nil
+        self.onDismissed = nil
+        onCancelled?()
+        close()
+    }
+
+    public override func escapeKeyAction() -> KeyHandlerResult {
+        cancelSelection()
+        return .invoked
     }
     
     public override func returnKeyAction() -> KeyHandlerResult {
@@ -578,6 +598,14 @@ public class DateSelectorModalController: ModalViewController {
     public override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         window?.removeAllHandlers(for: self)
+        dismissSelection()
+    }
+
+    private func dismissSelection() {
+        let onDismissed = self.onDismissed
+        self.onDismissed = nil
+        self.onCancelled = nil
+        onDismissed?()
     }
     
 
@@ -675,6 +703,8 @@ public class DateSelectorModalController: ModalViewController {
         }, for: .Click)
         
         self.genericView.sendWhenOnline.set(handler: { [weak self] _ in
+            self?.onCancelled = nil
+            self?.onDismissed = nil
             self?.selectedAt(Date(timeIntervalSince1970: TimeInterval(scheduleWhenOnlineTimestamp)), self?.genericView.repeatContainer.currentPeriod)
             self?.close()
         }, for: .Click)
@@ -719,6 +749,7 @@ public class DateSelectorModalController: ModalViewController {
     
     deinit {
         disposable.dispose()
+        dismissSelection()
     }
     
     public override func initializer() -> NSView {

@@ -74,6 +74,14 @@ public final class SuspiciousAuthRowItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return SuspiciousAuthRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return title.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return info.attributedString.string
+    }
 }
 
 

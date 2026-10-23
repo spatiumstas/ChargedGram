@@ -65,6 +65,27 @@ public class RecentSessionRowItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return RecentSessionRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return headerLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return "\(descLayout.attributedString.string.replacingOccurrences(of: "\n", with: ", ")), \(dateLayout.attributedString.string)"
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        handler()
+        return true
+    }
 }
 
 public class RecentSessionRowView : GeneralContainableRowView {
@@ -79,6 +100,7 @@ public class RecentSessionRowView : GeneralContainableRowView {
         self.addSubview(descTextView)
         self.addSubview(dateTextView)
         addSubview(iconView)
+        iconView.isAccessibilityDecorative = true
         
         headerTextView.userInteractionEnabled = false
         headerTextView.isSelectable = false

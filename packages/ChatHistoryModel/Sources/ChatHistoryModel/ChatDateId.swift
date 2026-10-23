@@ -1,58 +1,105 @@
 import Foundation
 
-/// `Calendar.current` reads user locale + timezone on every access (involves
-/// internal locking and CFLocale reads, ~few hundred ns to ~µs). Both
-/// `chatDateId` / `mediaDateId` were paying that cost per message — a chat
-/// with 200 messages walked it 200 times. Cache once at module load; the
-/// calendar is immutable enough for our purposes (date-group bucketing).
-/// If the user changes locale mid-session we'd be one launch behind, which
-/// is the same trade-off `Calendar.current`-callers across the codebase make.
-private let _chatGroupingCalendar = Calendar.current
+final class ChatDateGroupingCache {
+    private struct Boundary {
+        let start: Int64
+        let end: Int64
+        let id: Int64
 
-/// Day-boundary cache. Chat messages cluster within a small window of days
-/// (one chat-open shows messages from ~1-5 days typically), so a tiny LRU
-/// of recent day spans hits ~99% of the time and skips the
-/// `startOfDay`/calendar timezone computation entirely.
-private struct ChatDayBoundary {
-    let startUnix: Int64
-    let endUnix: Int64
-    let dayId: Int64
-}
-private var _chatDateCache: [ChatDayBoundary] = []
-private let _chatDateCacheLock = NSLock()
-private let _chatDateCacheCapacity = 16
-
-public func chatDateId(for timestamp: Int32) -> Int64 {
-    let ts = Int64(timestamp)
-    _chatDateCacheLock.lock()
-    for boundary in _chatDateCache {
-        if ts >= boundary.startUnix && ts < boundary.endUnix {
-            _chatDateCacheLock.unlock()
-            return boundary.dayId
+        func contains(_ timestamp: Int64) -> Bool {
+            return timestamp >= start && timestamp < end
         }
     }
-    _chatDateCacheLock.unlock()
 
-    let date = Date(timeIntervalSince1970: TimeInterval(timestamp))
-    let startOfDay = _chatGroupingCalendar.startOfDay(for: date)
-    // Compute the actual end of day (next-day midnight) instead of
-    // assuming +86400 — DST transitions can produce 23h or 25h days.
-    let endOfDay = _chatGroupingCalendar.date(byAdding: .day, value: 1, to: startOfDay) ?? startOfDay.addingTimeInterval(86400)
-    let startUnix = Int64(startOfDay.timeIntervalSince1970)
-    let endUnix = Int64(endOfDay.timeIntervalSince1970)
-    let dayId = startUnix
+    private let lock = NSLock()
+    private let calendarProvider: () -> Calendar
+    private let notificationCenter: NotificationCenter
+    private var observers: [NSObjectProtocol] = []
+    private var calendar: Calendar
+    private var days: [Boundary] = []
+    private var months: [Boundary] = []
+    private let capacity = 16
 
-    _chatDateCacheLock.lock()
-    if _chatDateCache.count >= _chatDateCacheCapacity {
-        _chatDateCache.removeFirst()
+    init(calendarProvider: @escaping () -> Calendar = { Calendar.current }, notificationCenter: NotificationCenter = .default) {
+        self.calendarProvider = calendarProvider
+        self.calendar = calendarProvider()
+        self.notificationCenter = notificationCenter
+        for name in [Notification.Name.NSSystemTimeZoneDidChange, NSLocale.currentLocaleDidChangeNotification] {
+            observers.append(notificationCenter.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in
+                self?.invalidate()
+            })
+        }
+        invalidate()
     }
-    _chatDateCache.append(ChatDayBoundary(startUnix: startUnix, endUnix: endUnix, dayId: dayId))
-    _chatDateCacheLock.unlock()
-    return dayId
+
+    deinit {
+        for observer in observers {
+            notificationCenter.removeObserver(observer)
+        }
+    }
+
+    private func invalidate() {
+        lock.lock()
+        defer { lock.unlock() }
+        calendar = calendarProvider()
+        days.removeAll(keepingCapacity: true)
+        months.removeAll(keepingCapacity: true)
+    }
+
+    func dayId(for timestamp: Int32) -> Int64 {
+        lock.lock()
+        defer { lock.unlock() }
+        let timestamp = Int64(timestamp)
+        if let boundary = days.reversed().first(where: { $0.contains(timestamp) }) {
+            return boundary.id
+        }
+        let date = Date(timeIntervalSince1970: TimeInterval(timestamp))
+        let interval = calendar.dateInterval(of: .day, for: date)!
+        let start = Int64(interval.start.timeIntervalSince1970)
+        if days.count >= capacity {
+            days.removeFirst()
+        }
+        days.append(Boundary(start: start, end: Int64(interval.end.timeIntervalSince1970), id: start))
+        return start
+    }
+
+    func monthId(for timestamp: Int32) -> Int64 {
+        lock.lock()
+        defer { lock.unlock() }
+        let timestamp = Int64(timestamp)
+        if let boundary = months.reversed().first(where: { $0.contains(timestamp) }) {
+            return boundary.id
+        }
+        let date = Date(timeIntervalSince1970: TimeInterval(timestamp))
+        let interval: DateInterval?
+        let startMonth: Date
+        if calendar.identifier == .gregorian || calendar.identifier == .iso8601 {
+            let monthInterval = calendar.dateInterval(of: .month, for: date)!
+            interval = monthInterval
+            startMonth = monthInterval.start
+        } else {
+            interval = nil
+            startMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: date))!
+        }
+        let lastDay = calendar.date(byAdding: DateComponents(month: 1, day: -1), to: startMonth)!
+        let id = Int64(lastDay.timeIntervalSince1970)
+        guard let interval = interval else {
+            return id
+        }
+        if months.count >= capacity {
+            months.removeFirst()
+        }
+        months.append(Boundary(start: Int64(interval.start.timeIntervalSince1970), end: Int64(interval.end.timeIntervalSince1970), id: id))
+        return id
+    }
+}
+
+private let chatDateGroupingCache = ChatDateGroupingCache()
+
+public func chatDateId(for timestamp: Int32) -> Int64 {
+    return chatDateGroupingCache.dayId(for: timestamp)
 }
 
 public func mediaDateId(for timestamp: Int32) -> Int64 {
-    let startMonth = _chatGroupingCalendar.date(from: _chatGroupingCalendar.dateComponents([.year, .month], from: Date(timeIntervalSince1970: TimeInterval(timestamp))))!
-    let endMonth = _chatGroupingCalendar.date(byAdding: DateComponents(month: 1, day: -1), to: startMonth)!
-    return Int64(endMonth.timeIntervalSince1970)
+    return chatDateGroupingCache.monthId(for: timestamp)
 }

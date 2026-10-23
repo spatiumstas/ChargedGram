@@ -256,6 +256,7 @@ private final class ChatGiveawayGiftRowItemView: TableRowView {
         container.set(handler: { [weak self] _ in
             self?.action.send(event: .Click)
         }, for: .Click)
+        container.setAccessibilityLabel(strings().voiceOverCommonOpen)
         
     }
     

@@ -5,6 +5,22 @@ import CoreImage
 import SwiftSignalKit
 import libwebp
 
+public func stickerWebP(from image: CGImage) -> (data: Data, size: CGSize)? {
+    let side: CGFloat = 512
+    let scale = side / CGFloat(max(1, max(image.width, image.height)))
+    let width = max(1, Int((CGFloat(image.width) * scale).rounded()))
+    let height = max(1, Int((CGFloat(image.height) * scale).rounded()))
+    guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB), let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+        return nil
+    }
+    context.interpolationQuality = .high
+    context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+    guard let scaled = context.makeImage(), let data = convertToWebP(scaled, 90) else {
+        return nil
+    }
+    return (data: data, size: CGSize(width: width, height: height))
+}
+
 @available(macOS 14.0, *)
 public extension TextRecognizing {
 
@@ -12,20 +28,41 @@ public extension TextRecognizing {
         public let image: CGImage
         public let rect: CGRect
         
-        public func stickerData() -> Data? {
+        public func stickerImage(outline: Bool = false) -> CGImage? {
             let side: CGFloat = 512
-            let scale = side / CGFloat(max(image.width, image.height))
+            let border: CGFloat = outline ? 10 : 0
+            let scale = (side - border * 2) / CGFloat(max(image.width, image.height))
             let width = max(1, Int((CGFloat(image.width) * scale).rounded()))
             let height = max(1, Int((CGFloat(image.height) * scale).rounded()))
-            guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB), let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            let inset = Int(border)
+            guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB), let context = CGContext(data: nil, width: width + inset * 2, height: height + inset * 2, bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
                 return nil
             }
             context.interpolationQuality = .high
-            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            context.draw(image, in: CGRect(x: inset, y: inset, width: width, height: height))
             guard let scaled = context.makeImage() else {
                 return nil
             }
-            return convertToWebP(scaled, 90)
+            if outline {
+                return Subject.outlined(scaled, width: border, colorSpace: colorSpace)
+            }
+            return scaled
+        }
+
+        public func stickerData(outline: Bool = false) -> Data? {
+            guard let image = stickerImage(outline: outline) else {
+                return nil
+            }
+            return convertToWebP(image, 90)
+        }
+
+        private static func outlined(_ image: CGImage, width: CGFloat, colorSpace: CGColorSpace) -> CGImage? {
+            let input = CIImage(cgImage: image)
+            let extent = input.extent
+            let dilated = input.applyingFilter("CIMorphologyMaximum", parameters: [kCIInputRadiusKey: width]).cropped(to: extent)
+            let border = CIImage(color: CIColor(red: 1, green: 1, blue: 1)).cropped(to: extent).applyingFilter("CIBlendWithAlphaMask", parameters: [kCIInputBackgroundImageKey: CIImage.empty(), kCIInputMaskImageKey: dilated])
+            let context = CIContext(options: [.workingColorSpace: colorSpace, .outputColorSpace: colorSpace])
+            return context.createCGImage(input.composited(over: border), from: extent)
         }
     }
 

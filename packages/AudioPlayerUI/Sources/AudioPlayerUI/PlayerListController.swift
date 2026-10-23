@@ -257,6 +257,12 @@ private final class PlayerListHandlingView: View {
         
         playPauseView.setFrameSize(playPause.frame.size)
         
+        prev.setAccessibilityLabel(strings().voiceOverCommonPrevious)
+        next.setAccessibilityLabel(strings().voiceOverCommonNext)
+        playPause.setAccessibilityLabel(strings().voiceOverCommonPlay)
+        order.setAccessibilityLabel(strings().voiceOverCommonPlaybackOrder)
+        iteration.setAccessibilityLabel(strings().dateSelectorScheduleRepeat)
+
         prev.autohighlight = false
         next.autohighlight = false
         playPause.autohighlight = false
@@ -304,8 +310,10 @@ private final class PlayerListHandlingView: View {
         
         switch controller.state.status {
         case .playing:
+            playPause.setAccessibilityLabel(strings().voiceOverCommonPause)
             play(animated: animated, sticker: LocalAnimatedSticker.playlist_play_pause)
         case .paused:
+            playPause.setAccessibilityLabel(strings().voiceOverCommonPlay)
             play(animated: animated, sticker: LocalAnimatedSticker.playlist_pause_play)
         default:
             break
@@ -313,19 +321,25 @@ private final class PlayerListHandlingView: View {
         
         switch controller.state.orderState {
         case .normal:
+            order.setAccessibilityValue(nil)
             order.set(image: theme.icons.playlist_order_normal, for: .Normal)
         case .reversed:
+            order.setAccessibilityValue(strings().voiceOverCommonReversed)
             order.set(image: theme.icons.playlist_order_reversed, for: .Normal)
         case .random:
+            order.setAccessibilityValue(strings().voiceOverCommonShuffle)
             order.set(image: theme.icons.playlist_order_random, for: .Normal)
         }
         
         switch controller.state.repeatState {
         case .none:
+            iteration.setAccessibilityValue(strings().dateSelectorScheduleRepeatNever)
             iteration.set(image: theme.icons.playlist_repeat_none, for: .Normal)
         case .one:
+            iteration.setAccessibilityValue(strings().voiceOverCommonRepeatOne)
             iteration.set(image: theme.icons.playlist_repeat_one, for: .Normal)
         case .circle:
+            iteration.setAccessibilityValue(strings().voiceOverCommonRepeatAll)
             iteration.set(image: theme.icons.playlist_repeat_circle, for: .Normal)
         }
         order.sizeToFit()
@@ -421,27 +435,31 @@ private final class PlayerListControlsView : View {
         
         switch track.state {
         case .waiting:
-            break
+            self.progress.set(progress: 0, animated: animated)
         case .stoped:
             self.progress.set(progress: 0, animated: animated)
         case let .playing(current, duration, progress), let .paused(current, duration, progress):
-            self.progress.set(progress: CGFloat(progress == .nan ? 0 : progress), animated: animated, duration: 0.2)
-            played = Int(current)
-            rest = Int(duration - current)
+            self.progress.set(progress: CGFloat(progress.isFinite ? min(max(progress, 0), 1) : 0), animated: animated, duration: 0.2)
+            if current.isFinite {
+                var current = max(0, current)
+                if duration.isFinite, duration >= 0 {
+                    current = min(current, duration)
+                    rest = Int(exactly: (duration - current).rounded(.towardZero))
+                }
+                played = Int(exactly: current.rounded(.towardZero))
+            }
         case let .fetching(progress):
-            self.progress.set(progress: CGFloat(progress), animated: animated)
+            self.progress.set(progress: CGFloat(progress.isFinite ? min(max(progress, 0), 1) : 0), animated: animated)
         }
         
-        if let played = played, let rest = rest {
-            let playedLayout = TextViewLayout.init(.initialize(string: timerText(played), color: theme.colors.grayText, font: .normal(.short)))
-            let restLayout = TextViewLayout.init(.initialize(string: timerText(rest), color: theme.colors.grayText, font: .normal(.short)))
+        let playedLayout = TextViewLayout.init(.initialize(string: played.map { timerText($0) } ?? " ", color: theme.colors.grayText, font: .normal(.short)))
+        let restLayout = TextViewLayout.init(.initialize(string: rest.map { timerText($0) } ?? " ", color: theme.colors.grayText, font: .normal(.short)))
 
-            playedLayout.measure(width: .greatestFiniteMagnitude)
-            restLayout.measure(width: .greatestFiniteMagnitude)
+        playedLayout.measure(width: .greatestFiniteMagnitude)
+        restLayout.measure(width: .greatestFiniteMagnitude)
             
-            self.playedView.update(playedLayout)
-            self.restView.update(restLayout)
-        }
+        self.playedView.update(playedLayout)
+        self.restView.update(restLayout)
         needsLayout = true
     }
     
@@ -502,9 +520,9 @@ final class PlayerListView : View, APDelegate {
     private var addToProfileView: TextButton?
     private var addedToProfileView: TextView?
     private let bufferingStatusDisposable = MetaDisposable()
-    private var ranges: (RangeSet<Int64>, Int64)?
     
     deinit {
+        controller?.remove(listener: self)
         bufferingStatusDisposable.dispose()
     }
     
@@ -513,12 +531,17 @@ final class PlayerListView : View, APDelegate {
     private(set) var controller:APController? {
         didSet {
             oldValue?.remove(listener: self)
+            self.bufferingStatusDisposable.set(nil)
+            self.updateStatus(RangeSet(), 0)
             controller?.add(listener: self)
             if let controller = controller {
                 self.bufferingStatusDisposable.set((controller.bufferingStatus
-                    |> deliverOnMainQueue).start(next: { [weak self] status in
+                    |> deliverOnMainQueue).start(next: { [weak self, weak controller] status in
+                        guard let self, let controller, self.controller === controller else { return }
                         if let status = status {
-                            self?.updateStatus(status.0, status.1)
+                            self.updateStatus(status.0, status.1)
+                        } else {
+                            self.updateStatus(RangeSet(), 0)
                         }
                     }))
             } else {
@@ -528,15 +551,7 @@ final class PlayerListView : View, APDelegate {
     }
     
     func updateStatus(_ ranges: RangeSet<Int64>, _ size: Int64) {
-        self.ranges = (ranges, size)
-        if let ranges = self.ranges, !ranges.0.isEmpty, ranges.1 != 0 {
-            for range in ranges.0.ranges {
-                var progress = (CGFloat(range.count) / CGFloat(ranges.1))
-                progress = progress == 1.0 ? 0 : progress
-                controls.progress.set(fetchingProgress: progress, animated: progress > 0)
-                break
-            }
-        }
+        controls.progress.set(fetchingProgressRanges: audioPlayerBufferingRanges(ranges, size: size), animated: false)
     }
     
     fileprivate func updateState(_ state: State, animated: Bool, arguments: PlayerListArguments) {
@@ -723,9 +738,11 @@ final class PlayerListView : View, APDelegate {
     
     func setController(_ controller: APController?) {
         self.controller = controller
+        self.controls.isHidden = controller?.currentSong == nil
         if let controller = controller, let item = controller.currentSong {
             self.controls.update(item, controller: controller, animated: false)
         }
+        self.playerDidUpdate?(controller?.currentSong)
     }
     
     override func updateLocalizationAndTheme(theme: PresentationTheme) {
@@ -773,32 +790,37 @@ final class PlayerListView : View, APDelegate {
         fatalError("init(coder:) has not been implemented")
     }
     
-    func songDidChanged(song: APSongItem, for controller: APController, animated: Bool) {
-        self.controls.update(song, controller: controller, animated: true)
+    private func update(_ song: APSongItem, controller: APController, animated: Bool) {
+        guard self.controller === controller, controller.currentSong?.stableId == song.stableId else { return }
+        self.controls.isHidden = false
+        self.controls.update(song, controller: controller, animated: animated)
         playerDidUpdate?(song)
+    }
+
+    func songDidChanged(song: APSongItem, for controller: APController, animated: Bool) {
+        self.update(song, controller: controller, animated: animated)
     }
     
     func songDidChangedState(song: APSongItem, for controller: APController, animated: Bool) {
-        controls.update(song, controller: controller, animated: true)
-        playerDidUpdate?(song)
+        self.update(song, controller: controller, animated: animated)
     }
     
     func songDidStartPlaying(song: APSongItem, for controller: APController, animated: Bool) {
-        controls.update(song, controller: controller, animated: true)
-        playerDidUpdate?(song)
+        self.update(song, controller: controller, animated: animated)
     }
     
     func songDidStopPlaying(song: APSongItem, for controller: APController, animated: Bool) {
-        controls.update(song, controller: controller, animated: true)
-        playerDidUpdate?(song)
+        self.update(song, controller: controller, animated: animated)
     }
     
     func playerDidChangedTimebase(song: APSongItem, for controller: APController, animated: Bool) {
-        controls.update(song, controller: controller, animated: true)
-        playerDidUpdate?(song)
+        self.update(song, controller: controller, animated: animated)
     }
     
     func audioDidCompleteQueue(for controller: APController, animated: Bool) {
+        guard self.controller === controller else { return }
+        self.controls.isHidden = true
+        self.updateStatus(RangeSet(), 0)
         playerDidUpdate?(nil)
     }
     

@@ -33,6 +33,14 @@ public struct StoriesHooks {
     public let pushStoryMedia: (any AccountContextProtocol, PeerId, PeerStoryListContext, Bool, Bool) -> Void
     public let generateLiveStreamBadge: (CGFloat, NSColor?) -> CGImage
     public let showListStory: (any AccountContextProtocol, StoryListContext, PeerId, StoryInitialIndex?) -> Void
+    public var showListStoryWithContext: ((any AccountContextProtocol, StoryListContext, PeerId, StoryInitialIndex?) -> Void)?
+    public func showListStoryObserved(_ context: any AccountContextProtocol, _ listContext: StoryListContext, _ peerId: PeerId, _ initialId: StoryInitialIndex?) {
+        if let showListStoryWithContext {
+            showListStoryWithContext(context, listContext, peerId, initialId)
+        } else {
+            showListStory(context, listContext, peerId, initialId)
+        }
+    }
     public let makeStoryMonthRowItem: (NSSize, AnyHashable, any AccountContextProtocol, Bool, PeerId, PeerReference, [StoryListContextState.Item], Set<StoryId>?, [Int32], Int, GeneralViewType, @escaping (StoryInitialIndex?) -> Void, @escaping (StoryId) -> Void, @escaping (StoryListContextState.Item) -> [ContextMenuItem], TelegramPresentationTheme) -> TableRowItem
     public let executeInApp: (StoriesInAppLink) -> Void
     public let showShareLink: (any AccountContextProtocol, String, Window) -> Void

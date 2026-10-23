@@ -26,6 +26,9 @@ private final class LockControl : View {
         addSubview(head)
         addSubview(arrow)
         addSubview(body)
+        head.isAccessibilityDecorative = true
+        arrow.isAccessibilityDecorative = true
+        body.isAccessibilityDecorative = true
         updateLocalizationAndTheme(theme: darkAppearance)
     }
     
@@ -88,6 +91,7 @@ private class StoryRecorderOverlayView : Control {
         innerContainer.layer?.cornerRadius = innerContainer.frame.width / 2
         addSubview(innerContainer)
         innerContainer.center()
+        innerContainer.isAccessibilityDecorative = true
         addSubview(stateView)
 //
         
@@ -104,6 +108,14 @@ private class StoryRecorderOverlayView : Control {
             stateView.image = darkAppearance.icons.chatOverlayVideoRecording
         case .fixed:
             stateView.image = darkAppearance.icons.chatOverlaySendRecording
+        }
+        switch overlayState {
+        case .voice:
+            stateView.setAccessibilityLabel(strings().voiceOverChatRecordModeVoiceMessage)
+        case .video:
+            stateView.setAccessibilityLabel(strings().voiceOverChatRecordModeVideoMessage)
+        case .fixed:
+            stateView.setAccessibilityLabel(strings().voiceOverMessageContextSend)
         }
         stateView.sizeToFit()
         stateView.center()
@@ -171,8 +183,12 @@ class StoryRecorderOverlayWindowController : NSObject {
     func stopAndSend() {
         if let recorder = arguments.interaction.presentation.inputRecording {
             recorder.stop()
-            _ = (recorder.data |> deliverOnMainQueue).start(next: { [weak self] medias in
-                self?.arguments.chatInteraction.sendMedia(medias)
+            let data = recorder.contextBoundData
+            _ = data.start(next: { [weak chatInteraction = arguments.chatInteraction] medias in
+                guard let chatInteraction else {
+                    return
+                }
+                chatInteraction.sendMedia(medias)
             })
             closeModal(VideoRecorderModalController.self)
         }
@@ -192,6 +208,7 @@ class StoryRecorderOverlayWindowController : NSObject {
         if state == .fixed {
             verifyAlert_button(for: parent, information: strings().chatRecordingCancel, ok: strings().alertDiscard, cancel: strings().alertNO, successHandler: { _ in
                 proccess()
+            }, cancelHandler: { [weak self] in
             })
         } else {
             proccess()
@@ -379,6 +396,8 @@ class StoryRecordingView: View {
         statusImage.image = state.recordType == .voice ? darkAppearance.icons.chatVoiceRecording : darkAppearance.icons.chatVideoRecording
         statusImage.animates = true
         statusImage.sizeToFit()
+        statusImage.isAccessibilityDecorative = true
+        focusView.isAccessibilityDecorative = true
         
         descView.userInteractionEnabled = false
         descView.isSelectable = false
@@ -398,6 +417,8 @@ class StoryRecordingView: View {
         
         disposable.set(combineLatest(recorder.status |> deliverOnMainQueue, recorder.holdpromise.get() |> deliverOnMainQueue).start(next: { [weak self] state, hold in
             if case let .recording(duration) = state {
+                if duration > 0, recorder is ChatRecordingAudioState {
+                }
                 self?.update(duration, true, hold)
             }
         }))

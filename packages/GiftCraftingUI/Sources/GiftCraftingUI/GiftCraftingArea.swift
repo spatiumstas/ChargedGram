@@ -157,6 +157,14 @@ public final class CraftAboutFeatureItem: GeneralRowItem {
         return CraftAboutFeatureView.self
     }
 
+    public override var accessibilityLabel: String? {
+        return features.map { "\($0.titleLayout.attributedString.string). \($0.descriptionLayout.attributedString.string)" }.joined(separator: "\n")
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
     public override var height: CGFloat {
         var height: CGFloat = 0
         for (i, feature) in features.enumerated() {
@@ -181,6 +189,7 @@ private final class CraftAboutFeatureView: GeneralContainableRowView {
             addSubview(iconView)
             addSubview(titleView)
             addSubview(descriptionView)
+            iconView.isAccessibilityDecorative = true
 
             titleView.userInteractionEnabled = false
             titleView.isSelectable = false
@@ -375,6 +384,14 @@ public final class CraftingAreaItem: GeneralRowItem {
         return CraftingAreaView.self
     }
 
+    public override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return descriptionLayout.attributedString.string.replacingOccurrences(of: clown, with: "")
+    }
+
     public override var height: CGFloat {
         let titleHeight: CGFloat = 30
         let slotsHeight: CGFloat = 150
@@ -429,6 +446,7 @@ private final class CraftLostGiftView: View {
             badge = existing
         } else {
             badge = ImageView()
+            badge.isAccessibilityDecorative = true
             addSubview(badge)
             badgeView = badge
         }
@@ -670,6 +688,7 @@ private final class CraftingAreaView: GeneralRowView {
             ctx.strokePath()
         })
         viewAllVariantsChevron.image = chevronIcon
+        viewAllVariantsChevron.isAccessibilityDecorative = true
         viewAllVariantsChevron.sizeToFit()
         viewAllVariantsButton.addSubview(viewAllVariantsChevron)
         viewAllVariantsButton.scaleOnClick = true
@@ -685,6 +704,7 @@ private final class CraftingAreaView: GeneralRowView {
         dismissButton.setGlassEffect(size: NSMakeSize(36, 36))
 
         dismissButton.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
+        dismissButton.setAccessibilityLabel(strings().voiceOverCommonClose)
         addSubview(dismissButton)
 
         infoButton.scaleOnClick = true
@@ -692,6 +712,7 @@ private final class CraftingAreaView: GeneralRowView {
         infoButton.set(image: TelegramThemeHooks.shared.image(.iconChatActionInfo).precomposed(.white), for: .Normal)
         infoButton.setGlassEffect(size: NSMakeSize(36, 36))
         infoButton.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
+        infoButton.setAccessibilityLabel(strings().voiceOverCommonInfo)
         addSubview(infoButton)
 
         titleView.userInteractionEnabled = false
@@ -964,6 +985,7 @@ private final class CraftingAreaView: GeneralRowView {
             let buttonTitleLayout = TextViewLayout(.initialize(string: strings().starGiftCraftAnotherGift, color: .white, font: .medium(.title)), alignment: .center)
             buttonTitleLayout.measure(width: .greatestFiniteMagnitude)
             craftButtonTitle.update(buttonTitleLayout)
+            craftButton.setAccessibilityLabel(strings().starGiftCraftAnotherGift)
         } else {
             if item.successChance >= 95 {
                 craftButtonGradient.colors = [NSColor(0x2ECC71).cgColor, NSColor(0x27AE60).cgColor]
@@ -994,6 +1016,7 @@ private final class CraftingAreaView: GeneralRowView {
             let subtitleLayout = TextViewLayout(.initialize(string: strings().starGiftCraftSuccessChance(item.successChance), color: NSColor.white.withAlphaComponent(0.8), font: .normal(.small)), alignment: .center)
             subtitleLayout.measure(width: .greatestFiniteMagnitude)
             craftButtonSubtitle.update(subtitleLayout)
+            craftButton.setAccessibilityLabel("\(craftGiftName), \(strings().starGiftCraftSuccessChance(item.successChance))")
         }
 
         setCraftButtonEnabled(true)
@@ -1243,6 +1266,7 @@ private final class CraftingAreaView: GeneralRowView {
         updateChanceIndicators(item: item)
 
         viewAllVariantsText.set(text: item.variantsLayout, context: item.context)
+        viewAllVariantsButton.setAccessibilityLabel(strings().starGiftCraftViewAllModels("").trimmingCharacters(in: .whitespaces))
         let chevronWidth = viewAllVariantsChevron.frame.width
         let chevronSpacing: CGFloat = 4
         viewAllVariantsButton.setFrameSize(NSMakeSize(item.variantsLayout.layoutSize.width + chevronWidth + chevronSpacing + 20, item.variantsLayout.layoutSize.height + 8))

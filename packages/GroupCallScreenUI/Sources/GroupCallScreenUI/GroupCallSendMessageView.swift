@@ -245,6 +245,8 @@ public final class GroupCallSendMessageView : View {
         self.textView.interactions.min_height = 34
         
         sendButton.set(image: GroupCallTheme.send_message_image, for: .Normal)
+        sendButton.setAccessibilityLabel(strings().voiceOverMessageContextSend)
+        emojiButton.setAccessibilityLabel(strings().voiceOverCommonEmoji)
         sendButton.sizeToFit()
         sendButton.autohighlight = false
         sendButton.scaleOnClick = true

@@ -192,6 +192,7 @@ open class GeneralInteractedRowView: GeneralContainableRowView, ViewDisplayDeleg
                     current = view
                 } else {
                     current = ImageView()
+                    current.isAccessibilityDecorative = true
                     containerView.addSubview(current)
                     self.imageContext = current
                 }
@@ -267,6 +268,7 @@ open class GeneralInteractedRowView: GeneralContainableRowView, ViewDisplayDeleg
                     current = view
                 } else {
                     current = ImageView()
+                    current.isAccessibilityDecorative = true
                     self.rightIconView = current
                     containerView.addSubview(current)
                 }
@@ -479,6 +481,28 @@ open class GeneralInteractedRowView: GeneralContainableRowView, ViewDisplayDeleg
         fatalError("init(coder:) has not been implemented")
     }
     
+    #if !SHARE
+    func showAccessibilityContextSelector(_ items: [ContextMenuItem]) -> Bool {
+        let anchor: NSView = textView ?? containerView
+        guard let window = window else {
+            return false
+        }
+        if items.contains(where: { ($0.menu as? ContextMenu)?.isShown == true }) {
+            return false
+        }
+        let point = anchor.convert(NSMakePoint(anchor.bounds.midX, anchor.bounds.midY), to: nil)
+        guard let event = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else {
+            return false
+        }
+        let menu = ContextMenu()
+        for item in items {
+            menu.addItem(item)
+        }
+        AppMenu.show(menu: menu, event: event, for: anchor)
+        return true
+    }
+    #endif
+
     open func invokeAction(_ item: GeneralInteractedRowItem) {
         if item.enabled {
             if let textView = self.textView {

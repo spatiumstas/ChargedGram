@@ -107,7 +107,7 @@ open class NavigationHeader {
         let view = self.view
         let realHeight = self.realHeight
         let slotInset = navigation.slotLeadingInset
-        let hWidth = max(0, navigation.containerView.frame.width - slotInset)
+        let hWidth = max(0, navigation.containerView.frame.width - slotInset - navigation.slotTrailingInset)
         view.frame = NSMakeRect(slotInset, -realHeight, hWidth, realHeight)
         disposable.set((view.ready.get() |> filter {$0} |> take(1)).start(next: { [weak navigation, weak self, weak view] (ready) in
             if let navigation = navigation, let view = view {
@@ -180,7 +180,7 @@ public class CallNavigationHeader : NavigationHeader {
         let realHeight = self.realHeight
         let height = self.height
         let slotInset = navigation.slotLeadingInset
-        let hWidth = max(0, navigation.containerView.frame.width - slotInset)
+        let hWidth = max(0, navigation.containerView.frame.width - slotInset - navigation.slotTrailingInset)
         view.frame = NSMakeRect(slotInset, -realHeight, hWidth, realHeight)
 
 
@@ -258,7 +258,7 @@ public class AdditionalNavigationHeader : NavigationHeader {
         let view = self.view
         let realHeight = self.realHeight
         let slotInset = navigation.slotLeadingInset
-        let hWidth = max(0, navigation.containerView.frame.width - slotInset)
+        let hWidth = max(0, navigation.containerView.frame.width - slotInset - navigation.slotTrailingInset)
         view.frame = NSMakeRect(slotInset, -realHeight, hWidth, realHeight)
 
         disposable.set((view.ready.get() |> filter { $0 } |> take(1)).start(next: { [weak navigation, weak view, weak self] (ready) in
@@ -450,7 +450,7 @@ open class NavigationViewController: ViewController, CALayerDelegate,CAAnimation
             }
         }
 
-        func updateInternalLayout(barHeight: CGFloat, slotLeadingInset: CGFloat = 0, inset: CGFloat = 0, barOffset: CGFloat = 0, transition: ContainedViewLayoutTransition = .immediate) {
+        func updateInternalLayout(barHeight: CGFloat, slotLeadingInset: CGFloat = 0, slotTrailingInset: CGFloat = 0, inset: CGFloat = 0, barOffset: CGFloat = 0, transition: ContainedViewLayoutTransition = .immediate) {
 
             let barIsReal = controller?.barIsReal ?? false
 
@@ -460,7 +460,7 @@ open class NavigationViewController: ViewController, CALayerDelegate,CAAnimation
             transition.updateFrame(view: clippingView, frame: rect)
             let backdropFrame = CGRect(origin: .zero, size: rect.size).insetBy(dx: 0, dy: -inset/2).offsetBy(dx: 0, dy: -inset/2)
             transition.updateFrame(view: backdropView, frame: backdropFrame)
-            transition.updateFrame(view: navigationBar, frame: NSMakeRect(slotLeadingInset, barOffset, max(0, rect.width - slotLeadingInset), barHeight))
+            transition.updateFrame(view: navigationBar, frame: NSMakeRect(slotLeadingInset, barOffset, max(0, rect.width - slotLeadingInset - slotTrailingInset), barHeight))
             navigationBar.isHidden = barHeight == 0
             transition.updateFrame(view: contentView, frame: NSMakeRect(0, contentTop, rect.width, max(0, rect.height - contentTop)))
 
@@ -552,10 +552,10 @@ open class NavigationViewController: ViewController, CALayerDelegate,CAAnimation
         let container = containerOf(controller)
         container.frame = frame
         let chromeOffset = barOffset(for: controller)
-        container.updateInternalLayout(barHeight: controller.barHeight, slotLeadingInset: self.slotLeadingInset, inset: frame.minY, barOffset: chromeOffset)
+        container.updateInternalLayout(barHeight: controller.barHeight, slotLeadingInset: self.slotLeadingInset, slotTrailingInset: self.slotTrailingInset, inset: frame.minY, barOffset: chromeOffset)
         let contentBounds = container.contentView.bounds
         let inset = self.slotLeadingInset
-        controller.view.frame = NSMakeRect(inset, 0, max(0, contentBounds.width - inset), contentBounds.height)
+        controller.view.frame = NSMakeRect(inset, 0, max(0, contentBounds.width - inset - self.slotTrailingInset), contentBounds.height)
         controller.updateNavigationHeaderOverflow(chromeOffset, transition: .immediate)
     }
 
@@ -576,10 +576,10 @@ open class NavigationViewController: ViewController, CALayerDelegate,CAAnimation
         let newFrame = controllerFrame(for: controller)
         transition.updateFrame(view: activeContainer, frame: newFrame)
         let chromeOffset = barOffset(for: controller)
-        activeContainer.updateInternalLayout(barHeight: barHeight, slotLeadingInset: slotLeadingInset, inset: newFrame.minY, barOffset: chromeOffset, transition: transition)
+        activeContainer.updateInternalLayout(barHeight: barHeight, slotLeadingInset: slotLeadingInset, slotTrailingInset: slotTrailingInset, inset: newFrame.minY, barOffset: chromeOffset, transition: transition)
         let contentBounds = activeContainer.contentView.bounds
         let inset = slotLeadingInset
-        controller.updateFrame(NSMakeRect(inset, 0, max(0, contentBounds.width - inset), contentBounds.height), inset: newFrame.minY, transition: transition)
+        controller.updateFrame(NSMakeRect(inset, 0, max(0, contentBounds.width - inset - slotTrailingInset), contentBounds.height), inset: newFrame.minY, transition: transition)
         controller.updateNavigationHeaderOverflow(chromeOffset, transition: transition)
     }
 
@@ -595,7 +595,7 @@ open class NavigationViewController: ViewController, CALayerDelegate,CAAnimation
 
     func updateHeaderFrames(transition: ContainedViewLayoutTransition) {
         let headerX = slotLeadingInset
-        let headerWidth = max(0, containerView.frame.width - slotLeadingInset)
+        let headerWidth = max(0, containerView.frame.width - slotLeadingInset - slotTrailingInset)
         var reserved: CGFloat = 0
         var visualBottom: CGFloat = 0
 
@@ -617,7 +617,7 @@ open class NavigationViewController: ViewController, CALayerDelegate,CAAnimation
             updateActiveControllerLayout(barHeight: controller.barHeight, transition: transition)
         } else {
             let activeContainer = containerOf(controller)
-            activeContainer.updateInternalLayout(barHeight: controller.barHeight, slotLeadingInset: slotLeadingInset, inset: activeContainer.frame.minY, barOffset: headerOverflow, transition: transition)
+            activeContainer.updateInternalLayout(barHeight: controller.barHeight, slotLeadingInset: slotLeadingInset, slotTrailingInset: slotTrailingInset, inset: activeContainer.frame.minY, barOffset: headerOverflow, transition: transition)
             controller.updateNavigationHeaderOverflow(headerOverflow, transition: transition)
         }
     }
@@ -789,7 +789,7 @@ open class NavigationViewController: ViewController, CALayerDelegate,CAAnimation
         let width = containerSize.width - keepLeft
         let point = NSMakePoint(keepLeft, 0)
 
-        let headerWidth = max(0, width - slotLeadingInset)
+        let headerWidth = max(0, width - slotLeadingInset - slotTrailingInset)
         let headerX = point.x + slotLeadingInset
         if let header = callHeader, header.needShown {
             header.view.frame = NSMakeRect(headerX, header.view.frame.minY, headerWidth, header.realHeight)
@@ -964,7 +964,7 @@ open class NavigationViewController: ViewController, CALayerDelegate,CAAnimation
         var barInset: CGFloat = 0
         var visualBottom: CGFloat = 0
         let headerX = point.x + slotLeadingInset
-        let headerWidth = max(0, size.width - slotLeadingInset)
+        let headerWidth = max(0, size.width - slotLeadingInset - slotTrailingInset)
         if let header = callHeader, header.needShown {
             header.view.frame = NSMakeRect(headerX, 0, headerWidth, header.realHeight)
             visualBottom = header.realHeight
@@ -1008,14 +1008,10 @@ open class NavigationViewController: ViewController, CALayerDelegate,CAAnimation
         
         let popInteractiveInset: CGFloat? = window.inLiveSwiping ? containerOf(controller).frame.minX : nil
 
-        // Container holds bar + content; size matches `controllerFrame(for:)`,
-        // which intentionally INCLUDES the bar height (the bar is positioned at
-        // (0,0) inside the container by `updateInternalLayout`). Don't subtract
-        // controller.barHeight here.
         do {
             let insets = controller.insets
             let overflow = contentOverflow(for: controller)
-            setControllerFrame(controller, frame: NSMakeRect(point.x + insets.left, barInset + overflow + keepTop + insets.top, size.width - insets.left - insets.right, containerView.frame.height - barInset - overflow - keepTop - insets.top - insets.bottom))
+            setControllerFrame(controller, frame: NSMakeRect(point.x + insets.left, barInset + overflow + keepTop + insets.top, max(0, size.width - insets.left - insets.right), max(0, containerView.frame.height - barInset - overflow - keepTop - insets.top - insets.bottom)))
         }
        
         
@@ -1054,9 +1050,9 @@ open class NavigationViewController: ViewController, CALayerDelegate,CAAnimation
             } else if keepLeft > 0 {
                 pto = 0
             } else if controller.fullSlideAnimation {
-                pto = -(self.frame.width - slotLeadingInset)
+                pto = -(self.frame.width - slotLeadingInset - slotTrailingInset)
             } else {
-                pto = -round((self.frame.width - slotLeadingInset)/3.0)
+                pto = -round((self.frame.width - slotLeadingInset - slotTrailingInset)/3.0)
             }
 
             previousContainer.setFrameOrigin(NSMakePoint(pfrom, previousContainer.frame.minY))
@@ -1083,9 +1079,9 @@ open class NavigationViewController: ViewController, CALayerDelegate,CAAnimation
             } else if previous.stake.keepLeft > 0 && previous.stake.keepLeft != frame.width {
                 nfrom = 0
             } else if previous.fullSlideAnimation {
-                nfrom = -(frame.width - slotLeadingInset)
+                nfrom = -(frame.width - slotLeadingInset - slotTrailingInset)
             } else {
-                nfrom = -round((frame.width - slotLeadingInset)/3.0)
+                nfrom = -round((frame.width - slotLeadingInset - slotTrailingInset)/3.0)
             }
 
             nto = controller.insets.left
@@ -1509,9 +1505,9 @@ open class NavigationViewController: ViewController, CALayerDelegate,CAAnimation
                     if keepLeft > 0 {
                         previousStart = 0
                     } else if fullSlide {
-                        previousStart = -(self.containerView.frame.width - slotLeadingInset)
+                        previousStart = -(self.containerView.frame.width - slotLeadingInset - slotTrailingInset)
                     } else {
-                        previousStart = -round((self.containerView.frame.width - slotLeadingInset)/3.0)
+                        previousStart = -round((self.containerView.frame.width - slotLeadingInset - slotTrailingInset)/3.0)
                     }
                     let parallaxDivisor: CGFloat = fullSlide ? 1.0 : 3.0
 
@@ -1549,9 +1545,9 @@ open class NavigationViewController: ViewController, CALayerDelegate,CAAnimation
                     if keepLeft > 0 {
                         previousStart = 0
                     } else if self.controller.fullSlideAnimation {
-                        previousStart = -(self.containerView.frame.width - slotLeadingInset)
+                        previousStart = -(self.containerView.frame.width - slotLeadingInset - slotTrailingInset)
                     } else {
-                        previousStart = -round((self.containerView.frame.width - slotLeadingInset)/3.0)
+                        previousStart = -round((self.containerView.frame.width - slotLeadingInset - slotTrailingInset)/3.0)
                     }
 
                     activeContainer._change(opacity: 1, animated: animated, duration: scaledDuration / 2, timingFunction: animationStyle.function)

@@ -916,6 +916,9 @@
 		D48F2B4F431948C6A001328C /* InactiveChannelsUI in Frameworks */ = {isa = PBXBuildFile; productRef = 3DB8EBB382994860A7329BE8 /* InactiveChannelsUI */; };
 		1ADD8BCCDC6049B68CE86BFE /* SimilarPeersHooksInstall.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4793112A0E44048B603D019 /* SimilarPeersHooksInstall.swift */; };
 		53C2655B791449A18A453BBD /* GroupsInCommonUI in Frameworks */ = {isa = PBXBuildFile; productRef = 8C849FFE3CF443CEAAFD9A65 /* GroupsInCommonUI */; };
+		5105D43394A54BCB8773E53C /* QrStudioUI in Frameworks */ = {isa = PBXBuildFile; productRef = 019B2BAFB79C48F1A4A5666E /* QrStudioUI */; };
+		7110771E0000000000000004 /* TLottie in Frameworks */ = {isa = PBXBuildFile; productRef = 7110771E0000000000000002 /* TLottie */; };
+		7110771E0000000000000005 /* TLottie in Frameworks */ = {isa = PBXBuildFile; productRef = 7110771E0000000000000003 /* TLottie */; };
 		B2011E3EB7D84C48A0B9509D /* CrashRecoveryUI in Frameworks */ = {isa = PBXBuildFile; productRef = A49FDE6EE2CE45CC94854F90 /* CrashRecoveryUI */; };
 		E9E2F04E0D564351A4C88842 /* CrashReports in Frameworks */ = {isa = PBXBuildFile; productRef = 4E0F0513AE01455B9C8A6FD8 /* CrashReports */; };
 		341A9B85F159A5C4199FEC2E /* UniqueGiftBackground in Frameworks */ = {isa = PBXBuildFile; productRef = B761798CA4CFE188189A6AB9 /* UniqueGiftBackground */; };
@@ -968,6 +971,8 @@
 		BD2936A2750E3FE6BCE9E2B3 /* DeclareEncodables.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE86FB0F59E064B14FB93C24 /* DeclareEncodables.swift */; };
 		F2C41EF6164C145291D636CC /* UpgradedAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03869200580769C2116707A9 /* UpgradedAccount.swift */; };
 		0D5921F9B5563A1D0CEC7240 /* MemoryPressureMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0C8FD904616523A51200FD /* MemoryPressureMonitor.swift */; };
+		7110771E0000000000000007 /* LottieBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7110771E0000000000000006 /* LottieBackend.swift */; };
+		7110771E0000000000000008 /* LottieBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7110771E0000000000000006 /* LottieBackend.swift */; };
 		C46301E31B6C3C75DDBE3B40 /* TransformOutgoingMessageMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A42B732BAF4538657345EDA /* TransformOutgoingMessageMedia.swift */; };
 		A4DD29EBDF4B061DC097DF07 /* SelectColorUI in Frameworks */ = {isa = PBXBuildFile; productRef = 98C169B320DF068A3C81E7FC /* SelectColorUI */; };
 		A624E60A4F34F0CDF90B607B /* GiftCraftingUI in Frameworks */ = {isa = PBXBuildFile; productRef = F685D321C7FA76A9B76D43C9 /* GiftCraftingUI */; };
@@ -1905,6 +1910,7 @@
 		D1EFE4428B52C940362DA386 /* TelegramTheme */ = {isa = PBXFileReference; lastKnownFileType = folder; name = TelegramTheme; path = packages/TelegramTheme; sourceTree = "<group>"; };
 		D5B08F4979BCB167ED5B75E4 /* BusinessUI */ = {isa = PBXFileReference; lastKnownFileType = folder; name = BusinessUI; path = packages/BusinessUI; sourceTree = "<group>"; };
 		AC0C8FD904616523A51200FD /* MemoryPressureMonitor.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = MemoryPressureMonitor.swift; sourceTree = "<group>"; };
+		7110771E0000000000000006 /* LottieBackend.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = LottieBackend.swift; sourceTree = "<group>"; };
 		1A42B732BAF4538657345EDA /* TransformOutgoingMessageMedia.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TransformOutgoingMessageMedia.swift; sourceTree = "<group>"; };
 		D69B3CC3FD251983FEBC2884 /* LiteModeGlobal.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = LiteModeGlobal.swift; sourceTree = "<group>"; };
 		D9BD3E9B50A62750EDEF6E9D /* EmojiReplacements */ = {isa = PBXFileReference; lastKnownFileType = folder; name = EmojiReplacements; path = packages/EmojiReplacements; sourceTree = "<group>"; };
@@ -1944,6 +1950,8 @@
 		0F608853A24F468E98DBF2D8 /* InactiveChannelsUI */ = {isa = PBXFileReference; lastKnownFileType = folder; name = InactiveChannelsUI; path = packages/InactiveChannelsUI; sourceTree = "<group>"; };
 		C4793112A0E44048B603D019 /* SimilarPeersHooksInstall.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SimilarPeersHooksInstall.swift; sourceTree = "<group>"; };
 		2382F66FCB03472CB031B1D7 /* GroupsInCommonUI */ = {isa = PBXFileReference; lastKnownFileType = folder; name = GroupsInCommonUI; path = packages/GroupsInCommonUI; sourceTree = "<group>"; };
+		3735CDD1DC42418CBDF358F5 /* QrStudioUI */ = {isa = PBXFileReference; lastKnownFileType = folder; name = QrStudioUI; path = packages/QrStudioUI; sourceTree = "<group>"; };
+		7110771E0000000000000001 /* TLottie */ = {isa = PBXFileReference; lastKnownFileType = folder; name = TLottie; path = packages/TLottie; sourceTree = "<group>"; };
 		2314496AC5714CD1BDBAF6C8 /* CrashRecoveryUI */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CrashRecoveryUI; path = packages/CrashRecoveryUI; sourceTree = "<group>"; };
 		DFD6737EF55F4DC5A158E555 /* CrashReports */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CrashReports; path = packages/CrashReports; sourceTree = "<group>"; };
 		04850EEC74576A5B5C55CF1F /* UniqueGiftBackground */ = {isa = PBXFileReference; lastKnownFileType = folder; name = UniqueGiftBackground; path = packages/UniqueGiftBackground; sourceTree = "<group>"; };
@@ -2048,6 +2056,7 @@
 				27F3B75C2739320000B81F10 /* SwiftSignalKit in Frameworks */,
 				27B6D0492739388600C785C7 /* TelegramApi in Frameworks */,
 				27B6D04D2739388C00C785C7 /* Postbox in Frameworks */,
+				7110771E0000000000000005 /* TLottie in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2074,6 +2083,7 @@
 				7BE4259A2C3D4D73BBBC2302 /* SelectCountryUI in Frameworks */,
 				F17E01000000000000000001 /* ChargedGramSettings in Frameworks */,
 				53C2655B791449A18A453BBD /* GroupsInCommonUI in Frameworks */,
+				5105D43394A54BCB8773E53C /* QrStudioUI in Frameworks */,
 				B2011E3EB7D84C48A0B9509D /* CrashRecoveryUI in Frameworks */,
 				E9E2F04E0D564351A4C88842 /* CrashReports in Frameworks */,
 				341A9B85F159A5C4199FEC2E /* UniqueGiftBackground in Frameworks */,
@@ -2291,6 +2301,7 @@
 				2796FEF227423A8600DA653C /* EmojiSuggestions in Frameworks */,
 				27D696FA274F8462008A723E /* InAppSettings in Frameworks */,
 				2796FF042742462400DA653C /* Svg in Frameworks */,
+				7110771E0000000000000004 /* TLottie in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2750,6 +2761,8 @@
 				447E693028674930A9722A3F /* SelectCountryUI */,
 				F17E01000000000000000003 /* ChargedGramSettings */,
 				2382F66FCB03472CB031B1D7 /* GroupsInCommonUI */,
+				3735CDD1DC42418CBDF358F5 /* QrStudioUI */,
+				7110771E0000000000000001 /* TLottie */,
 				2314496AC5714CD1BDBAF6C8 /* CrashRecoveryUI */,
 				DFD6737EF55F4DC5A158E555 /* CrashReports */,
 				04850EEC74576A5B5C55CF1F /* UniqueGiftBackground */,
@@ -3087,6 +3100,7 @@
 				D69B3CC3FD251983FEBC2884 /* LiteModeGlobal.swift */,
 				1A42B732BAF4538657345EDA /* TransformOutgoingMessageMedia.swift */,
 				AC0C8FD904616523A51200FD /* MemoryPressureMonitor.swift */,
+				7110771E0000000000000006 /* LottieBackend.swift */,
 				2728991826CBC0D100F4D288 /* UNUserNotifications.swift */,
 				B6D631D58182DCD43C3A20FF /* ChatInteractionPermissions.swift */,
 			);
@@ -3597,6 +3611,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = C232EAA01E1D07E700C4D38C /* Build configuration list for PBXNativeTarget "TelegramShare" */;
 			buildPhases = (
+				CE4D72C9B2A34D84A52D6A01 /* Check TelegramApi Sources */,
 				C232EA8D1E1D07E700C4D38C /* Sources */,
 				C232EA8E1E1D07E700C4D38C /* Frameworks */,
 				C232EA8F1E1D07E700C4D38C /* Resources */,
@@ -3643,6 +3658,7 @@
 				270375FC2C9DBC13003EC235 /* InputView */,
 				270376012C9DBEDE003EC235 /* ObjcUtils */,
 				2703762A2CA1FD92003EC235 /* libwebp */,
+				7110771E0000000000000003 /* TLottie */,
 			);
 			productName = TelegramShare;
 			productReference = C232EA911E1D07E700C4D38C /* TelegramShare.appex */;
@@ -3652,6 +3668,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = D098C7221D7E175A007784E4 /* Build configuration list for PBXNativeTarget "Telegram" */;
 			buildPhases = (
+				CE4D72C9B2A34D84A52D6A02 /* Check TelegramApi Sources */,
 				161B8B778DC5A90FA234F9E6 /* Check Wallet Engine Bindings */,
 				C20D5AB61DAA94500042616A /* Copy Files */,
 				D098C7121D7E175A007784E4 /* Frameworks */,
@@ -3685,6 +3702,8 @@
 				857E4375FE0F41E9A737B925 /* SelectCountryUI */,
 				F17E01000000000000000002 /* ChargedGramSettings */,
 				8C849FFE3CF443CEAAFD9A65 /* GroupsInCommonUI */,
+				019B2BAFB79C48F1A4A5666E /* QrStudioUI */,
+				7110771E0000000000000002 /* TLottie */,
 				A49FDE6EE2CE45CC94854F90 /* CrashRecoveryUI */,
 				4E0F0513AE01455B9C8A6FD8 /* CrashReports */,
 				B761798CA4CFE188189A6AB9 /* UniqueGiftBackground */,
@@ -4526,6 +4545,30 @@
 			shellPath = /bin/sh;
 			shellScript = "sh \"$SRCROOT/scripts/check-wallet-engine-bindings.sh\" \"$SRCROOT\" xcode\n";
 		};
+		CE4D72C9B2A34D84A52D6A01 /* Check TelegramApi Sources */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = ();
+			inputPaths = ("$(SRCROOT)/scripts/prepare-telegram-api.py", "$(SRCROOT)/submodules/telegram-ios/build-system/SwiftTL", "$(SRCROOT)/submodules/telegram-ios/submodules/TelegramApi", "$(SRCROOT)/.build/telegram-api-generation",);
+			name = "Check TelegramApi Sources";
+			outputPaths = ();
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "/usr/bin/env python3 \"$SRCROOT/scripts/prepare-telegram-api.py\" --check\n";
+		};
+		CE4D72C9B2A34D84A52D6A02 /* Check TelegramApi Sources */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = ();
+			inputPaths = ("$(SRCROOT)/scripts/prepare-telegram-api.py", "$(SRCROOT)/submodules/telegram-ios/build-system/SwiftTL", "$(SRCROOT)/submodules/telegram-ios/submodules/TelegramApi", "$(SRCROOT)/.build/telegram-api-generation",);
+			name = "Check TelegramApi Sources";
+			outputPaths = ();
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "/usr/bin/env python3 \"$SRCROOT/scripts/prepare-telegram-api.py\" --check\n";
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -4552,6 +4595,7 @@
 				C232EA981E1D07E700C4D38C /* ShareViewController.swift in Sources */,
 				C23BC36E1E9ACCD100D79F92 /* SEUnauthorizedViewController.swift in Sources */,
 				C232EAB01E1D110500C4D38C /* SESelectController.swift in Sources */,
+				7110771E0000000000000008 /* LottieBackend.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4678,6 +4722,7 @@
 				9F7B740F2229618E006610E4 /* SharedWakeupManager.swift in Sources */,
 				9F3D5F6322044D8700CB0CAA /* AppUpdateViewController.swift in Sources */,
 				C2303E8A1D9A76D800098E12 /* MainViewController.swift in Sources */,
+				7110771E0000000000000007 /* LottieBackend.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4847,7 +4892,7 @@
 					"$(PROJECT_DIR)/core-xprojects/tde2e/build/tde2e/lib",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.13;
-				MARKETING_VERSION = 13.0;
+				MARKETING_VERSION = 13.1.0;
 				ONLY_ACTIVE_ARCH = NO;
 				OTHER_CODE_SIGN_FLAGS = "";
 				OTHER_LDFLAGS = "-ObjC";
@@ -4901,7 +4946,7 @@
 					"$(PROJECT_DIR)/core-xprojects/dav1d/build/dav1d/lib",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.13;
-				MARKETING_VERSION = 13.0;
+				MARKETING_VERSION = 13.1.0;
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_CODE_SIGN_FLAGS = "";
 				OTHER_LDFLAGS = "";
@@ -4953,7 +4998,7 @@
 					"$(PROJECT_DIR)/core-xprojects/dav1d/build/dav1d/lib",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.13;
-				MARKETING_VERSION = 13.0;
+				MARKETING_VERSION = 13.1.0;
 				ONLY_ACTIVE_ARCH = NO;
 				OTHER_CODE_SIGN_FLAGS = "";
 				OTHER_LDFLAGS = "";
@@ -5074,7 +5119,7 @@
 					"$(PROJECT_DIR)/core-xprojects/tde2e/build/tde2e/lib",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.13;
-				MARKETING_VERSION = 13.0;
+				MARKETING_VERSION = 13.1.0;
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_CODE_SIGN_FLAGS = "";
 				OTHER_LDFLAGS = "-ObjC";
@@ -5891,9 +5936,21 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = InactiveChannelsUI;
 		};
+		7110771E0000000000000002 /* TLottie */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = TLottie;
+		};
+		7110771E0000000000000003 /* TLottie */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = TLottie;
+		};
 		8C849FFE3CF443CEAAFD9A65 /* GroupsInCommonUI */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = GroupsInCommonUI;
+		};
+		019B2BAFB79C48F1A4A5666E /* QrStudioUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = QrStudioUI;
 		};
 		A49FDE6EE2CE45CC94854F90 /* CrashRecoveryUI */ = {
 			isa = XCSwiftPackageProductDependency;

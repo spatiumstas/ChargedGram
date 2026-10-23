@@ -7,18 +7,35 @@ public final class DataItem : TGDataItem {
         self.path = path
         super.init()
     }
+    init(path: String, initialData: Data) {
+        self.path = path
+        super.init()
+        super.appendData(initialData)
+    }
     public override func appendData(_ data: Data!) {
-         do {
-            if !FileManager.default.fileExists(atPath: self.path) {
-                FileManager.default.createFile(atPath: self.path, contents: self.data(), attributes: nil)
+        if !FileManager.default.fileExists(atPath: self.path) {
+            FileManager.default.createFile(atPath: self.path, contents: self.data(), attributes: nil)
+        }
+        let fd = Darwin.open(self.path, O_WRONLY | O_APPEND)
+        if fd >= 0 {
+            data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) -> Void in
+                guard let baseAddress = bytes.baseAddress else {
+                    return
+                }
+                var offset = 0
+                while offset < bytes.count {
+                    let written = Darwin.write(fd, baseAddress.advanced(by: offset), bytes.count - offset)
+                    if written > 0 {
+                        offset += written
+                    } else if written < 0 && errno == EINTR {
+                        continue
+                    } else {
+                        break
+                    }
+                }
             }
-            let fileManager = try FileHandle(forWritingTo: URL(fileURLWithPath: self.path))
-            fileManager.seekToEndOfFile()
-            fileManager.write(data)
-            fileManager.synchronizeFile()
-            fileManager.closeFile()
-        } catch {
-            
+            Darwin.fsync(fd)
+            Darwin.close(fd)
         }
         super.appendData(data)
     }

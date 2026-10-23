@@ -47,6 +47,14 @@ public final class PremiumBoardingDoubleRowItem : GeneralRowItem {
     public override var height: CGFloat {
         return title.layoutSize.height + 4 + info.layoutSize.height + 8 + 30
     }
+
+    public override var accessibilityLabel: String? {
+        return title.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return info.attributedString.string
+    }
     
     public override func makeSize(_ width: CGFloat, oldWidth: CGFloat = 0) -> Bool {
         _ = super.makeSize(width, oldWidth: oldWidth)

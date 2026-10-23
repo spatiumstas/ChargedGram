@@ -43,6 +43,10 @@ private final class HeaderItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return HeaderItemView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return textLayout.attributedString.string
+    }
     
     public override func makeSize(_ width: CGFloat, oldWidth: CGFloat = 0) -> Bool {
         _ = super.makeSize(width, oldWidth: oldWidth)

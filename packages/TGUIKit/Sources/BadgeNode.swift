@@ -2,7 +2,7 @@ import Cocoa
 import AppKit
 
 public class BadgeNode: Node {
-    private var textLayout:(TextNodeLayout, TextNode)
+    private let textLayout:(TextNodeLayout, TextNode)
     
     public var fillColor:NSColor {
         didSet {
@@ -13,7 +13,7 @@ public class BadgeNode: Node {
     }
     public var aroundFill:NSColor? {
         didSet {
-            if aroundFill != aroundFill {
+            if aroundFill != oldValue {
                 self.view?.setNeedsDisplay()
             }
         }
@@ -64,6 +64,20 @@ public class BadgeNode: Node {
     
     public var additionSize: NSSize = NSMakeSize(8, 7)
     
+    public init(textFrom badge: BadgeNode, _ fillColor: NSColor, aroundFill: NSColor? = nil, additionSize: NSSize = NSMakeSize(8, 7)) {
+        self.additionSize = additionSize
+        self.textLayout = badge.textLayout
+        self.fillColor = fillColor
+        self.aroundFill = aroundFill
+        super.init()
+        updateSize()
+    }
+
+    private func updateSize() {
+        size = NSMakeSize(textLayout.0.size.width + additionSize.width, textLayout.0.size.height + additionSize.height)
+        size = NSMakeSize(max(size.height, size.width), size.height)
+    }
+
     public init(_ attributedString:NSAttributedString, _ fillColor:NSColor, aroundFill:NSColor? = nil, additionSize: NSSize = NSMakeSize(8, 7)) {
         self.additionSize = additionSize
         textLayout = TextNode.layoutText(maybeNode: nil,  attributedString, nil, 1, .middle, NSMakeSize(CGFloat.greatestFiniteMagnitude, CGFloat.greatestFiniteMagnitude), nil, false, .left)
@@ -72,8 +86,7 @@ public class BadgeNode: Node {
         super.init()
         
         
-        size = NSMakeSize(textLayout.0.size.width + additionSize.width, textLayout.0.size.height + additionSize.height)
-        size = NSMakeSize(max(size.height,size.width), size.height)
+        updateSize()
         
     }
     

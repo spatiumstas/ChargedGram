@@ -18,6 +18,27 @@ public final class WalletTabsRowItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return WalletTabsRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        guard titles.indices.contains(selectedIndex) else {
+            return titles.joined(separator: ", ")
+        }
+        return titles[selectedIndex]
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        let callback = self.callback
+        return titles.enumerated().map { index, title in
+            return NSAccessibilityCustomAction(name: title, handler: {
+                callback(index)
+                return true
+            })
+        }
+    }
 }
 
 private final class WalletTabsRowView: GeneralRowView {

@@ -56,6 +56,14 @@ final class InviteLinkMonthlyFeeRowItem : GeneralRowItem {
     override var height: CGFloat {
         return 42
     }
+
+    override var accessibilityLabel: String? {
+        return strings().starsSubscriptionPeriodMonthly
+    }
+
+    override var accessibilityValue: String? {
+        return priceLayout.attributedString.string
+    }
     
     override func viewClass() -> AnyClass {
         return InviteLinkMonthlyFeeRowView.self

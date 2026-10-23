@@ -75,6 +75,7 @@ private final class Arguments {
 
 private struct State: Equatable {
     var address: String
+    var isOwnWallet: Bool
     var displaysAddress: Bool = false
 }
 
@@ -111,6 +112,7 @@ private final class WalletReceiveRowItem: GeneralRowItem {
     let environment: WalletUIEnvironment
     fileprivate let address: String
     fileprivate let displaysAddress: Bool
+    fileprivate let isOwnWallet: Bool
     fileprivate let copyTitle: String
     fileprivate let showQrTitle: String
     fileprivate let captionLayout: TextViewLayout
@@ -135,18 +137,26 @@ private final class WalletReceiveRowItem: GeneralRowItem {
     fileprivate let buySideInset: CGFloat = 30
     fileprivate let bottomInset: CGFloat = 24
 
-    init(_ initialSize: NSSize, stableId: AnyHashable, environment: WalletUIEnvironment, address: String, displaysAddress: Bool, copyAction: @escaping () -> Void, toggleAction: @escaping () -> Void, dismissAction: @escaping () -> Void, buyAction: @escaping () -> Void) {
+    init(_ initialSize: NSSize, stableId: AnyHashable, environment: WalletUIEnvironment, address: String, displaysAddress: Bool, isOwnWallet: Bool, copyAction: @escaping () -> Void, toggleAction: @escaping () -> Void, dismissAction: @escaping () -> Void, buyAction: @escaping () -> Void) {
         self.environment = environment
         self.address = address
         self.displaysAddress = displaysAddress
+        self.isOwnWallet = isOwnWallet
         self.copyAction = copyAction
         self.toggleAction = toggleAction
         self.dismissAction = dismissAction
         self.buyAction = buyAction
 
-        self.copyTitle = strings().walletReceiveControllerCopyAddress
-        self.showQrTitle = strings().walletReceiveControllerShowQr
-        let captionText = strings().walletReceiveControllerCaption
+        let captionText: String
+        if isOwnWallet {
+            self.copyTitle = strings().walletReceiveControllerCopyAddress
+            self.showQrTitle = strings().walletReceiveControllerShowQr
+            captionText = strings().walletReceiveControllerCaption
+        } else {
+            self.copyTitle = strings().walletReceiveControllerCopyPeerAddress
+            self.showQrTitle = strings().walletReceiveControllerShowPeerQr
+            captionText = strings().walletReceiveControllerPeerCaption
+        }
         let copiedText = strings().walletReceiveControllerAddressCopied
 
         self.captionLayout = TextViewLayout(.initialize(string: captionText, color: .white, font: .normal(15)), alignment: .center, alwaysStaticItems: true)
@@ -174,11 +184,16 @@ private final class WalletReceiveRowItem: GeneralRowItem {
     }
 
     override var height: CGFloat {
-        return cardTop + cardSize.height + captionSpacing + captionLayout.layoutSize.height + buySpacing + buyHeight + bottomInset
+        let buy: CGFloat = isOwnWallet ? buySpacing + buyHeight : 0
+        return cardTop + cardSize.height + captionSpacing + captionLayout.layoutSize.height + buy + bottomInset
     }
 
     override func viewClass() -> AnyClass {
         return WalletReceiveRowView.self
+    }
+
+    override var accessibilityLabel: String? {
+        return captionLayout.attributedString.string.replacingOccurrences(of: "\n", with: " ")
     }
 }
 
@@ -264,6 +279,7 @@ private final class WalletReceiveAddressRingView: NSView {
         let duration = CFTimeInterval(ringLayout.length / Self.animationSpeed)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .linear))
         for (index, shape) in glyphLayers.enumerated() {
             shape.removeAnimation(forKey: "ring")
             let animation = CAKeyframeAnimation(keyPath: "position")
@@ -682,6 +698,7 @@ private final class WalletReceiveRowView: TableRowView {
         let outgoingImage = ImageView(frame: container.bounds)
         outgoingImage.image = previousSnapshot
         outgoingImage.isEventLess = true
+        outgoingImage.isAccessibilityDecorative = true
         outgoing.face.addSubview(outgoingImage)
         outgoing.face.addSubview(outgoing.shade)
 
@@ -749,6 +766,13 @@ private final class WalletReceiveRowView: TableRowView {
         layer?.insertSublayer(gradientLayer, at: 0)
 
         ringView.isEventLess = true
+        ringView.isAccessibilityDecorative = true
+        qrView.setAccessibilityLabel(strings().voiceOverCommonQRCode)
+        closeButton.setAccessibilityLabel(strings().voiceOverCommonClose)
+        buyButton.setAccessibilityLabel(strings().walletReceiveControllerBuy)
+        buyIconView.isAccessibilityDecorative = true
+        buyTextView.isAccessibilityDecorative = true
+        captionView.isAccessibilityDecorative = true
         addSubview(ringView)
         addSubview(animatedRingView)
 
@@ -1044,6 +1068,7 @@ private final class WalletReceiveRowView: TableRowView {
 
         qrContainer.isHidden = item.displaysAddress
         gridView.isHidden = !item.displaysAddress
+        buyButton.isHidden = !item.isOwnWallet
 
         let isToggling = animated && previous != nil && previous?.displaysAddress != item.displaysAddress
         if isToggling, let previousSnapshot, cardFlipContainer == nil {
@@ -1195,6 +1220,7 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
             environment: arguments.environment,
             address: address,
             displaysAddress: displaysAddress,
+            isOwnWallet: state.isOwnWallet,
             copyAction: arguments.copy,
             toggleAction: arguments.showQr,
             dismissAction: arguments.dismiss,
@@ -1206,7 +1232,7 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
 }
 
 @available(macOS 10.15, *)
-public func WalletReceiveController(context: any AccountContextProtocol, environment: WalletUIEnvironment, walletContext: WalletContext?, address: String, appeared: (() -> Void)? = nil) -> InputDataModalController {
+public func WalletReceiveController(context: any AccountContextProtocol, environment: WalletUIEnvironment, walletContext: WalletContext?, address: String, isOwnWallet: Bool = true, appeared: (() -> Void)? = nil) -> InputDataModalController {
     var appeared = appeared
     let actionsDisposable = DisposableSet()
     let availabilityDisposable = MetaDisposable()
@@ -1214,7 +1240,7 @@ public func WalletReceiveController(context: any AccountContextProtocol, environ
 
     var close: (() -> Void)? = nil
 
-    let initialState = State(address: address)
+    let initialState = State(address: address, isOwnWallet: isOwnWallet)
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
     let updateState: ((State) -> State) -> Void = { f in
@@ -1239,7 +1265,7 @@ public func WalletReceiveController(context: any AccountContextProtocol, environ
     }, buy: {
         let signal = showModalProgress(signal: walletReceiveOnrampSession(context: context, environment: environment, address: address), for: context.window)
         |> deliverOnMainQueue
-        availabilityDisposable.set(signal.start(next: { result in
+        availabilityDisposable.set((signal).start(next: { result in
             switch result {
             case .unavailable:
                 environment.alert(for: context.window, header: strings().walletReceiveControllerPurchaseUnavailableTitle, info: strings().walletReceiveControllerPurchaseUnavailableInfo)

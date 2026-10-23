@@ -107,6 +107,33 @@ class ProxyListRowItem: GeneralRowItem {
     override func viewClass() -> AnyClass {
         return ProxyListRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return headerLayout.attributedString.string
+    }
+
+    override var accessibilityValue: String? {
+        return statusLayout.attributedString.string
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
+    }
+
+    override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        return [NSAccessibilityCustomAction(name: strings().voiceOverCommonInfo, handler: { [weak self] in
+            self?.info()
+            return true
+        }), NSAccessibilityCustomAction(name: strings().voiceOverCommonDelete, handler: { [weak self] in
+            self?.delete()
+            return true
+        })]
+    }
 }
 
 
@@ -131,6 +158,10 @@ private final class ProxyListRowView : TableRowView, ViewDisplayDelegate {
         containerView.addSubview(connectingView)
         containerView.addSubview(connected)
         addSubview(containerView)
+        
+        delete.setAccessibilityLabel(strings().voiceOverCommonDelete)
+        info.setAccessibilityLabel(strings().voiceOverCommonInfo)
+        connected.isAccessibilityDecorative = true
         
         containerView.displayDelegate = self
         

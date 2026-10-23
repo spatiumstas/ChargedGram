@@ -140,6 +140,8 @@ final class WalletCardQRChipRenderer {
     let height: Int
     private let chipPixels: [WalletCardQRChipPixel]
     private var buffer: [UInt8]
+    var ringColor: (Float, Float, Float) = (0.047, 0.451, 0.835)
+    var metalTint: (Float, Float, Float, Float) = (0, 0, 0, 0)
 
     init?(chipSize: NSSize, backingScale: CGFloat) {
         let chipScaleX = Float(chipSize.width / walletCardQRChipReferenceSize.width)
@@ -228,6 +230,13 @@ final class WalletCardQRChipRenderer {
         let lightLength = (lightX * lightX + lightY * lightY).squareRoot()
         let lx = lightX / lightLength
         let ly = lightY / lightLength
+        let ring = ringColor
+        let tint = metalTint
+        let tintLuma = 0.2126 * tint.0 + 0.7152 * tint.1 + 0.0722 * tint.2
+        let tintTarget = (tint.0 - tintLuma, tint.1 - tintLuma, tint.2 - tintLuma)
+        let tintLength = (tintTarget.0 * tintTarget.0 + tintTarget.1 * tintTarget.1 + tintTarget.2 * tintTarget.2).squareRoot()
+        let tintAmount: Float = tintLength > 1e-4 ? tint.3 : 0
+        let tintDirection = tintLength > 1e-4 ? (tintTarget.0 / tintLength, tintTarget.1 / tintLength, tintTarget.2 / tintLength) : (0, 0, 0)
 
         chipPixels.withUnsafeBufferPointer { pixels in
             buffer.withUnsafeMutableBufferPointer { output in
@@ -256,6 +265,13 @@ final class WalletCardQRChipRenderer {
                     red -= chamfer
                     green -= chamfer
                     blue -= chamfer
+                    if tintAmount > 0 {
+                        let luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+                        let strength = ((red - luma) * (red - luma) + (green - luma) * (green - luma) + (blue - luma) * (blue - luma)).squareRoot()
+                        red += (max(0.0, min(1.0, luma + tintDirection.0 * strength)) - red) * tintAmount
+                        green += (max(0.0, min(1.0, luma + tintDirection.1 * strength)) - green) * tintAmount
+                        blue += (max(0.0, min(1.0, luma + tintDirection.2 * strength)) - blue) * tintAmount
+                    }
 
                     red += (0.90 - red) * pixel.lip
                     green += (0.93 - green) * pixel.lip
@@ -268,9 +284,9 @@ final class WalletCardQRChipRenderer {
                     green = max(0.0, min(1.0, green))
                     blue = max(0.0, min(1.0, blue))
                     let ringShade = 0.92 + 0.16 * lightDot
-                    red += (0.047 * ringShade - red) * pixel.ringMask
-                    green += (0.451 * ringShade - green) * pixel.ringMask
-                    blue += (0.835 * ringShade - blue) * pixel.ringMask
+                    red += (ring.0 * ringShade - red) * pixel.ringMask
+                    green += (ring.1 * ringShade - green) * pixel.ringMask
+                    blue += (ring.2 * ringShade - blue) * pixel.ringMask
 
                     let cover = pixel.cover
                     let alpha = cover + pixel.socket * (1.0 - cover)

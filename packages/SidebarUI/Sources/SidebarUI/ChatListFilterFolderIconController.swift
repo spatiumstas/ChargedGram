@@ -25,6 +25,7 @@ final class ChatListFolderIconsView : View {
         for icon in allSidebarFolderIcons {
             let control = ImageButton(frame: NSMakeRect(0, 0, 40, 40))
             control.set(image: icon.icon(for: .settings, image: environment.folderImage), for: .Normal)
+            control.setAccessibilityLabel(icon.emoticon.emoji ?? strings().voiceOverCommonEmoji)
             addSubview(control)
             control.set(handler: { _ in
                 callback(icon)

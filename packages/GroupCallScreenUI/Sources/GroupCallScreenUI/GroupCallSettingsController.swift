@@ -115,6 +115,7 @@ public final class GroupCallSettingsView : View {
         let icon = TelegramThemeHooks.shared.image(.iconNavigationBack).precomposed(backColor)
         let activeIcon = TelegramThemeHooks.shared.image(.iconNavigationBack).precomposed(backColor.withAlphaComponent(0.7))
         backButton.set(image: icon, for: .Normal)
+        backButton.setAccessibilityLabel(strings().voiceOverCommonBack)
         backButton.set(image: activeIcon, for: .Highlight)
 
         _ = backButton.sizeToFit(.zero, NSMakeSize(24, 24), thatFit: true)

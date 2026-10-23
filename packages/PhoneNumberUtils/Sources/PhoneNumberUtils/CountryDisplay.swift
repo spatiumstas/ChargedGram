@@ -4,7 +4,7 @@ import TelegramCore
 public func emojiFlagForISOCountryCode(_ countryCode: String) -> String {
     
     if countryCode == "FT" {
-        return "🏴‍☠️"
+        return "💎"
     }
     
     if countryCode.count != 2 {

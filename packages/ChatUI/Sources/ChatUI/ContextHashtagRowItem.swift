@@ -40,6 +40,14 @@ public class ContextHashtagRowItem: TableRowItem {
     public override func viewClass() -> AnyClass {
         return ContextHashtagRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return hashtag
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
     
 }
 
@@ -124,6 +132,7 @@ private class ContextHashtagRowView : TableRowView {
                 current = view
             } else {
                 current = ImageView()
+                current.isAccessibilityDecorative = true
                 current.setFrameSize(28, 28)
                 self.imageView = current
                 addSubview(current)

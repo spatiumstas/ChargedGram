@@ -21,6 +21,7 @@ public final class GiftButtonStarsView : View {
             view.setFrameSize(GiftButtonStarsView.starSize)
             view.layer?.opacity = 0
             view.isEventLess = true
+            view.isAccessibilityDecorative = true
             stars.append(view)
         }
         self.stars = stars

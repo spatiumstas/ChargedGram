@@ -53,6 +53,7 @@ public final class AppMenuAnimatedImage : LottiePlayerView, AppMenuItemImageDraw
         self.item = item
         super.init(frame: NSMakeRect(0, 0, 18, 18))
         addSubview(imageView)
+        self.imageView.isAccessibilityDecorative = true
         self.imageView.image = sticker.menuIcon(color ?? theme.colors.text)
         
         if let data = sticker.data {

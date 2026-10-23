@@ -2,6 +2,7 @@ import Cocoa
 import ChatHistoryModel
 import ColorPalette
 import Postbox
+import QrStudioUI
 import SettingsUI
 import SelectColorUI
 import StarsUI
@@ -144,9 +145,104 @@ private func makeSettingsWalletHooks() -> Any? {
     }
 }
 
+private final class QrStudioShareObject: ShareObject {
+    private let path: String
+    private let link: String
+    private let image = TelegramMediaImage(imageId: MediaId(namespace: Namespaces.Media.LocalImage, id: 0), representations: [], immediateThumbnailData: nil, reference: nil, partialReference: nil, flags: [])
+
+    init(_ context: AccountContext, path: String, link: String) {
+        self.path = path
+        self.link = link
+        super.init(context)
+    }
+
+    override var messagesCount: Int {
+        return 1
+    }
+
+    override var hasLink: Bool {
+        return !self.link.isEmpty
+    }
+
+    override func shareLink() {
+        copyToClipboard(self.link)
+    }
+
+    override func possibilityPerformTo(_ peer: Peer) -> Bool {
+        return !self.excludePeerIds.contains(peer.id) && peer.id.namespace != Namespaces.Peer.SecretChat && peer.canSendMessage(false, media: self.image)
+    }
+
+    override func perform(to peerIds: [PeerId], threadId: Int64?, comment: ChatTextInputState? = nil, sendPaidMessageStars: [PeerId: StarsAmount] = [:]) -> Signal<Never, String> {
+        let context = self.context
+        let threadIds = self.threadIds
+        let silent = self.withoutSound
+        let atDate = self.scheduleDate
+        return Sender.generateMedia(for: MediaSenderContainer(path: self.path, isFile: false), account: context.account, isSecretRelated: false)
+        |> take(1)
+        |> mapToSignal { media, _ -> Signal<Never, NoError> in
+            let signals = peerIds.map { peerId -> Signal<[MessageId?], NoError> in
+                let threadId = threadIds[peerId] ?? threadId
+                let stars = sendPaidMessageStars[peerId]
+                let send = Sender.enqueue(media: media, context: context, peerId: peerId, replyId: nil, threadId: threadId, silent: silent, atDate: atDate, sendPaidMessageStars: stars)
+                if let comment, !comment.inputText.isEmpty {
+                    return Sender.enqueue(input: comment, context: context, peerId: peerId, replyId: nil, threadId: threadId, silent: silent, atDate: atDate, sendPaidMessageStars: stars) |> then(send)
+                }
+                return send
+            }
+            return combineLatest(signals) |> take(1) |> ignoreValues
+        }
+        |> castError(String.self)
+    }
+}
+
+private func installQrStudioHooks() {
+    QrStudioNavigationHooks.openPremium = { context in
+        guard let context = context as? AccountContext else {
+            return
+        }
+        prem(with: PremiumBoardingController(context: context, source: .premium_emoji), for: context.window)
+    }
+    QrStudioNavigationHooks.openGiftShop = { context in
+        guard let context = context as? AccountContext else {
+            return
+        }
+        showModal(with: GiftingController(context: context, peerId: context.peerId, isBirthday: false), for: context.window)
+    }
+    QrStudioNavigationHooks.shareImage = { context, path, link, window in
+        guard let context = context as? AccountContext, let window = window as? Window else {
+            return
+        }
+        showModal(with: ShareModalController(QrStudioShareObject(context, path: path, link: link)), for: window)
+    }
+    QrStudioEmojiPickerHooks.make = { context, presentation, staticEmojiFilter, select in
+        guard let context = context as? AccountContext else {
+            return nil
+        }
+        let emojis = EmojiesController(context, mode: .emoji, presentation: presentation)
+        emojis.isGlass = true
+        emojis.staticEmojiFilter = staticEmojiFilter
+        let interactions = EntertainmentInteractions(.emoji, peerId: context.peerId)
+        let chatInteraction = ChatInteraction(chatLocation: .peer(context.peerId), context: context)
+        emojis.update(with: interactions, chatInteraction: chatInteraction)
+        interactions.sendEmoji = { emoji, _ in
+            select(nil, emoji)
+        }
+        interactions.sendAnimatedEmoji = { sticker, _, _, _, _ in
+            select(sticker.file._parse(), nil)
+        }
+        return QrStudioEmojiPickerHooks.Picker(controller: emojis, setSelected: { [weak emojis] fileIds, unicode in
+            let _ = chatInteraction
+            let custom = fileIds.sorted(by: { ($0.value, $0.key) < ($1.value, $1.key) }).map { EmojiesSectionRowItem.SelectedItem(source: .custom($0.key), type: .normal, index: $0.value) }
+            let builtin = unicode.sorted(by: { ($0.value, $0.key) < ($1.value, $1.key) }).map { EmojiesSectionRowItem.SelectedItem(source: .builtin($0.key), type: .normal, index: $0.value) }
+            emojis?.updateSelectedItems(custom + builtin)
+        })
+    }
+}
+
 func installSettingsUIHooks() {
+    installQrStudioHooks()
     SettingsNavigationHooks.install(makeSettingsNavigationHooks())
-    SettingsHooks.install(SettingsHooks(shareLink: { context, link in
+    var hooks = SettingsHooks(shareLink: { context, link in
         guard let context = context as? AccountContext else {
             return
         }
@@ -297,7 +393,12 @@ func installSettingsUIHooks() {
         StoryModalController.ShowStories(context: context, isHidden: isHidden, initialId: initialId, singlePeer: singlePeer)
     }, authorizationStatus: { context in
         return UNUserNotifications.recurrentAuthorizationStatus(context as! AccountContext) |> map { NotificationAuthorizationStatus(rawValue: $0.rawValue) ?? .notDetermined }
-    }, wallet: makeSettingsWalletHooks()))
+    }, wallet: makeSettingsWalletHooks())
+    hooks.showStoriesWithContext = { context, isHidden, initialId, singlePeer in
+        guard let context = context as? AccountContext else { return }
+        StoryModalController.ShowStories(context: context, isHidden: isHidden, initialId: initialId, singlePeer: singlePeer)
+    }
+    SettingsHooks.install(hooks)
 }
 
 private func mapSettingsPremiumSource(_ source: SettingsPremiumSource) -> PremiumLogEventsSource {
@@ -340,6 +441,15 @@ private func mapSettingsBoostSource(_ source: SettingsBoostSource) -> BoostChann
 
 private func makeSettingsNavigationHooks() -> SettingsNavigationHooks {
     var hooks = SettingsNavigationHooks()
+    hooks.openQrStudio = { context, morphSource in
+        showQrStudio(context: context, peerId: context.peerId, morphSource: morphSource)
+    }
+    hooks.openQrStudioWithContext = { context, morphSource in
+        showQrStudio(context: context, peerId: context.peerId, morphSource: morphSource)
+    }
+    hooks.prefetchQrStudio = { context in
+        prefetchQrStudio(context: context)
+    }
     hooks.makeDataAndStorageController = { context, tag in
         let focus: DataAndStorageEntryTag?
         switch tag {
@@ -461,6 +571,9 @@ private func makeSettingsNavigationHooks() -> SettingsNavigationHooks {
         showPhotosGallery(context: context, peerId: peerId, firstStableId: firstStableId, delegate, nil)
     }
     hooks.openWebBot = { context, bot in
+        openWebBot(bot, context: context)
+    }
+    hooks.openWebBotWithContext = { context, bot in
         openWebBot(bot, context: context)
     }
     hooks.openInstantView = { context, url, webPage, anchor in

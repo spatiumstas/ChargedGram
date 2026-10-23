@@ -584,6 +584,9 @@ open class Window: NSWindow {
     
     
     public func applyResponderIfNeeded(_ event: NSEvent? = nil) ->Void {
+        if event != nil, let editor = firstResponder as? NSTextView, editor.isEditable {
+            return
+        }
         let sorted = responders.sorted(by: >)
         
         if let event = event, event.modifierFlags.contains(.option) || event.modifierFlags.contains(.command)

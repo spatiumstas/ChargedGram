@@ -100,6 +100,7 @@ private final class AnnotationView : MKAnnotationView {
     private let locationPin = ImageView()
     override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
         super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
+        locationPin.isAccessibilityDecorative = true
         
         
         self.wantsLayer = true
@@ -124,6 +125,7 @@ private final class AnnotationView : MKAnnotationView {
         control.set(handler: { [weak self] _ in
             (self?.annotation as? MapPin)?.focusRegion?()
         }, for: .Click)
+        control.setAccessibilityLabel(strings().voiceOverCommonLocation)
         
         update()
     }
@@ -342,6 +344,27 @@ private class MapDataRowItem : TableRowItem {
     override var stableId: AnyHashable {
         return 2
     }
+
+    override var accessibilityLabel: String? {
+        return location.venue?.title ?? strings().locationPreviewLocation
+    }
+
+    override var accessibilityValue: String? {
+        return location.venue?.address
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        callback()
+        return true
+    }
     
     override func viewClass() -> AnyClass {
         return MapDataRowItemView.self
@@ -371,6 +394,8 @@ private final class MapDataRowItemView: TableRowView {
         control.addSubview(titleView)
         control.addSubview(distance)
         control.addSubview(imageView)
+        imageView.isAccessibilityDecorative = true
+        control.setAccessibilityLabel(strings().locationPreviewLocation)
         
         control.set(handler: { control in
             control.layer?.opacity = 0.8

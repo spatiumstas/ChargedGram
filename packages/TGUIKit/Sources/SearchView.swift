@@ -28,6 +28,14 @@ public class SearchTextField: BaseTextView {
         self.delegate?.textDidEndEditing?(Notification(name: NSControl.textDidChangeNotification))
         return super.resignFirstResponder()
     }
+
+    public override func accessibilityRole() -> NSAccessibility.Role? {
+        return TGUIKitAccessibility.isEnabled ? .textField : super.accessibilityRole()
+    }
+
+    public override func accessibilitySubrole() -> NSAccessibility.Subrole? {
+        return TGUIKitAccessibility.isEnabled ? .searchField : super.accessibilitySubrole()
+    }
     
     override public func becomeFirstResponder() -> Bool {
         self.delegate?.textDidBeginEditing?(Notification(name: NSControl.textDidChangeNotification))
@@ -89,6 +97,30 @@ public final class CustomSearchController {
 }
 
 open class SearchView: OverlayControl, NSTextViewDelegate {
+
+    open override func isAccessibilityElement() -> Bool {
+        return TGUIKitAccessibility.isEnabled && !isHidden && input.isHidden
+    }
+
+    open override func accessibilityRole() -> NSAccessibility.Role? {
+        return TGUIKitAccessibility.isEnabled ? .textField : super.accessibilityRole()
+    }
+
+    open override func accessibilitySubrole() -> NSAccessibility.Subrole? {
+        return TGUIKitAccessibility.isEnabled ? .searchField : super.accessibilitySubrole()
+    }
+
+    open override func accessibilityLabel() -> String? {
+        return placeholder.attributedString?.string ?? super.accessibilityLabel()
+    }
+
+    open override func setAccessibilityFocused(_ accessibilityFocused: Bool) {
+        super.setAccessibilityFocused(accessibilityFocused)
+        if accessibilityFocused, input.isHidden {
+            _ = accessibilityPerformPress()
+        }
+    }
+
     
     public private(set) var state:SearchFieldState = .None
     
@@ -207,6 +239,7 @@ open class SearchView: OverlayControl, NSTextViewDelegate {
                 updateTags([], presentation.search.searchImage)
             }
             if let customSearchControl = customSearchControl {
+                search.isAccessibilityDecorative = false
                 customSearchControl.clickHandlerIdentifier = search.set(handler: { [weak customSearchControl, weak self] control in
                     customSearchControl?.clickHandler(control, { titles, image  in
                         self?.updateTags(titles, image)
@@ -276,6 +309,12 @@ open class SearchView: OverlayControl, NSTextViewDelegate {
         let theme = searchTheme ?? presentation.search
         
         placeholder.attributedString = .initialize(string: theme.placeholder(), color: theme.placeholderColor, font: .normal(.text))
+        input.setAccessibilityLabel(theme.placeholder())
+        input.setAccessibilityPlaceholderValue(theme.placeholder())
+        clear.setAccessibilityLabel(localizedString("VoiceOver.Search.Clear"))
+        if customSearchControl == nil {
+            search.isAccessibilityDecorative = true
+        }
         self.backgroundColor = theme.backgroundColor
         placeholder.sizeToFit()
         search.frame = NSMakeRect(0, 0, 20, 20)

@@ -84,9 +84,37 @@ public class PeerMediaMusicRowItem: PeerMediaRowItem {
     public override func viewClass() -> AnyClass {
         return PeerMediaMusicRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return textLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return descLayout?.attributedString.string
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        switch interface.presentation.state {
+        case .selecting:
+            interface.update({ $0.withToggledSelectedMessage(message.id) })
+            return true
+        case .normal:
+            guard let view = view as? PeerMediaMusicRowView else {
+                return false
+            }
+            view.executeInteraction(false)
+            return true
+        default:
+            return false
+        }
+    }
     
     public override func menuItems(in location: NSPoint) -> Signal<[ContextMenuItem], NoError> {
-        if isCompactPlayer {
+        if isCompactPlayer || inModal {
             return .single(contextMenuItems(self.message))
         } else {
             return super.menuItems(in: location)
@@ -111,6 +139,8 @@ public class PeerMediaMusicRowView : PeerMediaRowView, APDelegate {
     public private(set) var fetchControls:FetchControls!
     public required init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        thumbPlaceholder.isAccessibilityDecorative = true
+        playIcon.isAccessibilityDecorative = true
         textView.isSelectable = false
         textView.userInteractionEnabled = false
         
@@ -220,7 +250,8 @@ public class PeerMediaMusicRowView : PeerMediaRowView, APDelegate {
     public func checkState() {
         if let item = item as? PeerMediaMusicRowItem {
             if let controller = PeerMediaUIHooks.shared.getAudioPlayer(item.context), let song = controller.currentSong {
-                if song.entry.isEqual(to: item.message.id) {
+                let isCurrentSong = item.inModal ? song.resource.id == item.file.resource.id : song.entry.isEqual(to: item.message.id)
+                if isCurrentSong {
                     if playAnimationView == nil {
                         playAnimationView = PeerMediaPlayerAnimationView()
                         addSubview(playAnimationView!)

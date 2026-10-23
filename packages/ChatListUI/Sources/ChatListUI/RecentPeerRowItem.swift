@@ -22,6 +22,7 @@ public class RecentPeerRowItem: ShortPeerRowItem {
     public let adPeer: AdPeer?
     fileprivate let removeAd:((AdPeer, Bool)->Void)?
     public let isRecentApp: Bool
+    fileprivate let unreadCount: Int32?
     
     public init(_ initialSize:NSSize, peer: Peer, account: Account, context: any AccountContextProtocol, stableId:AnyHashable? = nil, enabled: Bool = true, height:CGFloat = 50, photoSize:NSSize = NSMakeSize(36, 36), titleStyle:ControlStyle = ControlStyle(font:.medium(.title), foregroundColor: theme.colors.text, highlightColor: .white), titleAddition:String? = nil, leftImage:CGImage? = nil, statusStyle:ControlStyle = ControlStyle(font:.normal(.text), foregroundColor: theme.colors.grayText, highlightColor:.white), status:String? = nil, borderType:BorderType = [], drawCustomSeparator:Bool = true, isLookSavedMessage: Bool = false, deleteInset:CGFloat? = nil, drawLastSeparator:Bool = false, inset:NSEdgeInsets = NSEdgeInsets(left:10.0), drawSeparatorIgnoringInset: Bool = false, interactionType:ShortPeerItemInteractionType = .plain, generalType:GeneralInteractedType = .none, action:@escaping ()->Void = {}, canRemoveFromRecent: Bool = false, controlAction:@escaping()->Void = {}, contextMenuItems:@escaping()->Signal<[ContextMenuItem], NoError> = { .single([]) }, unreadBadge: UnreadSearchBadge = .none, canAddAsTag: Bool = false, storyStats: PeerStoryStats? = nil, openStory: @escaping(StoryInitialIndex?)->Void = { _ in }, customAction: ShortPeerRowItem.CustomAction? = nil, isGrossingApp: Bool = false, isRecentApp: Bool = false, adPeer: AdPeer? = nil, removeAd:((AdPeer, Bool)->Void)? = nil, monoforumPeer: Peer? = nil, customTheme: GeneralRowItem.Theme? = nil) {
         self.canRemoveFromRecent = canRemoveFromRecent
@@ -30,6 +31,12 @@ public class RecentPeerRowItem: ShortPeerRowItem {
         self.isRecentApp = isRecentApp
         self.removeAd = removeAd
         self.adPeer = adPeer
+        switch unreadBadge {
+        case let .muted(count), let .unmuted(count):
+            self.unreadCount = count
+        case .none:
+            self.unreadCount = nil
+        }
         switch unreadBadge {
         case let .muted(count):
             badge = BadgeNode(.initialize(string: "\(count)", color: theme.chatList.badgeTextColor, font: .medium(.small)), theme.chatList.badgeMutedBackgroundColor)
@@ -51,6 +58,32 @@ public class RecentPeerRowItem: ShortPeerRowItem {
     public override var textAdditionInset:CGFloat {
         return (self.canRemoveFromRecent || self.canAddAsTag ? 5 : 0) + (highlightVerified ? 25 : 0) + (adPeer != nil ? 30 : 0)
     }
+    
+    public override var accessibilityLabel: String? {
+        return super.accessibilityLabel ?? peer.displayTitle
+    }
+    
+    public override var accessibilityValue: String? {
+        var parts: [String] = []
+        if let value = super.accessibilityValue, !value.isEmpty {
+            parts.append(value)
+        }
+        if let unreadCount, unreadCount > 0 {
+            parts.append(strings().voiceOverChatUnreadMessagesOther(Int(unreadCount)))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+    
+    public override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        var actions = super.accessibilityCustomActions ?? []
+        if customAction == nil, canRemoveFromRecent || canAddAsTag {
+            actions.append(NSAccessibilityCustomAction(name: canAddAsTag ? strings().voiceOverCommonAdd : strings().searchRemoveFromRecent, handler: { [weak self] in
+                self?.controlAction()
+                return true
+            }))
+        }
+        return actions.isEmpty ? nil : actions
+    }
 }
 
 public class RecentPeerRowView : ShortPeerRowView {
@@ -65,6 +98,9 @@ public class RecentPeerRowView : ShortPeerRowView {
             addSubview(imageView)
             imageView.image = TelegramThemeHooks.shared.image(.iconSearchAd).precomposed(theme.colors.accent)
             imageView.sizeToFit()
+            imageView.isAccessibilityDecorative = true
+            textView.isAccessibilityDecorative = true
+            setAccessibilityLabel(strings().searchAd)
             
             let layout = TextViewLayout(.initialize(string: strings().searchAd, color: theme.colors.accent, font: .normal(.small)))
             layout.measure(width: .greatestFiniteMagnitude)
@@ -179,6 +215,7 @@ public class RecentPeerRowView : ShortPeerRowView {
                 control.set(image: isSelect ? theme.icons.recentDismissActive : theme.icons.recentDismiss, for: .Normal)
             }
             _ = control.sizeToFit()
+            control.setAccessibilityLabel(item.canAddAsTag ? strings().voiceOverCommonAdd : strings().searchRemoveFromRecent)
             
             if item.customAction == nil, item.canRemoveFromRecent || item.canAddAsTag {
                 addSubview(control)

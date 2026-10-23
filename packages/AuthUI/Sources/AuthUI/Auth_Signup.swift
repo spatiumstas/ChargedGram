@@ -35,6 +35,7 @@ public final class Auth_SignupHeader : View {
         header.userInteractionEnabled = false
         header.isSelectable = false
         
+        logo.setAccessibilityLabel(strings().voiceOverCommonProfilePhoto)
         logo.scaleOnClick = true
         logo.autohighlight = false
         

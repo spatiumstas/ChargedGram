@@ -39,6 +39,7 @@ public final class ChatInputMenuView : View {
         button.addSubview(accentFill)
         button.addSubview(animationView)
         button.scaleOnClick = true
+        button.setAccessibilityLabel(strings().voiceOverCommonBotMenu)
         button.layer?.cornerRadius = 20
         button.stretchReferenceView = glass
 
@@ -86,6 +87,11 @@ public final class ChatInputMenuView : View {
 
         let previous = self.botMenu
         self.botMenu = botMenu
+        if case let .webView(text, _) = botMenu.menuButton, !text.isEmpty {
+            button.setAccessibilityLabel(text)
+        } else {
+            button.setAccessibilityLabel(strings().voiceOverCommonBotMenu)
+        }
         self.compact = compact
 
         let sticker: LocalAnimatedSticker

@@ -60,6 +60,14 @@ private final class BoostText : GeneralRowItem {
     public override var height: CGFloat {
         return 30
     }
+
+    public override var accessibilityLabel: String? {
+        return textLayout.attributedString.string.replacingOccurrences(of: "\u{FFFC}", with: "")
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
     
     public override func viewClass() -> AnyClass {
         return BoostTextView.self
@@ -155,9 +163,11 @@ private final class HeaderStarRowItem : GeneralRowItem {
     fileprivate let peers: [EnginePeer]
     fileprivate let badge: BadgeNode?
     fileprivate let isGifted: Bool
+    fileprivate let extraCount: Int
     public init(_ initialSize: NSSize, stableId: AnyHashable, peers: [EnginePeer], context: (any AccountContextProtocol), isGifted: Bool) {
         self.context = context
         self.isGifted = isGifted
+        self.extraCount = peers.count - 3
         if peers.count > 3, !isGifted {
             let under = theme.colors.underSelectedColor
             self.badge = .init(.initialize(string: "+\(peers.count - 3)", color: under, font: .avatar(.small)), theme.colors.accent, aroundFill: theme.colors.listBackground, additionSize: NSMakeSize(16, 7))
@@ -168,6 +178,22 @@ private final class HeaderStarRowItem : GeneralRowItem {
         self.peers = Array(peers.prefix(3))
         super.init(initialSize, height: 80, stableId: stableId)
     }
+
+    public override var accessibilityLabel: String? {
+        if isGifted || peers.isEmpty {
+            return strings().voiceOverCommonPremium
+        }
+        return peers.map { $0._asPeer().displayTitle }.joined(separator: ", ")
+    }
+
+    public override var accessibilityValue: String? {
+        return badge != nil ? "+\(extraCount)" : nil
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
     public override func viewClass() -> AnyClass {
         return HeaderStarRowItemView.self
     }
@@ -760,6 +786,7 @@ public func PremiumGiftingController(context: (any AccountContextProtocol), peer
         
         let background: Control = Control(frame: controller.bounds.insetBy(dx: 0, dy: -50))
         background.backgroundColor = NSColor.black.withAlphaComponent(0.7)
+        background.setAccessibilityLabel(strings().voiceOverCommonClose)
         
         background.layer?.animateAlpha(from: 0, to: 1, duration: 0.2)
         

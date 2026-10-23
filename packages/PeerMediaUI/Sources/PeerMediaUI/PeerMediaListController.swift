@@ -144,11 +144,11 @@ public func convertEntries(from update: PeerMediaUpdate, tags: MessageTags, time
         switch item.0 {
         case .date:
             if !current.isEmpty {
-                groupItems.append(Item(item.0, item.1!, current))
+                groupItems.append(Item(item.0, item.1!, Array(current.reversed())))
                 current.removeAll()
             }
         case .messageEntry:
-            current.insert(item.0, at: 0)
+            current.append(item.0)
         default:
             fatalError()
         }
@@ -157,9 +157,9 @@ public func convertEntries(from update: PeerMediaUpdate, tags: MessageTags, time
     if !current.isEmpty {
         if !groupItems.isEmpty {
             let item = groupItems.last!
-            groupItems[groupItems.count - 1] = Item(item.date, item.section, item.items + current)
+            groupItems[groupItems.count - 1] = Item(item.date, item.section, item.items + current.reversed())
         } else {
-            groupItems.append(.init(current.first!, .sectionId(current.first!.index.peerLocalSuccessor()), current))
+            groupItems.append(.init(current.last!, .sectionId(current.last!.index.peerLocalSuccessor()), Array(current.reversed())))
         }
     }
     
@@ -305,6 +305,7 @@ open class PeerMediaListController<Context: AccountContextProtocol>: TableViewCo
     private let updateView = Atomic<PeerMediaUpdate?>(value: nil)
     private let mediaSearchState:ValuePromise<MediaSearchState> = ValuePromise(ignoreRepeated: true)
     private let searchState:Promise<SearchState> = Promise()
+    private let searchLoadMore = ValuePipe<Void>()
     private var isExternalSearch: Bool = false
     private let externalSearch:Promise<ExternalSearchMessages?> = Promise(nil)
 
@@ -380,8 +381,6 @@ open class PeerMediaListController<Context: AccountContextProtocol>: TableViewCo
         genericView.stopMerge()
     }
     
-    private var isFirst: Bool = true
-    
     public override func viewDidLoad() {
         super.viewDidLoad()
         
@@ -404,14 +403,16 @@ open class PeerMediaListController<Context: AccountContextProtocol>: TableViewCo
     }
     
     public func load(with tagMask:MessageTags) -> Void {
+        if tagMask.contains(.file) {
+        } else if tagMask.contains(.webPage) {
+        } else if tagMask.contains(.music) {
+        } else if tagMask.contains(.voiceOrInstantVideo) {
+        }
      
         
         
         genericView.clipView.scroll(to: NSMakePoint(0, -genericView.contentInsets.top), animated: false)
 
-        let isFirst = self.isFirst
-        self.isFirst = false
-        
         let isExternalSearch = self.isExternalSearch
         
         let location = ValuePromise<ChatHistoryLocation>(ignoreRepeated: true)
@@ -428,6 +429,7 @@ open class PeerMediaListController<Context: AccountContextProtocol>: TableViewCo
         let threadId = self.threadInfo?.message.threadId
         
         let chatLocationInput = self.chatLocationInput
+        let searchLoadMore = self.searchLoadMore.signal()
 
         
         let historyViewUpdate = combineLatest(location.get(), searchState.get(), externalSearch.get()) |> deliverOnMainQueue
@@ -456,16 +458,14 @@ open class PeerMediaListController<Context: AccountContextProtocol>: TableViewCo
                     let searchMessagesLocation: SearchMessagesLocation
                     searchMessagesLocation = .peer(peerId: peerId, fromId: nil, tags: tagMask, reactions: nil, threadId: threadId, minDate: nil, maxDate: nil)
                     
-                    let signal = context.engine.messages.searchMessages(location: searchMessagesLocation, query: searchState.request, state: nil) |> deliverOnMainQueue |> map {$0.0.messages} |> map { messages -> PeerMediaUpdate in
-                        return PeerMediaUpdate(messages: messages, updateType: .search, laterId: nil, earlierId: nil, searchState: searchState, contentSettings: context.contentSettings)
-                    }
-                    
                     let update = strongSelf.updateView.modify {$0?.withUpdatedUpdatedType(.loading)} ?? PeerMediaUpdate()
-                    
-                    if isFirst {
-                        return .single(update) |> then(signal)
-                    } else {
-                        return .single(update) |> then(signal)
+                    return peerMediaSearchMessages(loadMore: searchLoadMore, request: { state in
+                        context.engine.messages.searchMessages(location: searchMessagesLocation, query: searchState.request, state: state)
+                    }) |> map { messages -> PeerMediaUpdate in
+                        if let messages {
+                            return PeerMediaUpdate(messages: messages, updateType: .search, laterId: nil, earlierId: nil, searchState: searchState, contentSettings: context.contentSettings)
+                        }
+                        return update
                     }
                     
                 }
@@ -585,7 +585,9 @@ open class PeerMediaListController<Context: AccountContextProtocol>: TableViewCo
         genericView.setScrollHandler { [weak self] scroll in
             switch scroll.direction {
             case .bottom:
-                if self?.isSearch == false {
+                if self?.updateView.with({ $0?.searchState.request.isEmpty == false }) == true {
+                    self?.searchLoadMore.putNext(())
+                } else {
                     _ = animated.swap(false)
                     requestCount += perPageCount() * 3
                     location.set(.Initial(count: requestCount, scrollPosition: nil))

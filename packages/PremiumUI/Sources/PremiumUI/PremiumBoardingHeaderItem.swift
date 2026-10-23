@@ -39,6 +39,7 @@ public final class PremiumBoardingHeaderItem : GeneralRowItem {
     public let status: PremiumEmojiStatusInfo?
     public let presentation: TelegramPresentationTheme
     public let sceneType: SceneType
+
     public init(_ initialSize: NSSize, stableId: AnyHashable, context: (any AccountContextProtocol), presentation: TelegramPresentationTheme, isPremium: Bool, peer: Peer?, emojiStatus: PremiumEmojiStatusInfo?, source: PremiumLogEventsSource, premiumText: NSAttributedString?, viewType: GeneralViewType, sceneType: SceneType) {
         
         self.context = context
@@ -92,7 +93,7 @@ public final class PremiumBoardingHeaderItem : GeneralRowItem {
                         
                         let attr = parseMarkdownIntoAttributedString(strings().premiumBoardingPeerStatusCustomTitle(peer.displayTitle, packName), attributes: MarkdownAttributes(body: MarkdownAttributeSet(font: .medium(.header), textColor: presentation.colors.text), bold: MarkdownAttributeSet(font: .bold(.text), textColor: presentation.colors.text), link: MarkdownAttributeSet(font: .medium(.header), textColor: presentation.colors.peerAvatarVioletBottom), linkAttribute: { contents in
                             return (NSAttributedString.Key.link.rawValue, LinkHooks.shared.callbackLink("", { _ in
-                                PremiumHooks.shared.showStickerPackPreview(context, info.shortName)
+                                PremiumHooks.shared.showStickerPackPreviewObserved(context, info.shortName)
                             }))
                         })) as! NSMutableAttributedString
                         
@@ -177,6 +178,14 @@ public final class PremiumBoardingHeaderItem : GeneralRowItem {
     }
     
     
+    public override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return infoLayout.attributedString.string
+    }
+
     public override func viewClass() -> AnyClass {
         return PremiumBoardingHeaderView.self
     }

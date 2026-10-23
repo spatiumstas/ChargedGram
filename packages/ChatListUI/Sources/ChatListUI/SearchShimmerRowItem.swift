@@ -1,6 +1,7 @@
 import Cocoa
 import TGUIKit
 import TelegramTheme
+import Localization
 
 final class SearchShimmerRowItem: TableRowItem {
     override var height: CGFloat {
@@ -9,6 +10,14 @@ final class SearchShimmerRowItem: TableRowItem {
 
     override func viewClass() -> AnyClass {
         return SearchShimmerRowView.self
+    }
+
+    override var accessibilityLabel: String? {
+        return strings().voiceOverCommonLoading
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
     }
 }
 

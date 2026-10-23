@@ -1,5 +1,4 @@
 #/bin/sh
-set -x
 set -e
 
 export PATH="$PATH:$HOME/.credentials"

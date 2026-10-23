@@ -82,7 +82,7 @@ public func fetchCachedResourceRepresentation(account: Account, resource: MediaR
     } else if let representation = representation as? CachedScaledImageRepresentation {
         return fetchCachedScaledImageRepresentation(account: account, resource: resource, representation: representation)
     } else if representation is CachedVideoFirstFrameRepresentation {
-        return account.postbox.mediaBox.resourceData(resource, option: .complete(waitUntilFetchStatus: false))
+        let fromResource = account.postbox.mediaBox.resourceData(resource, option: .complete(waitUntilFetchStatus: false))
             |> mapToSignal { data -> Signal<CachedMediaResourceRepresentationResult, NoError> in
                 if data.complete {
                     return fetchCachedVideoFirstFrameRepresentation(account: account, resource: resource, resourceData: data)
@@ -95,6 +95,22 @@ public func fetchCachedResourceRepresentation(account: Account, resource: MediaR
                     return .complete()
                 }
         }
+        if let resource = resource as? LocalFileVideoMediaResource, let info = PendingVideoRenders.shared.info(for: resource.path) {
+            return Signal<Data?, NoError> { subscriber in
+                subscriber.putNext(info.frame)
+                subscriber.putCompletion()
+                return EmptyDisposable
+            }
+            |> runOn(cacheThreadPool)
+            |> mapToSignal { frame -> Signal<CachedMediaResourceRepresentationResult, NoError> in
+                let file = TempBox.shared.tempFile(fileName: "frame.jpg")
+                if let frame = frame, (try? frame.write(to: URL(fileURLWithPath: file.path))) != nil {
+                    return .single(.tempFile(file))
+                }
+                return fromResource
+            }
+        }
+        return fromResource
     } else if let representation = representation as? CachedScaledVideoFirstFrameRepresentation {
         return fetchCachedScaledVideoFirstFrameRepresentation(account: account, resource: resource, representation: representation)
     } else if let representation = representation as? CachedDiceRepresentation {
@@ -114,7 +130,7 @@ public func fetchCachedResourceRepresentation(account: Account, resource: MediaR
         }
     } else if let representation = representation as? CachedSlotMachineRepresentation {
         if let diceCache = MediaRenderHooks.shared.diceCache() {
-            return diceCache.interactiveSymbolData(baseSymbol: slotsEmoji, synchronous: false) |> map { values -> [(Data?, Int32)] in
+            return diceCache.interactiveSymbolData(baseSymbol: slotsEmoji, synchronous: false) |> filter { $0.count >= 21 } |> map { values -> [(Data?, Int32)] in
                 var required: [(Data?, Int32)] = []
                 required.append((values[1].1, 1))
                 switch representation.value.left {

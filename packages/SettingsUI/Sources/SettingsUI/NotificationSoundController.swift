@@ -178,6 +178,9 @@ public func NotificationSoundController(context: any AccountContextProtocol) -> 
             })
             
         }
+        let wasDisabled = stateValue.with { $0.tone == .none }
+        if wasDisabled != (tone == .none) {
+        }
         _ = updateInAppNotificationSettingsInteractively(accountManager: context.sharedContext.accountManager, {$0.withUpdatedTone(tone)}).start()
     }
 

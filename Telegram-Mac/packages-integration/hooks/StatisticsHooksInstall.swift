@@ -12,7 +12,7 @@ extension MediaAnimatedStickerView: @retroactive StatisticsStickerView {
 }
 
 func installStatisticsUIHooks() {
-    StatisticsHooks.install(StatisticsHooks(
+    var hooks = StatisticsHooks(
         makeStickerView: { MediaAnimatedStickerView(frame: NSZeroRect) },
         makeMonetizationController: { context, peerId in
         FragmentMonetizationController(context: context as! AccountContext, peerId: peerId) },
@@ -31,12 +31,26 @@ func installStatisticsUIHooks() {
         guard let context = context as? AccountContext else {
             return
         }
-        context.bindings.rootNavigation().push(ChatAdditionController(context: context, chatLocation: .peer(messageId.peerId), focusTarget: .init(messageId: messageId))) },
+        let controller = ChatAdditionController(context: context, chatLocation: .peer(messageId.peerId), focusTarget: .init(messageId: messageId))
+        context.bindings.rootNavigation().push(controller) },
         showStory: { context, peerId, storyId in
         StoryModalController.ShowSingleStory(context: context as! AccountContext, storyId: .init(peerId: peerId, id: storyId), initialId: nil) },
         shareLink: { context, link in
         showModal(with: ShareModalController(ShareLinkObject(context, link: link)), for: context.window) },
         openGiftSlug: { context, slug in
         execute(inapp: .gift(link: "", slug: slug, context: context as! AccountContext)) }
-    ))
+    )
+    hooks.showStoryWithContext = { context, peerId, storyId in
+        StoryModalController.ShowSingleStory(context: context as! AccountContext, storyId: .init(peerId: peerId, id: storyId), initialId: nil)
+    }
+    hooks.openMessageWithContext = { context, messageId in
+        guard let context = context as? AccountContext else { return }
+        let controller = ChatAdditionController(context: context, chatLocation: .peer(messageId.peerId), focusTarget: .init(messageId: messageId))
+        context.bindings.rootNavigation().push(controller)
+    }
+    hooks.openPeerInfoWithContext = { context, peerId in
+        guard let context = context as? AccountContext else { return }
+        PeerInfoController.push(navigation: context.bindings.rootNavigation(), context: context, peerId: peerId)
+    }
+    StatisticsHooks.install(hooks)
 }

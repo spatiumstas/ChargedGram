@@ -11,14 +11,15 @@ import TelegramTheme
 import TelegramContext
 import AlertsUI
 
-public func joinChannel(context: any AccountContextProtocol, peerId: PeerId) {
 
-    _ = showModalProgress(signal: context.engine.peers.joinChannel(peerId: peerId, hash: nil) |> deliverOnMainQueue, for: context.window).start(next: { outcome in
+public func joinChannel(context: any AccountContextProtocol, peerId: PeerId) {
+    let signal = context.engine.peers.joinChannel(peerId: peerId, hash: nil) |> take(1) |> deliverOnMainQueue
+    _ = (showModalProgress(signal: signal, for: context.window)).start(next: { outcome in
         switch outcome {
         case .joined:
-            _ = showModalSuccess(for: context.window, icon: theme.icons.successModalProgress, delay: 1.5).start()
+            _ = (showModalSuccess(for: context.window, icon: theme.icons.successModalProgress, delay: 1.5)).start()
         case let .webView(webView):
-            ChatNavigationHooks.shared.openJoinChatBotWebView(context, webView.botPeer.id, webView.url, webView.queryId, peerId)
+            ChatNavigationHooks.shared.openJoinChatBotWebViewObserved(context, webView.botPeer.id, webView.url, webView.queryId, peerId)
         }
     }, error: { error in
         let text: String
@@ -26,7 +27,7 @@ public func joinChannel(context: any AccountContextProtocol, peerId: PeerId) {
         case .generic:
             text = strings().unknownError
         case .tooMuchJoined:
-            ChatNavigationHooks.shared.showInactiveChannelsOnJoin(context)
+            ChatNavigationHooks.shared.showInactiveChannelsOnJoinObserved(context)
             return
         case .tooMuchUsers:
             text = strings().groupUsersTooMuchError

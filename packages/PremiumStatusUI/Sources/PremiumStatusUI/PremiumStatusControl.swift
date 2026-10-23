@@ -22,6 +22,16 @@ public final class StarsEffectLayer: SimpleLayer {
 
     private let emitterLayer = CAEmitterLayer()
     private let emitter = CAEmitterCell()
+    private var currentColor: CGColor?
+    private var currentSize: CGSize?
+    
+    public var isPlaying: Bool = true {
+        didSet {
+            if self.isPlaying != oldValue {
+                self.emitterLayer.birthRate = self.isPlaying ? 1.0 : 0.0
+            }
+        }
+    }
 
     public override init() {
         super.init()
@@ -37,13 +47,12 @@ public final class StarsEffectLayer: SimpleLayer {
         fatalError("init(coder:) has not been implemented")
     }
     
-    private func setup(color: NSColor, size: CGSize) {
+    private func setup() {
         emitter.name = "emitter"
         emitter.contents = StarsEffectLayer.particleImage
         emitter.birthRate = 6.0
         emitter.lifetime = 1.5
         emitter.velocity = 0.1
-        emitter.scale = (size.width / 32.0) * 0.12
         emitter.scaleRange = 0.02
         emitter.alphaRange = 0.1
         emitter.emissionRange = .pi * 2.0
@@ -52,53 +61,115 @@ public final class StarsEffectLayer: SimpleLayer {
     }
     
     public func update(color: NSColor, size: CGSize) {
-        if self.emitterLayer.emitterCells == nil {
-            self.setup(color: color, size: size)
+        let resolvedColor = color.cgColor
+        let needsSetup = self.emitterLayer.emitterCells == nil
+        let colorChanged = self.currentColor != resolvedColor
+        let sizeChanged = self.currentSize != size
+        guard needsSetup || colorChanged || sizeChanged else {
+            return
+        }
+        if needsSetup {
+            self.setup()
+            self.emitterLayer.emitterShape = .circle
+            self.emitterLayer.emitterMode = .surface
         }
         
-        let staticColors: [Any] = [
-            color.withAlphaComponent(0.0).cgColor,
-            color.withAlphaComponent(0.58).cgColor,
-            color.withAlphaComponent(0.58).cgColor,
-            color.withAlphaComponent(0.0).cgColor
-        ]
-        let staticColorBehavior = createEmitterBehavior(type: "colorOverLife")
-        staticColorBehavior.setValue(staticColors, forKey: "colors")
-        emitter.setValue([staticColorBehavior], forKey: "emitterBehaviors")
+        if needsSetup || colorChanged {
+            let clearColor = color.withAlphaComponent(0.0).cgColor
+            let visibleColor = color.withAlphaComponent(0.58).cgColor
+            let staticColorBehavior = createEmitterBehavior(type: "colorOverLife")
+            staticColorBehavior.setValue([clearColor, visibleColor, visibleColor, clearColor], forKey: "colors")
+            emitter.setValue([staticColorBehavior], forKey: "emitterBehaviors")
+        }
+        if needsSetup || sizeChanged {
+            emitter.scale = (size.width / 32.0) * 0.12
+            self.emitterLayer.emitterSize = size
+            self.emitterLayer.frame = CGRect(origin: .zero, size: size)
+            self.emitterLayer.emitterPosition = CGPoint(x: size.width / 2.0, y: size.height / 2.0)
+        }
         self.emitterLayer.emitterCells = [emitter]
-        
         self.emitterLayer.seed = UInt32.random(in: .min ..< .max)
-        self.emitterLayer.emitterShape = .circle
-        self.emitterLayer.emitterSize = size
-        self.emitterLayer.emitterMode = .surface
-        self.emitterLayer.frame = CGRect(origin: .zero, size: size)
-        self.emitterLayer.emitterPosition = CGPoint(x: size.width / 2.0, y: size.height / 2.0)
+        self.currentColor = resolvedColor
+        self.currentSize = size
     }
 }
 
 
 
-public final class PremiumStatusControl : Control {
-    private var imageLayer: SimpleLayer?
-    private var animateLayer: InlineStickerItemLayer?
+protocol PremiumStatusRenderHost: AnyObject {
+    var statusHostLayer: CALayer? { get }
+    var statusHostSize: NSSize { get }
+    func setStatusHostSize(_ size: NSSize)
+    var statusHostAlpha: CGFloat { get }
+    var statusVisibilityView: NSView? { get }
+    var statusVisibleRect: NSRect { get }
+    var statusWindow: NSWindow? { get }
+    func statusClearTooltip()
+    func statusDidUpdate()
+}
+
+final class PremiumStatusRenderer {
+    private final class StatusConfiguration {
+        let account: ObjectIdentifier
+        let inlinePacksContext: ObjectIdentifier?
+        let size: NSSize
+        let loops: Bool
+        let isSelected: Bool
+        let tint: NSColor
+        let hasCustomColor: Bool
+
+        init(account: Account, inlinePacksContext: InlineStickersContext?, size: NSSize, loops: Bool, isSelected: Bool, color: NSColor?) {
+            self.account = ObjectIdentifier(account)
+            self.inlinePacksContext = inlinePacksContext.map(ObjectIdentifier.init)
+            self.size = size
+            self.loops = loops
+            self.isSelected = isSelected
+            self.tint = isSelected ? theme.colors.underSelectedColor : color ?? theme.colors.accent
+            self.hasCustomColor = color != nil
+        }
+
+        func matchesSource(account: Account, inlinePacksContext: InlineStickersContext?, loops: Bool) -> Bool {
+            return self.account == ObjectIdentifier(account) && self.inlinePacksContext == inlinePacksContext.map(ObjectIdentifier.init) && self.loops == loops
+        }
+
+        func matches(account: Account, inlinePacksContext: InlineStickersContext?, size: NSSize, loops: Bool, isSelected: Bool, color: NSColor?, file: TelegramMediaFile?) -> Bool {
+            guard matchesSource(account: account, inlinePacksContext: inlinePacksContext, loops: loops), self.size == size else {
+                return false
+            }
+            let tint = isSelected ? theme.colors.underSelectedColor : color ?? theme.colors.accent
+            let sameTint = self.isSelected == isSelected && (self.tint === tint || self.tint.isEqual(tint))
+            if sameTint && self.hasCustomColor == (color != nil) {
+                return true
+            }
+            guard let file, !isDefaultStatusesPackId(file.emojiReference) else {
+                return false
+            }
+            return !file.paintToText || sameTint
+        }
+    }
+
+    private weak var host: PremiumStatusRenderHost?
+    private(set) var imageLayer: SimpleLayer?
+    private(set) var animateLayer: InlineStickerItemLayer?
+    private var statusConfiguration: StatusConfiguration?
     private var statusSelected: Bool? = nil
-    private var starsLayer: StarsEffectLayer?
-    public required init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        userInteractionEnabled = false
-        layer?.masksToBounds = false
+    private(set) var starsLayer: StarsEffectLayer?
+    private let peerObservation = PremiumStatusPeerObservation()
+    private(set) var lite: Bool = false
+
+    init(host: PremiumStatusRenderHost) {
+        self.host = host
     }
-    
-    public required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+
+    var hasAnimatedContent: Bool {
+        return animateLayer != nil || starsLayer != nil
     }
-    
-    private let disposable = MetaDisposable()
-    
-    private var lite: Bool = false
-    
-    public override func layout() {
-        super.layout()
+
+    private func focus(_ size: NSSize) -> NSRect {
+        return NSRect(origin: .zero, size: host?.statusHostSize ?? .zero).focus(size)
+    }
+
+    func layout() {
         var offset: CGFloat = 0
         if let imageLayer = imageLayer {
             var rect = focus(imageLayer.frame.size)
@@ -112,16 +183,18 @@ public final class PremiumStatusControl : Control {
             animateLayer.frame = rect
         }
     }
-    
-    public func set(_ peer: Peer, account: Account, inlinePacksContext: InlineStickersContext?, left: Bool, color: NSColor?, isSelected: Bool, isBig: Bool, animated: Bool, playTwice: Bool = true, isLite: Bool, autoupdate: Bool = true) {
-        
-        
+
+    func set(_ peer: Peer, account: Account, inlinePacksContext: InlineStickersContext?, left: Bool, color: NSColor?, isSelected: Bool, isBig: Bool, animated: Bool, playTwice: Bool = true, isLite: Bool, autoupdate: Bool = true) {
+        guard let host = self.host else {
+            return
+        }
+
         self.lite = isLite
         
         if let size = PremiumStatusControl.controlSize(peer, isBig, left: left) {
-            setFrameSize(size)
+            host.setStatusHostSize(size)
         }
-        self.layer?.opacity = color != nil && peer.emojiStatus != nil ? 0.4 : 1
+        host.statusHostLayer?.opacity = color != nil && peer.emojiStatus != nil ? 0.4 : 1
 
         if (peer.isFake || peer.isScam || peer.isPremium || peer.isVerified) && !left, ((peer.isPremium && peer.emojiStatus == nil) || !peer.isPremium || peer.isFake || peer.isScam || peer.isVerified) && !left  {
 
@@ -132,7 +205,7 @@ public final class PremiumStatusControl : Control {
                 current = SimpleLayer()
                 current.masksToBounds = false
                 self.imageLayer = current
-                self.layer?.addSublayer(current)
+                host.statusHostLayer?.addSublayer(current)
             }
             let image: CGImage?
             
@@ -191,7 +264,7 @@ public final class PremiumStatusControl : Control {
         }
         
         let makeStatus:(Int64)->Void = { [weak self] fileId in
-            guard let self else {
+            guard let self, let host = self.host else {
                 return
             }
             let current: InlineStickerItemLayer
@@ -210,52 +283,51 @@ public final class PremiumStatusControl : Control {
                 return colors
             }
             
-            var updated: Bool = false
+            let loops = isBig && !playTwice
             
-            if statusSelected != isSelected, let layer = self.animateLayer {
-                if layer.file?.fileId.id == fileId {
-                    if !getColors(layer.file).isEmpty {
-                        updated = true
-                    }
-                }
-            }
-            
-            if let layer = self.animateLayer, layer.file?.fileId.id == fileId && !updated {
+            if let layer = self.animateLayer, layer.fileId == fileId,
+               layer.file != nil || !layer.hasFileResolutionResult,
+               self.statusConfiguration?.matches(account: account, inlinePacksContext: inlinePacksContext, size: host.statusHostSize, loops: loops, isSelected: isSelected, color: color, file: layer.file) == true {
                 current = layer
                 if isDefaultStatusesPackId(layer.file?.emojiReference), color != nil {
-                    self.layer?.opacity = Float(alphaValue)
+                    host.statusHostLayer?.opacity = 0.4
                 } else {
-                    self.layer?.opacity = Float(alphaValue)
+                    host.statusHostLayer?.opacity = Float(host.statusHostAlpha)
                 }
                 
             } else {
                 let animated = animated && statusSelected == isSelected
                 var previousStopped: Bool = false
-                if self.animateLayer?.file?.fileId.id == fileId {
+                if self.animateLayer?.fileId == fileId, self.statusConfiguration?.matchesSource(account: account, inlinePacksContext: inlinePacksContext, loops: loops) == true {
                     previousStopped = self.animateLayer?.stopped ?? false
                 }
                 if let animateLayer = animateLayer {
+                    animateLayer.fileDidUpdate = nil
+                    let contents = animateLayer.contents
+                    animateLayer.isPlayable = false
+                    animateLayer.contents = contents
                     performSublayerRemoval(animateLayer, animated: animated, scale: true)
                     self.animateLayer = nil
                 }
-                current = InlineStickerItemLayer(account: account, inlinePacksContext: inlinePacksContext, emoji: .init(fileId: fileId, file: nil, emoji: ""), size: frame.size, playPolicy: isBig && !playTwice ? .loop : .playCount(2), checkStatus: true, getColors: getColors)
+                current = InlineStickerItemLayer(account: account, inlinePacksContext: inlinePacksContext, emoji: .init(fileId: fileId, file: nil, emoji: ""), size: host.statusHostSize, playPolicy: loops ? .loop : .playCount(2), checkStatus: true, getColors: getColors)
                 
-                current.fileDidUpdate = { [weak self] file in
-                    guard let `self` = self else {
+                current.fileDidUpdate = { [weak host] file in
+                    guard let host else {
                         return
                     }
                     if isDefaultStatusesPackId(file?.emojiReference), color != nil {
-                        self.layer?.opacity = 0.4
+                        host.statusHostLayer?.opacity = 0.4
                     } else {
-                        self.layer?.opacity = Float(self.alphaValue)
+                        host.statusHostLayer?.opacity = Float(host.statusHostAlpha)
                     }
                 }
                 current.fileDidUpdate?(current.file)
                 
                 current.stopped = previousStopped
-                current.superview = self
+                current.superview = host.statusVisibilityView
                 self.animateLayer = current
-                self.layer?.addSublayer(current)
+                self.statusConfiguration = StatusConfiguration(account: account, inlinePacksContext: inlinePacksContext, size: host.statusHostSize, loops: loops, isSelected: isSelected, color: color)
+                host.statusHostLayer?.addSublayer(current)
                 
                 if animated {
                     current.animateAlpha(from: 0, to: 1, duration: 0.2)
@@ -271,8 +343,13 @@ public final class PremiumStatusControl : Control {
             let fileId: Int64 = status
             makeStatus(fileId)
         } else if let animateLayer = animateLayer {
+            animateLayer.fileDidUpdate = nil
+            let contents = animateLayer.contents
+            animateLayer.isPlayable = false
+            animateLayer.contents = contents
             performSublayerRemoval(animateLayer, animated: animated)
             self.animateLayer = nil
+            self.statusConfiguration = nil
         }
         
         if let status = peer.emojiStatus, case let .starGift(_, _, _, _, _, innerColor, _, _, _) = status.content, !left {
@@ -281,7 +358,7 @@ public final class PremiumStatusControl : Control {
                 starsLayer = current
             } else {
                 starsLayer = StarsEffectLayer()
-                self.layer?.insertSublayer(starsLayer, at: 0)
+                host.statusHostLayer?.insertSublayer(starsLayer, at: 0)
                 self.starsLayer = starsLayer
             }
             let availableSize = NSMakeSize(20, 20)
@@ -290,58 +367,84 @@ public final class PremiumStatusControl : Control {
             starsLayer.frame = starsFrame.offsetBy(dx: imageLayer != nil ? imageLayer!.frame.width : 0, dy: 0)
             starsLayer.update(color: isSelected ? theme.colors.underSelectedColor : NSColor(UInt32(innerColor)), size: starsFrame.size)
             
-           // self.appTooltip = title
-            
         } else {
             if let starsLayer = self.starsLayer {
+                starsLayer.isPlaying = false
                 self.starsLayer = nil
                 starsLayer.removeFromSuperlayer()
             }
-            self.appTooltip = nil
+            host.statusClearTooltip()
         }
-        
-
         
         self.statusSelected = isSelected
         
-        self.updateAnimatableContent()
-        self.updateListeners()
+        host.statusDidUpdate()
         
-        needsLayout = true
-        
-        if autoupdate {
-            let updatedPeer = account.postbox.combinedView(keys: [.basicPeer(peer.id)]) |> map { view in
-                return (view.views[.basicPeer(peer.id)] as? BasicPeerView)?.peer
-            }
-            |> filter { $0 != nil }
-            |> map { $0! }
-            |> deliverOnMainQueue
-            
-            self.disposable.set(updatedPeer.start(next: { [weak self] updated in
-                if !updated.isEqual(peer) {
-                    self?.set(updated, account: account, inlinePacksContext: inlinePacksContext, left: left, color: color, isSelected: isSelected, isBig: isBig, animated: animated, playTwice: playTwice, isLite: isLite)
-                }
-            }))
-        } else {
-            self.disposable.set(nil)
+        self.peerObservation.update(peer: peer, account: account, enabled: autoupdate) { [weak self] updated in
+            self?.set(updated, account: account, inlinePacksContext: inlinePacksContext, left: left, color: color, isSelected: isSelected, isBig: isBig, animated: animated, playTwice: playTwice, isLite: isLite, autoupdate: autoupdate)
         }
-        
+    }
+
+    func updatePlayback() {
+        guard let host else {
+            return
+        }
+        var isKeyWindow: Bool = false
+        if let window = host.statusWindow {
+            if !window.canBecomeKey {
+                isKeyWindow = true
+            } else {
+                isKeyWindow = window.isKeyWindow
+            }
+        }
+        let visibleRect = host.statusVisibleRect
+        if let layer = self.animateLayer, layer.superview != nil {
+            layer.isPlayable = NSIntersectsRect(layer.frame, visibleRect) && isKeyWindow && !lite
+        }
+        if let starsLayer = self.starsLayer {
+            starsLayer.isPlaying = NSIntersectsRect(starsLayer.frame, visibleRect) && isKeyWindow && !lite
+        }
+    }
+}
+
+public final class PremiumStatusControl : Control, PremiumStatusRenderHost {
+    private lazy var renderer = PremiumStatusRenderer(host: self)
+
+    public required init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        userInteractionEnabled = false
+        layer?.masksToBounds = false
     }
     
+    public required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
+    var statusHostLayer: CALayer? { layer }
+    var statusHostSize: NSSize { frame.size }
+    func setStatusHostSize(_ size: NSSize) { setFrameSize(size) }
+    var statusHostAlpha: CGFloat { alphaValue }
+    var statusVisibilityView: NSView? { self }
+    var statusVisibleRect: NSRect { visibleRect }
+    var statusWindow: NSWindow? { window }
+    func statusClearTooltip() { appTooltip = nil }
+    func statusDidUpdate() {
+        updateAnimatableContent()
+        updateListeners()
+        needsLayout = true
+    }
+    
+    public override func layout() {
+        super.layout()
+        renderer.layout()
+    }
+    
+    public func set(_ peer: Peer, account: Account, inlinePacksContext: InlineStickersContext?, left: Bool, color: NSColor?, isSelected: Bool, isBig: Bool, animated: Bool, playTwice: Bool = true, isLite: Bool, autoupdate: Bool = true) {
+        renderer.set(peer, account: account, inlinePacksContext: inlinePacksContext, left: left, color: color, isSelected: isSelected, isBig: isBig, animated: animated, playTwice: playTwice, isLite: isLite, autoupdate: autoupdate)
+    }
     
     @objc public func updateAnimatableContent() -> Void {
-        if let layer = self.animateLayer, let superview = layer.superview {
-            var isKeyWindow: Bool = false
-            if let window = window {
-                if !window.canBecomeKey {
-                    isKeyWindow = true
-                } else {
-                    isKeyWindow = window.isKeyWindow
-                }
-            }
-            layer.isPlayable = NSIntersectsRect(layer.frame, superview.visibleRect) && isKeyWindow && !lite
-        }
+        renderer.updatePlayback()
     }
     
     public override func viewDidMoveToWindow() {
@@ -357,14 +460,20 @@ public final class PremiumStatusControl : Control {
     }
     
     deinit {
-        self.disposable.dispose()
         NotificationCenter.default.removeObserver(self)
     }
     
-    private let animatableContentObserver = AnimatableContentObserver()
+    private var animatableContentObserver: AnimatableContentObserver?
 
     private func updateListeners() {
-        animatableContentObserver.update(for: self, target: self, selector: #selector(updateAnimatableContent), options: [.contentBounds, .documentFrame, .ownFrame])
+        guard window != nil, renderer.hasAnimatedContent else {
+            animatableContentObserver = nil
+            return
+        }
+        if animatableContentObserver == nil {
+            animatableContentObserver = AnimatableContentObserver()
+        }
+        animatableContentObserver?.update(for: self, target: self, selector: #selector(updateAnimatableContent), options: [.contentBounds, .documentFrame, .ownFrame])
     }
     
     public static func control(_ peer: Peer, account: Account, inlinePacksContext: InlineStickersContext?, left: Bool, isSelected: Bool, isBig: Bool = false, playTwice: Bool = false, color: NSColor? = nil, cached: PremiumStatusControl?, animated: Bool, autoupdate: Bool = true) -> PremiumStatusControl? {
@@ -393,5 +502,104 @@ public final class PremiumStatusControl : Control {
         } else {
             return nil
         }
+    }
+}
+
+public final class PremiumStatusLayer: SimpleLayer, PremiumStatusRenderHost {
+    private lazy var renderer = PremiumStatusRenderer(host: self)
+    public weak var visibilityView: NSView? {
+        didSet {
+            if visibilityView !== oldValue {
+                renderer.animateLayer?.superview = visibilityView
+                updateListeners()
+                updatePlayback()
+            }
+        }
+    }
+
+    public override init() {
+        super.init()
+        anchorPoint = .zero
+        masksToBounds = false
+        isOpaque = true
+        edgeAntialiasingMask = []
+        if #available(macOS 10.15, *) {
+            cornerCurve = .continuous
+        }
+    }
+
+    public override init(layer: Any) {
+        super.init(layer: layer)
+    }
+
+    public required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    var statusHostLayer: CALayer? { self }
+    var statusHostSize: NSSize { bounds.size }
+    func setStatusHostSize(_ size: NSSize) {
+        if bounds.size != size {
+            bounds = CGRect(origin: .zero, size: size)
+        }
+    }
+    var statusHostAlpha: CGFloat { 1 }
+    var statusVisibilityView: NSView? { visibilityView }
+    var statusVisibleRect: NSRect {
+        guard let view = visibilityView else { return .zero }
+        var origin = NSPoint(x: frame.minX, y: frame.minY)
+        var parent = superlayer
+        let root = view.layer
+        while let current = parent, current !== root {
+            origin.x += current.frame.minX - current.bounds.minX
+            origin.y += current.frame.minY - current.bounds.minY
+            parent = current.superlayer
+        }
+        guard parent === root else { return .zero }
+        return view.visibleRect.offsetBy(dx: -origin.x, dy: -origin.y)
+    }
+    var statusWindow: NSWindow? { visibilityView?.window }
+    func statusClearTooltip() {}
+    func statusDidUpdate() {
+        renderer.layout()
+        updateListeners()
+        updatePlayback()
+    }
+
+    public var hasAnimatedContent: Bool { renderer.hasAnimatedContent }
+
+    public func hostDidMoveToWindow() {
+        updateListeners()
+        updatePlayback()
+    }
+
+    public func set(_ peer: Peer, account: Account, inlinePacksContext: InlineStickersContext?, left: Bool, color: NSColor?, isSelected: Bool, isBig: Bool, animated: Bool, playTwice: Bool = true, isLite: Bool, autoupdate: Bool = true) {
+        renderer.set(peer, account: account, inlinePacksContext: inlinePacksContext, left: left, color: color, isSelected: isSelected, isBig: isBig, animated: animated, playTwice: playTwice, isLite: isLite, autoupdate: autoupdate)
+    }
+
+    @objc public func updatePlayback() {
+        renderer.updatePlayback()
+    }
+
+    private var animatableContentObserver: AnimatableContentObserver?
+
+    private func updateListeners() {
+        guard let view = visibilityView, view.window != nil, renderer.hasAnimatedContent else {
+            animatableContentObserver = nil
+            return
+        }
+        if animatableContentObserver == nil {
+            animatableContentObserver = AnimatableContentObserver()
+        }
+        animatableContentObserver?.update(for: view, target: self, selector: #selector(updatePlayback), options: [.contentBounds, .documentFrame, .ownFrame])
+    }
+
+    public static func layer(_ peer: Peer, account: Account, inlinePacksContext: InlineStickersContext?, left: Bool, isSelected: Bool, isBig: Bool = false, playTwice: Bool = false, color: NSColor? = nil, cached: PremiumStatusLayer?, animated: Bool, autoupdate: Bool = true) -> PremiumStatusLayer? {
+        guard PremiumStatusControl.hasControl(peer, left: left) else {
+            return nil
+        }
+        let current = cached ?? PremiumStatusLayer()
+        current.set(peer, account: account, inlinePacksContext: inlinePacksContext, left: left, color: color, isSelected: isSelected, isBig: isBig, animated: animated, playTwice: playTwice, isLite: TelegramUtilsHooks.shared.isLite(.emoji), autoupdate: autoupdate)
+        return current
     }
 }

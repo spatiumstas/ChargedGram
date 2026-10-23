@@ -102,6 +102,14 @@ private final class HeaderItem : GeneralRowItem {
         return true
     }
     
+    override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+    
+    override var accessibilityValue: String? {
+        return [infoLayout.attributedString.string, upcomingLayout?.attributedString.string].compactMap { $0 }.joined(separator: ", ")
+    }
+    
     public override func viewClass() -> AnyClass {
         return HeaderView.self
     }
@@ -139,6 +147,7 @@ private final class HeaderView: GeneralRowView {
         
         dismiss.scaleOnClick = true
         dismiss.autohighlight = false
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
         
         dismiss.set(image: TelegramThemeHooks.shared.image(.iconPipClose).precomposed(.white), for: .Normal)
         dismiss.setGlassEffect(size: NSMakeSize(36, 36))
@@ -146,6 +155,7 @@ private final class HeaderView: GeneralRowView {
         
         actions.scaleOnClick = true
         actions.autohighlight = false
+        actions.setAccessibilityLabel(strings().voiceOverCommonMore)
 
         actions.set(image: TelegramThemeHooks.shared.image(.iconChatActionsActive).precomposed(.white), for: .Normal)
         actions.setGlassEffect(size: NSMakeSize(36, 36))

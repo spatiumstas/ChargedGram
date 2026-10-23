@@ -4,9 +4,18 @@ import Localization
 import CalendarUtils
 
 public extension TelegramBirthday {
+    var dateForPicker: Date? {
+        let calendar = Calendar(identifier: .gregorian)
+        let year = self.year.map(Int.init) ?? CalendarUtils.yearForNoYear
+        guard let date = calendar.date(from: DateComponents(year: year, month: Int(self.month), day: Int(self.day))) else { return nil }
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        guard components.year == year, components.month == Int(self.month), components.day == Int(self.day) else { return nil }
+        return date
+    }
+
     var isToday: Bool {
         let date = Date()
-        let calendar = Calendar.current
+        let calendar = Calendar(identifier: .gregorian)
 
         let day = calendar.component(.day, from: date)
         let month = calendar.component(.month, from: date)
@@ -16,7 +25,7 @@ public extension TelegramBirthday {
     
     func isTomorrow() -> Bool {
         let currentDate = Date()
-        let calendar = Calendar.current
+        let calendar = Calendar(identifier: .gregorian)
         guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: currentDate) else { return false }
 
         let dayTomorrow = calendar.component(.day, from: tomorrow)
@@ -27,7 +36,7 @@ public extension TelegramBirthday {
 
     func isYesterday() -> Bool {
         let currentDate = Date()
-        let calendar = Calendar.current
+        let calendar = Calendar(identifier: .gregorian)
         guard let yesterday = calendar.date(byAdding: .day, value: -1, to: currentDate) else { return false }
 
         let dayYesterday = calendar.component(.day, from: yesterday)
@@ -38,33 +47,11 @@ public extension TelegramBirthday {
     
     
     func yearsSince() -> Int? {
-        
-        guard let year else {
-            return nil
-        }
-        
-        let calendar = Calendar.current
-        
-        // Components of the input date
-        var dateComponents = DateComponents()
-        dateComponents.day = Int(day)
-        dateComponents.month = Int(month)
-        dateComponents.year = Int(year)
-        
-        // Construct the date from components
-        guard let fromDate = calendar.date(from: dateComponents) else {
-            return nil // Invalid date was provided
-        }
-        
-        // Get the current date
-        let toDate = Date()
-        
-        // Calculate the difference in years
-        let components = calendar.dateComponents([.year], from: fromDate, to: toDate)
-        return components.year
+        guard self.year != nil, let fromDate = self.dateForPicker else { return nil }
+        let calendar = Calendar(identifier: .gregorian)
+        return calendar.dateComponents([.year], from: fromDate, to: Date()).year
     }
 
-    
     var isEligble: Bool {
         return self.isToday || self.isTomorrow() || self.isYesterday()
     }

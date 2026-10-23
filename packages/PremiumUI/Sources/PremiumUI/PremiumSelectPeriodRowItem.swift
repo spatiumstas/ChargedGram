@@ -155,6 +155,10 @@ public final class PremiumSelectPeriodRowItem : GeneralRowItem {
     public override var height: CGFloat {
         return (CGFloat(periods.count) * 40)
     }
+
+    public override var accessibilityLabel: String? {
+        return selectedPeriod.titleString
+    }
     
     public override func viewClass() -> AnyClass {
         return PremiumSelectPeriodRowView.self
@@ -178,6 +182,7 @@ private final class PremiumSelectPeriodRowView: GeneralContainableRowView {
             layer?.cornerRadius = 10
             
             imageView.isEventLess = true
+            imageView.isAccessibilityDecorative = true
             title.userInteractionEnabled = false
             title.isSelectable = false
             
@@ -253,6 +258,9 @@ private final class PremiumSelectPeriodRowView: GeneralContainableRowView {
 
 
             self.discount.isHidden = option.discountString == 0
+
+            self.setAccessibilityLabel(option.titleString)
+            self.setAccessibilityValue(([option.priceString] + (selected ? [strings().voiceOverCommonSelected] : [])).joined(separator: ", "))
             
             self.removeAllHandlers()
             self.set(handler: { _ in

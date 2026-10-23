@@ -24,6 +24,10 @@ private class LoadingItem: TableRowItem {
     override func viewClass() -> AnyClass {
         return LoadingView.self
     }
+
+    override var accessibilityLabel: String? {
+        return strings().voiceOverCommonLoading
+    }
 }
 
 
@@ -214,17 +218,19 @@ public func PeerMediaSavedMessagesController<Context: AccountContextProtocol>(co
 
     
     
-    chatInteraction.openInfo = { peerId, toChat, postId, action in
+    let openInfo: (PeerId, Bool, MessageId?, ChatInitialAction?) -> Void = { peerId, toChat, postId, action in
         let navigation = context.bindings.rootNavigation()
         if toChat {
-            PeerMediaUIHooks.shared.navigateToChat(navigation, context, .peer(peerId), .init(messageId: postId), action)
+            ChatUIHooks.shared.navigateToChatObserved(navigation, context, .peer(peerId), .init(messageId: postId), action, false)
         } else {
-            PeerMediaUIHooks.shared.pushPeerInfo(navigation, context, peerId)
+            ChatUIHooks.shared.pushPeerInfoObserved(navigation, context, peerId, nil, nil, nil, nil)
         }
     }
+    chatInteraction.openInfo = openInfo
     chatInteraction.focusMessageId = { fromId, focusTarget, state in
         let navigation = context.bindings.rootNavigation()
-        navigation.push(ChatAdditionController(context: context, chatLocation: .peer(focusTarget.messageId.peerId), focusTarget: focusTarget))
+        let controller = ChatAdditionController(context: context, chatLocation: .peer(focusTarget.messageId.peerId), focusTarget: focusTarget)
+        navigation.push(controller)
     }
     chatInteraction.runReactionEffect = { value, messageId in
         getScreenEffect?()?.addReactionAnimation(value, index: nil, messageId: messageId, animationSize: NSMakeSize(80, 80), viewFrame: context.window.bounds, for: context.window.contentView!)

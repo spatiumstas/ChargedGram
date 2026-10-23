@@ -65,7 +65,9 @@ private func richTextScheduleRequest(chatInteraction: ChatInteraction) -> ((@esc
 private func richTextSendMenuItems(chatInteraction: ChatInteraction) -> ((@escaping (Bool, ChatInteraction.Schedule?) -> Void) -> [ContextMenuItem]?) {
     return { [weak chatInteraction] send in
         guard let chatInteraction else { return nil }
-        return sendMessageMenuItems(chatInteraction: chatInteraction, send: send)
+        return sendMessageMenuItems(chatInteraction: chatInteraction, send: { silent, schedule in
+            send(silent, schedule)
+        })
     }
 }
 
@@ -83,13 +85,14 @@ private func richTextEnqueue(chatInteraction: ChatInteraction, text: String, att
                                            replyToMessageId: richTextThreadReplySubject(chatInteraction: chatInteraction), replyToStoryId: nil, localGroupingKey: nil,
                                            correlationId: nil, bubbleUpEmojiOrStickersets: [])
     if let customChatContents = chatInteraction.mode.customChatContents {
-        _ = customChatContents.enqueueMessages(messages: [message]).start()
+        _ = (customChatContents.enqueueMessages(messages: [message])).start()
     } else {
-        _ = enqueueMessages(account: context.account, peerId: chatInteraction.peerId, messages: [message]).start()
+        _ = (enqueueMessages(account: context.account, peerId: chatInteraction.peerId, messages: [message])).start()
     }
     if chatInteraction.mode != .scheduled, attributes.contains(where: { $0 is OutgoingScheduleInfoMessageAttribute }) {
         delay(0.1, closure: { [weak chatInteraction] in
-            chatInteraction?.openScheduledMessages()
+            guard let chatInteraction else { return }
+            chatInteraction.openScheduledMessages()
         })
     }
 }
@@ -133,7 +136,8 @@ public func showRichTextEditor(chatInteraction: ChatInteraction, morphSource: ((
             // The composer's native code-block currency is ``` fences — the `.pre` attribute has no
             // input rendering and is silently dropped on the next edit — so hand code back as fenced
             // text (the send path re-parses the fences into Pre entities).
-            let fenced = state.makeAttributeString(addPreAsBlock: true)
+            let formatted = state.makeAttributeString(addPreAsBlock: true)
+            let fenced = formatted
             let restored = ChatTextInputState(attributedText: fenced, selectionRange: fenced.length ..< fenced.length)
             chatInteraction.update { $0.updatedInterfaceState { $0.withUpdatedInputState(restored) } }
         case .empty:
@@ -151,7 +155,7 @@ public func showRichTextEditor(chatInteraction: ChatInteraction, morphSource: ((
 @available(macOS 12, *)
 private func composerEditorController(chatInteraction: ChatInteraction, initialDocument: Document?, initialDraft: (blocks: [RichTextOutgoingBlock], media: [String: Media])?) -> InputDataModalController {
     let context = chatInteraction.interactionContext
-    return RichTextEditorController(context: context, initialDocument: initialDocument, initialDraft: initialDraft, requestScheduleDate: richTextScheduleRequest(chatInteraction: chatInteraction), sendMenuItems: richTextSendMenuItems(chatInteraction: chatInteraction), onCancel: { composed in
+    let controller = RichTextEditorController(context: context, initialDocument: initialDocument, initialDraft: initialDraft, requestScheduleDate: richTextScheduleRequest(chatInteraction: chatInteraction), sendMenuItems: richTextSendMenuItems(chatInteraction: chatInteraction), onCancel: { composed in
         switch composed {
         case let .rich(instantPage):
             chatInteraction.setRichTextDraft(instantPage)
@@ -160,7 +164,8 @@ private func composerEditorController(chatInteraction: ChatInteraction, initialD
             guard !text.isEmpty else { return }
             let attributes = chatTextAttributes(from: TextEntitiesMessageAttribute(entities: entities))
             let state = ChatTextInputState(inputText: text, selectionRange: text.length ..< text.length, attributes: attributes)
-            let fenced = state.makeAttributeString(addPreAsBlock: true)
+            let formatted = state.makeAttributeString(addPreAsBlock: true)
+            let fenced = formatted
             let restored = ChatTextInputState(attributedText: fenced, selectionRange: fenced.length ..< fenced.length)
             chatInteraction.update { $0.updatedInterfaceState { $0.withUpdatedInputState(restored) } }
         case .empty:
@@ -170,6 +175,7 @@ private func composerEditorController(chatInteraction: ChatInteraction, initialD
         chatInteraction.setRichTextDraft(nil)
         richTextEnqueue(chatInteraction: chatInteraction, text: text, attributes: attributes)
     })
+    return controller
 }
 
 // Opens the editor seeded with an explicit document (e.g. text/formula pasted from a rendered rich message).
@@ -185,7 +191,7 @@ public func showRichTextEditor(chatInteraction: ChatInteraction, seeding documen
 public func showRichTextEditor(chatInteraction: ChatInteraction, refetching messageId: MessageId) {
     let context = chatInteraction.interactionContext
     _ = (context.account.postbox.messagesAtIds([messageId]) |> deliverOnMainQueue).start(next: { messages in
-        guard let message = messages.first,
+        guard let message = messages.first, message.id == messageId,
               let rich = message.attributes.compactMap({ $0 as? RichTextMessageAttribute }).first else { return }
         let draft = richTextOutgoing(from: rich.instantPage)
         let controller = composerEditorController(chatInteraction: chatInteraction, initialDocument: nil, initialDraft: draft)
@@ -210,7 +216,8 @@ public func showRichTextEditor(chatInteraction: ChatInteraction, editing message
         initialDocument = richTextDocument(from: message)
     }
     let controller = RichTextEditorController(context: context, initialDocument: initialDocument, initialDraft: initialDraft, isEditing: true, onDeleteMessage: { [weak chatInteraction] in
-        chatInteraction?.deleteMessages([messageId], nil)
+        guard let chatInteraction else { return }
+        chatInteraction.deleteMessages([messageId], nil)
     }, send: { text, attributes in
         let entities = attributes.compactMap { $0 as? TextEntitiesMessageAttribute }.first
         let richText = attributes.compactMap { $0 as? RichTextMessageAttribute }.first
@@ -271,7 +278,14 @@ private func richTextEditorEntries(_ state: RichTextEditorState, coordinator: Ri
 @available(macOS 12, *)
 public func RichTextEditorController(context: any AccountContextProtocol, initialDocument: Document? = nil, initialDraft: (blocks: [RichTextOutgoingBlock], media: [String: Media])? = nil, isEditing: Bool = false, requestScheduleDate: ((@escaping (Date, Int32?) -> Void) -> Void)? = nil, sendMenuItems: ((@escaping (Bool, ChatInteraction.Schedule?) -> Void) -> [ContextMenuItem]?)? = nil, onDeleteMessage: (() -> Void)? = nil, onCancel: ((ComposedRichMessage) -> Void)? = nil, send: @escaping (_ text: String, _ attributes: [MessageAttribute]) -> Void) -> InputDataModalController {
     let coordinator = RichTextEditorCoordinator(context: context)
+    coordinator.editor.withPasteContext = { paste in
+        paste()
+    }
+    let showPremiumFormatting: () -> Void = {
+        prem(with: PremiumBoardingController(context: context, source: .rich_formatting, openFeatures: true), for: context.window)
+    }
     var didSend = false
+    var isClosed = false
     // Non-premium close-confirm: strips the premium formatting from the handed-back draft (text survives).
     var discardPremiumFormatting = false
     // The "requires Telegram Premium" toast pinned under the toolbar (created in didLoad).
@@ -393,9 +407,9 @@ public func RichTextEditorController(context: any AccountContextProtocol, initia
             let toastText = isEditing
                 ? strings().richTextEditorWindowPremiumToastEdit
                 : strings().richTextEditorWindowPremiumToastSend
-            let attr = parseMarkdownIntoAttributedString(toastText, attributes: MarkdownAttributes(body: MarkdownAttributeSet(font: .normal(.text), textColor: presentation.colors.text), bold: MarkdownAttributeSet(font: .medium(.text), textColor: presentation.colors.text), link: MarkdownAttributeSet(font: .normal(.text), textColor: presentation.colors.link), linkAttribute: { contents in
+            let attr = parseMarkdownIntoAttributedString(toastText, attributes: MarkdownAttributes(body: MarkdownAttributeSet(font: .normal(.text), textColor: theme.colors.text), bold: MarkdownAttributeSet(font: .medium(.text), textColor: theme.colors.text), link: MarkdownAttributeSet(font: .normal(.text), textColor: theme.colors.link), linkAttribute: { contents in
                 (NSAttributedString.Key.link.rawValue, LinkHooks.shared.callbackLink(contents, { _ in
-                    prem(with: PremiumBoardingController(context: context, source: .rich_formatting, openFeatures: true), for: context.window)
+                    showPremiumFormatting()
                 }))
             }))
             let layout = TextViewLayout(attr, maximumNumberOfLines: 2, alignment: .center)
@@ -452,6 +466,7 @@ public func RichTextEditorController(context: any AccountContextProtocol, initia
         register(.Z, [.command, .shift]) { coordinator.editor.redo() }
     }
     controller.willDisappear = { controller in
+        isClosed = true
         controller.window?.removeAllHandlers(for: controller)
         // Dismissed without sending → hand the editor's composed content back to the caller (chat composer):
         // a structural InstantPage becomes a rich draft, plain text returns to the input.
@@ -486,6 +501,7 @@ public func RichTextEditorController(context: any AccountContextProtocol, initia
     }
 
     close = { [weak modalController] in
+        isClosed = true
         // A send transforms the draft into a message, so it must not morph back onto the attach button
         // (that reads as a cancel); only an actual cancel morphs back.
         modalController?.modal?.close(animationType: didSend ? .noMorph : .common)
@@ -494,8 +510,9 @@ public func RichTextEditorController(context: any AccountContextProtocol, initia
     // standard Discard Changes alert (same as the media sender / other modals) confirms; the premium
     // formatting is stripped and the text survives as plain input.
     let confirmDiscardIfNeeded: () -> Bool = {
-        guard contentNeedsPremium() else { return true }
+        guard !isClosed, !didSend, contentNeedsPremium() else { return true }
         verifyAlert_button(for: context.window, header: strings().mediaSenderDiscardChangesHeader, information: strings().mediaSenderDiscardChangesText, ok: strings().mediaSenderDiscardChangesOK, successHandler: { _ in
+            guard !isClosed, !didSend else { return }
             discardPremiumFormatting = true
             close?()
         })
@@ -514,7 +531,7 @@ public func RichTextEditorController(context: any AccountContextProtocol, initia
         guard let coordinator else { return }
         guard context.isPremium else {
             showModalText(for: context.window, text: strings().richTextEditorWindowAiPremiumRequired, button: strings().alertLearnMore, callback: { _ in
-                prem(with: PremiumBoardingController(context: context, source: .rich_formatting, openFeatures: true), for: context.window)
+                showPremiumFormatting()
             })
             return
         }
@@ -526,7 +543,7 @@ public func RichTextEditorController(context: any AccountContextProtocol, initia
             let page = richTextInstantPage(from: outgoingBlocks(fromSelection: selection), media: [:])
             if let page {
                 let (text, entities) = richTextPlainPreview(from: page)
-                showModal(with: ChatInputUIHooks.shared.makeRichTranslateModal(context, nil, appAppearance.languageCode, text, entities, selection, { [weak coordinator] blocks in
+                showModal(with: ChatInputUIHooks.shared.makeRichTranslateModalObserved(context, nil, appAppearance.languageCode, text, entities, selection, onUse: { [weak coordinator] blocks in
                     guard let coordinator else { return }
                     coordinator.editor.replaceSelection(with: blocks)
                     coordinator.editor.makeEditorFirstResponder()
@@ -544,7 +561,9 @@ public func RichTextEditorController(context: any AccountContextProtocol, initia
         }), for: context.window)
     }
     let deliver: (String, [MessageAttribute], Bool, ChatInteraction.Schedule?) -> Void = { text, attributes, silent, schedule in
+        guard !isClosed, !didSend else { return }
         let commit: ([MessageAttribute]) -> Void = { attributes in
+            guard !isClosed, !didSend else { return }
             var attributes = attributes
             if silent {
                 attributes.append(NotificationInfoMessageAttribute(flags: [.muted]))
@@ -568,7 +587,7 @@ public func RichTextEditorController(context: any AccountContextProtocol, initia
         }
     }
     let performSend: (Bool, ChatInteraction.Schedule?) -> Void = { [weak coordinator] silent, schedule in
-        guard let coordinator else { return }
+        guard let coordinator, !isClosed, !didSend else { return }
         let outgoing = coordinator.editor.outgoingBlocks()
         guard richTextOutgoingHasContent(outgoing) else {
             if isEditing, let onDeleteMessage {
@@ -589,9 +608,10 @@ public func RichTextEditorController(context: any AccountContextProtocol, initia
                         option: strings().richTextEditorWindowRemoveFormatting,
                         optionIsSelected: true,
                         successHandler: { result in
+                guard !isClosed, !didSend else { return }
                 switch result {
                 case .basic:
-                    prem(with: PremiumBoardingController(context: context, source: .rich_formatting, openFeatures: true), for: context.window)
+                    showPremiumFormatting()
                 case .thrid:
                     let (text, entities) = richTextPlainPreview(from: instantPage)
                     guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -614,8 +634,19 @@ public func RichTextEditorController(context: any AccountContextProtocol, initia
         performSend(false, nil)
     }
     if let sendMenuItems {
-        coordinator.setSendContextMenu({
-            sendMenuItems({ silent, schedule in
+        coordinator.setSendContextMenu({ [weak coordinator] in
+            guard let coordinator, !isClosed, !didSend else { return nil }
+            let outgoing = coordinator.editor.outgoingBlocks()
+            let media = coordinator.pickedMedia
+            let action = ChatDeferredSendAction { [weak coordinator] in
+                guard let coordinator, !isClosed, !didSend, coordinator.editor.outgoingBlocks() == outgoing else { return false }
+                let currentMedia = coordinator.pickedMedia
+                return currentMedia.count == media.count && media.allSatisfy { key, value in
+                    currentMedia[key]?.isEqual(to: value) == true
+                }
+            }
+            return sendMenuItems({ silent, schedule in
+                guard action.takeIfCurrent() else { return }
                 performSend(silent, schedule)
             })
         })
@@ -661,6 +692,7 @@ public final class RichTextEditorCoordinator {
                 ctx.draw(lockIcon, in: size.bounds.focus(NSMakeSize(12, 12)))
             })!
             let badge = ImageView()
+            badge.isAccessibilityDecorative = true
             badge.image = image
             badge.setFrameSize(badgeSize)
             send.layer?.masksToBounds = false   // the badge overlaps slightly OUTSIDE the send circle
@@ -927,6 +959,7 @@ public final class RichTextEditorCoordinator {
                 }
             })
             let badge = ImageView()
+            badge.isAccessibilityDecorative = true
             badge.image = composed
             badge.sizeToFit()
             button.addSubview(badge)
@@ -1189,12 +1222,14 @@ public final class RichTextEditorCoordinator {
     /// emoji as an inline atom (rendered by the registered provider), a unicode emoji as plain text.
     /// Mirrors the chat/`InputTextDataRowItem` flow — a throwaway `ChatInteraction` satisfies the panel.
     private static func presentEmojiPicker(_ editor: RichTextEditorView, context: any AccountContextProtocol, cache: EmojiFileCache, from control: Control) {
-        let emojis = ChatInputUIHooks.shared.makeEmojiPicker(context, { sticker, _, _, _, _ in
+        let emojis = ChatInputUIHooks.shared.makeEmojiPickerObserved(context, sendAnimatedEmoji: { [weak editor] sticker, _, _, _, _ in
+            guard let editor else { return }
             let file = sticker.file._parse()
             cache.files["\(file.fileId.id)"] = file
             editor.makeEditorFirstResponder()
             editor.insertEmoji(id: "\(file.fileId.id)", altText: file.customEmojiText ?? file.stickerText)
-        }, { emoji, _ in
+        }, sendEmoji: { [weak editor] emoji, _ in
+            guard let editor else { return }
             editor.makeEditorFirstResponder()
             editor.insertText(emoji)
         })
@@ -1211,7 +1246,7 @@ public final class RichTextEditorCoordinator {
         panel.allowedContentTypes = [.image, .movie]
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
-        panel.beginSheetModal(for: window) { [editor] response in
+        panel.beginSheetModal(for: window) { [editor, panel] response in
             guard response == .OK else { return }
             let urls = Array(panel.urls.prefix(10))   // album cap
             guard !urls.isEmpty else { return }
@@ -1269,7 +1304,7 @@ public final class RichTextEditorCoordinator {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        panel.beginSheetModal(for: window) { [editor] response in
+        panel.beginSheetModal(for: window) { [editor, panel] response in
             guard response == .OK, let url = panel.url else { return }
             disposable.set((Sender.generateMedia(for: MediaSenderContainer(path: url.path, isFile: true),
                                                  account: context.account, isSecretRelated: false)
@@ -1286,7 +1321,7 @@ public final class RichTextEditorCoordinator {
     /// Presents the location picker; the chosen `TelegramMediaMap` is cached and inserted as a map block.
     /// `LocationModalController` (in `.select` mode) invokes `selectCallback` then closes itself.
     private static func presentLocationPicker(_ editor: RichTextEditorView, context: any AccountContextProtocol, cache: MediaFileCache, interaction: ChatInteraction) {
-        ChatNavigationHooks.shared.showLocationSelector(interaction, { [weak editor] map in
+        ChatNavigationHooks.shared.showLocationSelectorObserved(interaction, { [weak editor] map in
             guard let editor = editor else { return }
             let mediaID = "media-\(arc4random())"
             cache.media[mediaID] = map
@@ -1535,19 +1570,23 @@ public final class RichTextEditorCoordinator {
 
     /// Multi-select picker used by the context menu to grow a collage (or convert a single media to one).
     private static func presentAddToGroupPicker(_ editor: RichTextEditorView, context: any AccountContextProtocol, cache: MediaFileCache, disposable: MetaDisposable, groupID: String?, convertBlockID: String?) {
-        guard let window = editor.window else { return }
+        let targetBlockID = groupID ?? convertBlockID
+        let targetTileIndex: Int? = groupID == nil ? nil : 0
+        guard let window = editor.window, let targetBlockID,
+              let originalMediaID = editor.mediaID(forBlock: targetBlockID, tileIndex: targetTileIndex) else { return }
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.image, .movie]
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
-        panel.beginSheetModal(for: window) { [editor] response in
+        panel.beginSheetModal(for: window) { [editor, panel] response in
             guard response == .OK else { return }
             let urls = Array(panel.urls.prefix(10))
             guard !urls.isEmpty else { return }
             let signals = urls.map { Sender.generateMedia(for: MediaSenderContainer(path: $0.path, isFile: false),
                                                           account: context.account, isSecretRelated: false) }
             disposable.set((combineLatest(signals) |> deliverOnMainQueue).start(next: { [weak editor] results in
-                guard let editor = editor else { return }
+                guard let editor = editor,
+                      editor.mediaID(forBlock: targetBlockID, tileIndex: targetTileIndex) == originalMediaID else { return }
                 var mediaIDs: [String] = []
                 for (media, _) in results { let id = "media-\(arc4random())"; cache.media[id] = media; mediaIDs.append(id) }
                 editor.makeEditorFirstResponder()
@@ -1949,17 +1988,19 @@ public final class RichTextEditorCoordinator {
     private static func presentReplacePicker(_ editor: RichTextEditorView, ctx: MediaControlsContext,
                                              tileIndex: Int, isGroup: Bool, accountContext context: any AccountContextProtocol,
                                              cache: MediaFileCache, disposable: MetaDisposable) {
-        guard let window = editor.window else { return }
+        guard let window = editor.window,
+              let originalMediaID = editor.mediaID(forBlock: ctx.blockID, tileIndex: isGroup ? tileIndex : nil) else { return }
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.image, .movie]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        panel.beginSheetModal(for: window) { [editor] resp in
+        panel.beginSheetModal(for: window) { [editor, panel] resp in
             guard resp == .OK, let url = panel.url else { return }
             disposable.set((Sender.generateMedia(for: MediaSenderContainer(path: url.path, isFile: false),
                                                   account: context.account, isSecretRelated: false)
                             |> deliverOnMainQueue).start(next: { [weak editor] media, _ in
-                guard let editor = editor else { return }
+                guard let editor = editor,
+                      editor.mediaID(forBlock: ctx.blockID, tileIndex: isGroup ? tileIndex : nil) == originalMediaID else { return }
                 let newID = "media-\(arc4random())"; cache.media[newID] = media
                 editor.makeEditorFirstResponder()
                 if isGroup { editor.replaceGroupMedia(groupID: ctx.blockID, index: tileIndex, newMediaID: newID) }
@@ -1973,27 +2014,42 @@ public final class RichTextEditorCoordinator {
                                            tileIndex: Int, isGroup: Bool, mediaID: String,
                                            accountContext context: any AccountContextProtocol,
                                            cache: MediaFileCache, disposable: MetaDisposable) {
-        guard let image = cache.media[mediaID] as? TelegramMediaImage,
+        guard editor.mediaID(forBlock: ctx.blockID, tileIndex: isGroup ? tileIndex : nil) == mediaID,
+              let image = cache.media[mediaID] as? TelegramMediaImage,
               let resource = image.representationForDisplayAtSize(PixelDimensions(1280, 1280))?.resource else { return }
         // `resourceData` emits immediately with whatever is on disk — for a freshly picked image that can
         // be the `…_partial` file still being copied into the media box, whose path NSImage can't load.
         // Kick a fetch and wait for the COMPLETE file before opening the editor.
-        _ = fetchedMediaResource(mediaBox: context.account.postbox.mediaBox, userLocation: .other, userContentType: .image, reference: .standalone(resource: resource)).start()
-        disposable.set((context.account.postbox.mediaBox.resourceData(resource) |> filter { $0.complete } |> take(1) |> deliverOnMainQueue).start(next: { [weak editor] data in
-            guard let editor = editor, let path = link(path: data.path, ext: kMediaImageExt) else { return }
-            let url = URL(fileURLWithPath: path)
-            let editResult = ChatNavigationHooks.shared.editImage(context, url, nil)
-            _ = (editResult |> deliverOnMainQueue).start(next: { [weak editor] new, _ in
-                guard let editor = editor, new != url else { return }
-                disposable.set((Sender.generateMedia(for: MediaSenderContainer(path: new.path, isFile: false),
-                                                      account: context.account, isSecretRelated: false)
-                                |> deliverOnMainQueue).start(next: { media, _ in
-                    let newID = "media-\(arc4random())"; cache.media[newID] = media
-                    editor.makeEditorFirstResponder()
-                    if isGroup { editor.replaceGroupMedia(groupID: ctx.blockID, index: tileIndex, newMediaID: newID) }
-                    else { editor.replaceMedia(blockID: ctx.blockID, newMediaID: newID) }
-                }))
-            })
+        let operation = DisposableSet()
+        disposable.set(operation)
+        operation.add((fetchedMediaResource(mediaBox: context.account.postbox.mediaBox, userLocation: .other, userContentType: .image, reference: .standalone(resource: resource))).start())
+        let editedMedia = context.account.postbox.mediaBox.resourceData(resource)
+            |> filter { $0.complete }
+            |> take(1)
+            |> deliverOnMainQueue
+            |> mapToSignal { [weak editor] data -> Signal<Media, NoError> in
+                guard let editor,
+                      editor.mediaID(forBlock: ctx.blockID, tileIndex: isGroup ? tileIndex : nil) == mediaID,
+                      let path = link(path: data.path, ext: kMediaImageExt) else { return .complete() }
+                let url = URL(fileURLWithPath: path)
+                let editResult = ChatNavigationHooks.shared.editImageObserved(context, url, nil)
+                return (editResult |> take(1) |> deliverOnMainQueue
+                    |> mapToSignal { [weak editor] new, _ -> Signal<Media, NoError> in
+                        guard let editor, new != url,
+                              editor.mediaID(forBlock: ctx.blockID, tileIndex: isGroup ? tileIndex : nil) == mediaID else { return .complete() }
+                        return (Sender.generateMedia(for: MediaSenderContainer(path: new.path, isFile: false), account: context.account, isSecretRelated: false)
+                            |> map { $0.0 })
+                    })
+            }
+            |> deliverOnMainQueue
+        operation.add((editedMedia).start(next: { [weak editor] media in
+            guard let editor,
+                  editor.mediaID(forBlock: ctx.blockID, tileIndex: isGroup ? tileIndex : nil) == mediaID else { return }
+            let newID = "media-\(arc4random())"
+            cache.media[newID] = media
+            editor.makeEditorFirstResponder()
+            if isGroup { editor.replaceGroupMedia(groupID: ctx.blockID, index: tileIndex, newMediaID: newID) }
+            else { editor.replaceMedia(blockID: ctx.blockID, newMediaID: newID) }
         }))
     }
 }
@@ -2093,9 +2149,11 @@ private final class LatexPreviewRowItem: GeneralRowItem {
     fileprivate let formulaNaturalSize: NSSize
     fileprivate let messageLayout: TextViewLayout?
     private let verticalPad: CGFloat = 16
+    private let latex: String
 
     init(_ initialSize: NSSize, stableId: AnyHashable, latex: String, viewType: GeneralViewType) {
         let trimmed = latex.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.latex = trimmed
         // Empty → a faint "E = mc²" ghost (rendered placeholder, like the input's "E=mc^2"); typed →
         // the live formula in the text colour; unparseable → a red strings().richTextEditorInvalidFormula.
         let renderLatex = trimmed.isEmpty ? "E=mc^2" : trimmed
@@ -2135,6 +2193,17 @@ private final class LatexPreviewRowItem: GeneralRowItem {
     }
 
     override func viewClass() -> AnyClass { return LatexPreviewRowView.self }
+
+    override var accessibilityLabel: String? {
+        if let messageLayout {
+            return messageLayout.attributedString.string
+        }
+        return latex
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 private final class LatexPreviewRowView: GeneralContainableRowView {
@@ -2145,6 +2214,7 @@ private final class LatexPreviewRowView: GeneralContainableRowView {
         super.init(frame: frameRect)
         textView.isSelectable = false
         textView.userInteractionEnabled = false
+        imageView.isAccessibilityDecorative = true
         addSubview(imageView)
         addSubview(textView)
     }
@@ -2226,6 +2296,10 @@ private final class HostedViewRowItem: GeneralRowItem {
     override func viewClass() -> AnyClass {
         return HostedViewRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return strings().voiceOverChatEditor
+    }
 }
 
 private final class HostedViewRowView: GeneralRowView {
@@ -2275,6 +2349,7 @@ private final class ToolbarSpacerRowItem: GeneralRowItem {
     }
     override var height: CGFloat { heightForWidth(blockWidth) }
     override func viewClass() -> AnyClass { ToolbarSpacerRowView.self }
+    override var accessibilityIsSpacer: Bool { true }
 }
 
 private final class ToolbarSpacerRowView: GeneralRowView {
@@ -2526,6 +2601,7 @@ private final class RichTextMenuIcon: NSView, AppMenuItemImageDrawable {
     init(_ icon: NSImage) {
         self.icon = icon
         super.init(frame: NSMakeRect(0, 0, 18, 18))
+        imageView.isAccessibilityDecorative = true
         addSubview(imageView)
         imageView.frame = bounds
     }
@@ -2650,6 +2726,18 @@ private final class ButtonPreviewRowItem: GeneralRowItem {
     }
 
     override func viewClass() -> AnyClass { return ButtonPreviewRowView.self }
+
+    override var accessibilityLabel: String? {
+        return button.labelText.isEmpty ? strings().richTextEditorButtonLabelPlaceholder : button.labelText
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .staticText
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 private final class ButtonPreviewRowView: GeneralContainableRowView {

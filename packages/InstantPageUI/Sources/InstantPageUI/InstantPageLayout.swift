@@ -970,7 +970,7 @@ public func instantPageMedias(for webpage: TelegramMediaWebpage) -> [InstantPage
         var index: Int = 0
         var detailsIndex: Int = 0
         if let instantPage = content.instantPage {
-            return instantPageMedias(for: instantPage._parse().blocks, webpage: webpage, medias: instantPage._parse().media, mediaIndexCounter: &index, detailsIndexCounter: &detailsIndex)
+            return instantPageMedias(for: instantPage._parse().blocks, webpage: webpage, medias: instantPage._parse().media.mapValues { $0._asMedia() }, mediaIndexCounter: &index, detailsIndexCounter: &detailsIndex)
         } else {
             return []
         }
@@ -1039,7 +1039,7 @@ public func instantPageLayoutForWebPage(_ webPage: TelegramMediaWebpage, boundin
     var contentSize = CGSize(width: boundingWidth, height: 0.0)
     var items: [InstantPageItem] = []
     
-    var media = instantPage._parse().media
+    var media = instantPage._parse().media.mapValues { $0._asMedia() }
     
     
     if let image = loadedContent.image, let id = image.id {

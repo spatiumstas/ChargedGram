@@ -1778,8 +1778,6 @@ public func NewPollController(chatInteraction: any NewPollChatInteraction, isQui
         
         return .default
     })
-    
-    
     let modalController = InputDataModalController(controller, modalInteractions: interactions, closeHandler: { f in
         let state = stateValue.with { $0 }
         

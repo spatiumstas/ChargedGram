@@ -24,6 +24,7 @@ public class VideoRecorderModalController: ModalViewController {
     private let countdownDisposable = MetaDisposable()
     private let previewDisposable = MetaDisposable()
     private var isPaused: Bool = false
+    private var didRequestAutomaticSubmission = false
 
     public override func viewClass() -> AnyClass {
         return VideoRecorderModalView.self
@@ -123,10 +124,13 @@ public class VideoRecorderModalController: ModalViewController {
         countdownDisposable.set((pipeline.powerAndDuration.get() |> deliverOnMainQueue).start(next: { [weak self] _, duration in
             guard let `self` = self else {return}
             self.genericView.updateProgress(Float(duration / VideoRecorderPipeline.videoMessageMaxDuration))
-            if duration >= VideoRecorderPipeline.videoMessageMaxDuration, !self.isPaused {
+            if duration >= VideoRecorderPipeline.videoMessageMaxDuration, !self.isPaused, !self.didRequestAutomaticSubmission {
+                self.didRequestAutomaticSubmission = true
+                let sendMedia = self.sendMedia
                 self.stopAndMakeRecordedVideo()
-                _ = (self.state.data |> deliverOnMainQueue).start(next: { [weak self] medias in
-                    self?.sendMedia(medias)
+                let data = self.state.contextBoundData
+                _ = data.start(next: { medias in
+                    sendMedia(medias)
                 })
                 self.resetState()
                 self.close()

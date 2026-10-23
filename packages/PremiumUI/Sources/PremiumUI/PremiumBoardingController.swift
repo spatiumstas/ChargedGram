@@ -79,6 +79,7 @@ public enum PremiumLogEventsSource : Equatable {
     case message_privacy
     case noforwards
     case saved_tags
+    case message_effects
     case business
     case business_intro
     case business_standalone
@@ -140,6 +141,8 @@ public enum PremiumLogEventsSource : Equatable {
             return "noforwards"
         case .saved_tags:
             return "saved_tags"
+        case .message_effects:
+            return "message_effects"
         case .business:
             return "business"
         case .business_standalone:
@@ -205,6 +208,8 @@ public enum PremiumLogEventsSource : Equatable {
             return nil
         case .saved_tags:
             return .saved_tags
+        case .message_effects:
+            return nil
         case .last_seen:
             return .last_seen
         case .message_privacy:
@@ -689,7 +694,7 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
             entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: InputDataIdentifier("link"), equatable: InputDataEquatable(link), comparable: nil, item: { initialSize, stableId in
                 return GeneralBlockTextRowItem(initialSize, stableId: stableId, viewType: .singleItem, text: link, font: .normal(.text), insets: NSEdgeInsets(left: 20, right: 20), rightAction: .init(image: arguments.presentation.icons.fast_copy_link, action: { _ in
                     arguments.copyLink(arguments.context.meUrlDisplayPrefix + "giftcode/\(slug)")
-                }), customTheme: .initialize(arguments.presentation))
+                }, accessibilityLabel: strings().voiceOverCommonCopy), customTheme: .initialize(arguments.presentation))
             }))
             index += 1
             
@@ -918,6 +923,7 @@ private final class PremiumBoardingView : View {
             dismiss.autohighlight = false
             
             dismiss.set(image: presentation.icons.glass_close, for: .Normal)
+            dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
             dismiss.setGlassEffect(size: NSMakeSize(36, 36))
             dismiss.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
             
@@ -1217,6 +1223,9 @@ public final class PremiumBoardingController : ModalViewController {
     private let openFeatures: Bool
     private let presentation: TelegramPresentationTheme
     private var focusOnItemTag: PremiumBoardingEntryTag?
+
+
+
     public init(context: (any AccountContextProtocol), source: PremiumLogEventsSource = .settings, openFeatures: Bool = false, presentation: TelegramPresentationTheme = theme, focusOnItemTag: PremiumBoardingEntryTag? = nil) {
         self.context = context
         self.source = source
@@ -1319,7 +1328,6 @@ public final class PremiumBoardingController : ModalViewController {
         let inAppPurchaseManager = context.inAppPurchaseManager
         
         let actionsDisposable = DisposableSet()
-        let paymentDisposable = MetaDisposable()
         _ = MetaDisposable()
         let context = self.context
         let source = self.source
@@ -1380,7 +1388,7 @@ public final class PremiumBoardingController : ModalViewController {
             default:
                 break
             }
-            PremiumHooks.shared.openChat(context, peerId, updated)
+            PremiumHooks.shared.openChatObserved(context, peerId, updated)
             
             close()
         }, openFeature: { [weak self] value, animated in
@@ -1392,14 +1400,15 @@ public final class PremiumBoardingController : ModalViewController {
             FastSettings.dismissPremiumPerk(value.rawValue)
             
             if strongSelf.source == .business_standalone {
-                PremiumHooks.shared.openBusinessFeature(context, value)
+                PremiumHooks.shared.openBusinessFeatureObserved(context, value)
                 return
             }
-            strongSelf.genericView.append(PremiumBoardingFeaturesController(context, presentation: strongSelf.presentation, value: value, stickers: stateValue.with { $0.stickers }, configuration: stateValue.with { $0.premiumConfiguration }, back: { [weak strongSelf] in
+            let controller = PremiumBoardingFeaturesController(context, presentation: strongSelf.presentation, value: value, stickers: stateValue.with { $0.stickers }, configuration: stateValue.with { $0.premiumConfiguration }, back: { [weak strongSelf] in
                 _ = strongSelf?.escapeKeyAction()
             }, makeAcceptView: { [weak strongSelf] in
                 return strongSelf?.genericView.makeAcceptView()
-            }), animated: animated)
+            })
+            strongSelf.genericView.append(controller, animated: animated)
             
             updateState { current in
                 var current = current
@@ -1609,32 +1618,15 @@ public final class PremiumBoardingController : ModalViewController {
             
             let url = context.appConfiguration.getStringValue("premium_manage_subscription_url", orElse: "https://t.me/premiumbot?start=status")
             if source == .grace_period {
-                PremiumHooks.shared.openLink(context, url, arguments.openInfo)
+                PremiumHooks.shared.openLinkObserved(context, url, arguments.openInfo)
                 close()
                 return
             }
             
             if let slug = PremiumBuyConfig(appConfiguration: context.appConfiguration).invoiceSlug {
-                
-                let signal = showModalProgress(signal: context.engine.payments.fetchBotPaymentInvoice(source: .slug(slug)), for: context.window)
-
-                _ = signal.start(next: { invoice in
-                    if let controller = FeatureNavigationHooks.shared.makePaymentsCheckoutController(context, .slug(slug), invoice, { status in
-                        switch status {
-                        case .paid:
-                            PlayConfetti(for: context.window)
-                            close()
-                        case .cancelled:
-                            break
-                        case .failed:
-                            break
-                        }
-                    }) { showModal(with: controller, for: context.window) }
-                }, error: { error in
-                    showModalText(for: context.window, text: strings().paymentsInvoiceNotExists)
-                })
+                premiumInvoiceCheckout(context: context, slug: slug, paid: close)
             } else if let url = stateValue.with ({ $0.period?.option.botUrl }) {
-                PremiumHooks.shared.openLink(context, url, arguments.openInfo)
+                PremiumHooks.shared.openLinkObserved(context, url, arguments.openInfo)
                 close()
             }
         }
@@ -1644,7 +1636,7 @@ public final class PremiumBoardingController : ModalViewController {
             
             let url = context.appConfiguration.getStringValue("premium_manage_subscription_url", orElse: "https://apps.apple.com/account/subscriptions")
             if source == .grace_period {
-                PremiumHooks.shared.openLink(context, url, arguments.openInfo)
+                PremiumHooks.shared.openLinkObserved(context, url, arguments.openInfo)
                 close()
                 return
             }
@@ -1656,57 +1648,7 @@ public final class PremiumBoardingController : ModalViewController {
                 return
             }
             
-            let lockModal = PremiumLockModalController()
-            
-            var needToShow = true
-            delay(0.2, closure: {
-                if needToShow {
-                    showModal(with: lockModal, for: context.window)
-                }
-            })
-            
-            let _ = (context.engine.payments.canPurchasePremium(purpose: .subscription)
-            |> deliverOnMainQueue).start(next: { [weak lockModal] available in
-                if available {
-                    
-                    paymentDisposable.set((inAppPurchaseManager.buyProduct(premiumProduct, purpose: .subscription)
-                    |> deliverOnMainQueue).start(next: { [weak lockModal] status in
-        
-                        lockModal?.close()
-                        needToShow = false
-                        close()
-                        inAppPurchaseManager.finishAllTransactions()
-                        delay(0.2, closure: {
-                            PlayConfetti(for: context.window)
-                            showModalText(for: context.window, text: strings().premiumBoardingAppStoreSuccess)
-                            let _ = updatePremiumPromoConfigurationOnce(account: context.account).start()
-                        })
-                        
-                    }, error: { [weak lockModal] error in
-                        let errorText: String
-                        switch error {
-                            case .generic:
-                                errorText = strings().premiumPurchaseErrorUnknown
-                            case .network:
-                                errorText =  strings().premiumPurchaseErrorNetwork
-                            case .notAllowed:
-                                errorText =  strings().premiumPurchaseErrorNotAllowed
-                            case .cantMakePayments:
-                                errorText =  strings().premiumPurchaseErrorCantMakePayments
-                            case .assignFailed:
-                                errorText =  strings().premiumPurchaseErrorUnknown
-                            case .cancelled:
-                                errorText = strings().premiumBoardingAppStoreCancelled
-                        }
-                        lockModal?.close()
-                        showModalText(for: context.window, text: errorText)
-                        inAppPurchaseManager.finishAllTransactions()
-                    }))
-                } else {
-                    lockModal?.close()
-                    needToShow = false
-                }
-            })
+            premiumStorePurchase(context: context, product: premiumProduct, paid: close)
         }
         
       
@@ -1760,18 +1702,7 @@ public final class PremiumBoardingController : ModalViewController {
     }
     
     public func restore() {
-        let context = self.context
-        
-        context.inAppPurchaseManager.restorePurchases(completion: { restore in
-            switch restore {
-            case let .succeed(value):
-                if value {
-                    showModalText(for: context.window, text: strings().premiumRestoreSuccess)
-                }
-            case .failed:
-                showModalText(for: context.window, text: strings().premiumRestoreErrorUnknown)
-            }
-        })
+        premiumStoreRestore(context: context)
     }
     
     public override func escapeKeyAction() -> KeyHandlerResult {

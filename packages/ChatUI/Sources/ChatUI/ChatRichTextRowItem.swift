@@ -519,6 +519,8 @@ public final class ChatRichTextRowView: ChatMessageView, ChatBubbleCustomTextSel
     private var lastRevealStableId: AnyHashable?
     private var lastBoundRichStableId: AnyHashable?
     private var lastShowMoreMessageId: MessageId?
+    private var pendingQuoteFocus: (messageId: MessageId, text: String, range: NSRange?)?
+    private var quoteDetailsExpansion: (messageId: MessageId, previousState: Set<Int>)?
     private var requestFullRichTextDisposable: Disposable?
     private var requestFullRichTextMessageId: MessageId?
     // Held strongly so the gallery (which keeps only a weak delegate) can resolve the zoom source view
@@ -607,6 +609,52 @@ public final class ChatRichTextRowView: ChatMessageView, ChatBubbleCustomTextSel
         return super.clickInContent(point: point)
     }
 
+    public override func focusAnimation(_ innerId: AnyHashable?, text: String?) {
+        self.focusAnimation(innerId, text: text, range: nil)
+    }
+
+    public override func focusAnimation(_ innerId: AnyHashable?, text: String?, range: NSRange?) {
+        self.pendingQuoteFocus = nil
+        if let item = self.item as? ChatRichTextRowItem, let messageId = item.message?.id, let text, !text.isEmpty {
+            self.pendingQuoteFocus = (messageId, text, range)
+            if self.retryPendingQuoteFocus() {
+                return
+            }
+        }
+        super.focusAnimation(innerId, text: text, range: range)
+    }
+
+    @discardableResult
+    private func retryPendingQuoteFocus() -> Bool {
+        guard let pending = self.pendingQuoteFocus,
+              let item = self.item as? ChatRichTextRowItem,
+              item.message?.id == pending.messageId else {
+            self.pendingQuoteFocus = nil
+            return false
+        }
+        if let expansion = self.quoteDetailsExpansion, expansion.messageId == pending.messageId {
+            if item.entry.additionalData.detailsExpanded == expansion.previousState {
+                return true
+            }
+        }
+        self.quoteDetailsExpansion = nil
+        if let index = item.richLayout.collapsedDetailsIndex(forQuote: pending.text, range: pending.range) {
+            self.quoteDetailsExpansion = (pending.messageId, item.entry.additionalData.detailsExpanded)
+            item.toggleDetails(at: index)
+            return true
+        }
+        if self.richView.highlightQuote(text: pending.text, color: item.presentation.colors.focusAnimationColor, range: pending.range) {
+            self.pendingQuoteFocus = nil
+            return true
+        }
+        if item.showMoreLayout != nil {
+            self.activateShowMore()
+            return true
+        }
+        self.pendingQuoteFocus = nil
+        return false
+    }
+
     public required init(frame frameRect: NSRect) {
         self.richView = ChatRichTextRowView.makeRichView()
         super.init(frame: frameRect)
@@ -638,6 +686,8 @@ public final class ChatRichTextRowView: ChatMessageView, ChatBubbleCustomTextSel
     }
 
     private func deactivateRichContent() {
+        self.pendingQuoteFocus = nil
+        self.quoteDetailsExpansion = nil
         self.stopRevealLink()
         self.revealController = nil
         if let stableId = self.lastRevealStableId {
@@ -659,6 +709,8 @@ public final class ChatRichTextRowView: ChatMessageView, ChatBubbleCustomTextSel
             self.attachRichContent()
             let messageId = item.message?.id
             if self.lastShowMoreMessageId != messageId {
+                self.pendingQuoteFocus = nil
+                self.quoteDetailsExpansion = nil
                 if let messageId = self.lastShowMoreMessageId {
                     instantPageShowMoreExpandedMessageIds.remove(messageId)
                 }
@@ -682,6 +734,7 @@ public final class ChatRichTextRowView: ChatMessageView, ChatBubbleCustomTextSel
         self.richView.isHidden = false
 
         if self.lastBoundRichStableId != item.stableId {
+            self.richView.clearQuoteHighlight()
             self.richView.resetTableScrollState()
             self.lastBoundRichStableId = item.stableId
         }
@@ -901,6 +954,11 @@ public final class ChatRichTextRowView: ChatMessageView, ChatBubbleCustomTextSel
             self.showMoreControl.setLoading(false, animated: animated)
         }
         self.updateStreaming(item: item)
+        if self.pendingQuoteFocus != nil {
+            Queue.mainQueue().justDispatch { [weak self] in
+                self?.retryPendingQuoteFocus()
+            }
+        }
         if showMoreStateChanged {
             Queue.mainQueue().justDispatch { [weak self, weak item] in
                 guard let self, let item, self.item === item else {
@@ -961,6 +1019,9 @@ public final class ChatRichTextRowView: ChatMessageView, ChatBubbleCustomTextSel
     }
 
     private func finishShowMore(keepExpanded: Bool) {
+        if !keepExpanded {
+            self.pendingQuoteFocus = nil
+        }
         if !keepExpanded, let messageId = self.requestFullRichTextMessageId ?? self.lastShowMoreMessageId {
             instantPageShowMoreExpandedMessageIds.remove(messageId)
         }
@@ -1353,6 +1414,9 @@ public final class RichTextDraftPreviewView: View {
             editor.showsScroller = false
             editor.showsTableControls = false
             editor.pasteFragmentProvider = { ChatHistoryUIHooks.shared.richTextHooks.blocksFromInAppPasteboard() }
+            editor.withPasteContext = { [weak self] paste in
+                paste()
+            }
             // Return follows the plain-input send preference: the configured send combo (Enter, or ⌘/⇧-Enter)
             // sends; any other Return combo falls through (returns false) so the editor inserts a newline.
             editor.onReturnKey = { [weak self] in

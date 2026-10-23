@@ -28,6 +28,8 @@ public final class AvatarContentView: View {
         self.inset = inset
         self.unclippedView = ImageView()
         self.clippedView = ImageView()
+        self.unclippedView.isAccessibilityDecorative = true
+        self.clippedView.isAccessibilityDecorative = true
         
         super.init(frame: CGRect(origin: .zero, size: size))
         
@@ -105,6 +107,9 @@ public final class AvatarContentView: View {
           }
             let t = clippedView.layer!.transform
             let scale = sqrt((t.m11 * t.m11) + (t.m12 * t.m12) + (t.m13 * t.m13))
+            if self.scaleAnimator == nil, abs(scale - avatarScale) < 0.0001 {
+                return
+            }
             self.scaleAnimator = DisplayLinkAnimator(duration: 0.1, from: scale, to: avatarScale, update: { [weak self] value in
                 guard let `self` = self else {
                     return
@@ -120,8 +125,8 @@ public final class AvatarContentView: View {
                 self.clippedView.layer?.transform = fr
                 self.unclippedView.layer?.transform = fr
 
-            }, completion: {
-
+            }, completion: { [weak self] in
+                self?.scaleAnimator = nil
             })
       }
   }
@@ -230,12 +235,28 @@ public final class AvatarContentLayer: SimpleLayer {
         self.disposable?.dispose()
     }
     
+    public var animatesClipChanges: Bool = false
+
     public func updateLayout(size: CGSize, isClipped: Bool, animated: Bool) {
         self.unclippedView.frame = CGRect(origin: self.frame.focus(size).origin, size: size)
         self.clippedView.frame = CGRect(origin: self.frame.focus(size).origin, size: size)
-        self.unclippedView.opacity = isClipped ? 0.0 : 1.0 //.change(opacity: isClipped ? 0.0 : 1.0, animated: animated)
-        self.clippedView.opacity = isClipped ? 1.0 : 0.0
-        
+        let unclipped: Float = isClipped ? 0.0 : 1.0
+        let clipped: Float = isClipped ? 1.0 : 0.0
+        if animatesClipChanges {
+            for (layer, target) in [(self.unclippedView, unclipped), (self.clippedView, clipped)] where layer.opacity != target {
+                if animated {
+                    var from = CGFloat(layer.opacity)
+                    if let presentation = layer.presentation(), layer.animation(forKey: "opacity") != nil {
+                        from = CGFloat(presentation.opacity)
+                    }
+                    layer.animateAlpha(from: from, to: CGFloat(target), duration: 0.2, timingFunction: .easeOut)
+                } else {
+                    layer.removeAnimation(forKey: "opacity")
+                }
+            }
+        }
+        self.unclippedView.opacity = unclipped
+        self.clippedView.opacity = clipped
     }
 }
 

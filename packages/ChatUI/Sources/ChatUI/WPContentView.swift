@@ -99,7 +99,7 @@ public class WPContentView: Control, MultipleSelectable, ModalPreviewRowViewProt
         layer?.cornerRadius = .cornerRadius
         
         set(handler: { [weak self] _ in
-            self?.content?.invokeAction()
+            self?.content?.invokeAction(morphSource: { [weak self] in self })
         }, for: .Down)
     }
     

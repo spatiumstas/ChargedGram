@@ -21,6 +21,10 @@ private class PollsLoadingItem: TableRowItem {
     override func viewClass() -> AnyClass {
         return PollsLoadingView.self
     }
+
+    override var accessibilityLabel: String? {
+        return strings().voiceOverCommonLoading
+    }
 }
 
 private class PollsLoadingView : TableRowView {
@@ -153,17 +157,19 @@ public func PeerMediaPollsController<Context: AccountContextProtocol>(context: C
 
     var selectText: ChatSelectText? = nil
 
-    chatInteraction.openInfo = { peerId, toChat, postId, action in
+    let openInfo: (PeerId, Bool, MessageId?, ChatInitialAction?) -> Void = { peerId, toChat, postId, action in
         let navigation = context.bindings.rootNavigation()
         if toChat {
-            PeerMediaUIHooks.shared.navigateToChat(navigation, context, .peer(peerId), .init(messageId: postId), action)
+            ChatUIHooks.shared.navigateToChatObserved(navigation, context, .peer(peerId), .init(messageId: postId), action, false)
         } else {
-            PeerMediaUIHooks.shared.pushPeerInfo(navigation, context, peerId)
+            ChatUIHooks.shared.pushPeerInfoObserved(navigation, context, peerId, nil, nil, nil, nil)
         }
     }
+    chatInteraction.openInfo = openInfo
     chatInteraction.focusMessageId = { fromId, focusTarget, state in
         let navigation = context.bindings.rootNavigation()
-        navigation.push(ChatAdditionController(context: context, chatLocation: .peer(focusTarget.messageId.peerId), focusTarget: focusTarget))
+        let controller = ChatAdditionController(context: context, chatLocation: .peer(focusTarget.messageId.peerId), focusTarget: focusTarget)
+        navigation.push(controller)
     }
     chatInteraction.vote = { messageId, opaqueIdentifiers, submit in
         updateState { state in

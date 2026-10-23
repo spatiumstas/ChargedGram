@@ -21,6 +21,14 @@ public final class PushToTalkRowItem : GeneralRowItem {
     deinit {
         
     }
+
+    public override var accessibilityLabel: String? {
+        return strings().voiceChatSettingsPushToTalk
+    }
+
+    public override var accessibilityValue: String? {
+        return settings?.string ?? strings().voiceChatSettingsPushToTalkUndefined
+    }
     
     public override func viewClass() -> AnyClass {
         return PushToTalkRowView.self
@@ -104,6 +112,7 @@ public final class PushToTalkRowView: GeneralContainableRowView {
         }
         
         button.background = buttonColor
+        button.setAccessibilityLabel(buttonText.attributedString.string)
         
         if self.textView?.textLayout?.attributedString.string != buttonText.attributedString.string {
             let textView = TextView()

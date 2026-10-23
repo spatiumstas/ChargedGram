@@ -1,3 +1,4 @@
+#if DEBUG
 import AppKit
 
 public struct PerfLabScrollSegment {
@@ -73,3 +74,4 @@ public final class PerfLabScrollDriver {
         }
     }
 }
+#endif

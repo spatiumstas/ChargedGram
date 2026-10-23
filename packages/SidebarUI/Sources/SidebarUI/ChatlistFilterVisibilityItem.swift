@@ -90,6 +90,14 @@ public final class ChatListFilterVisibilityItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return ChatlistFilterVisibilityView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return sidebar ? leftViewLayout.attributedString.string : topViewLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return strings().voiceOverCommonSelected
+    }
 }
 
 private final class VisibilityContainerView : Control {
@@ -103,6 +111,8 @@ private final class VisibilityContainerView : Control {
 
         imageView.isEventLess = true
         textView.isEventLess = true
+        imageView.isAccessibilityDecorative = true
+        textView.isAccessibilityDecorative = true
         textView.userInteractionEnabled = false
         textView.isSelectable = false
     }
@@ -111,6 +121,8 @@ private final class VisibilityContainerView : Control {
         imageView.image = image
         imageView.sizeToFit()
         textView.update(text)
+        setAccessibilityLabel(text.attributedString.string)
+        setAccessibilityValue(selected ? strings().voiceOverCommonSelected : strings().voiceOverCommonNotSelected)
 
         imageView.layer?.cornerRadius = 8
         imageView.layer?.borderWidth = selected ? 2 : 0

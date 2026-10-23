@@ -90,6 +90,21 @@ final class AvatarStoryRingLayerTests: XCTestCase {
         }
     }
 
+    func testIndicatorLayerRendersLikeTheView() {
+        for (name, component, displayProgress) in cases {
+            let view = makeIndicator(component, displayProgress: displayProgress)
+            let host = LayerBackedView(frame: view.frame)
+            host.layer?.masksToBounds = false
+            let layer = AvatarStoryIndicatorComponent.IndicatorLayer()
+            layer.anchorPoint = .zero
+            layer.frame = host.bounds
+            layer.update(component: component, availableSize: availableSize, transition: .immediate, displayProgress: displayProgress)
+            host.layer?.addSublayer(layer)
+            XCTAssertEqual(ViewSnapshot.render(host).differingPixels(from: ViewSnapshot.render(view), tolerance: 0), 0, name)
+            XCTAssertTrue(layer.sublayers?.first is SimpleLayer, name)
+        }
+    }
+
     func testRingAnimationsMatchTheViewHelpers() {
         for transition in [ContainedViewLayoutTransition.animated(duration: 0.2, curve: .easeOut), .animated(duration: 0.3, curve: .spring)] {
             let view = makeIndicator(component(unseen: 2, total: 5))

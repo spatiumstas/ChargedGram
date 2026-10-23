@@ -3,6 +3,7 @@ import TGUIKit
 import Postbox
 import TelegramTheme
 import Strings
+import Localization
 private class EmojiTolerance : View {
     
     
@@ -17,6 +18,7 @@ private class EmojiTolerance : View {
             let button: TextButton = TextButton()
             button.set(font: .normal(.header), for: .Normal)
             button.set(text: emoji, for: .Normal)
+            button.setAccessibilityLabel(emoji)
             button.setFrameSize(NSMakeSize(30, 30))
             button.centerY(x: x, addition: 0)
             button.set(background: .clear, for: .Normal)
@@ -116,6 +118,10 @@ private final class EmojiToleranceContextMenuRowItem : AppMenuBasicItem {
     
     var emoji: String {
         return castMenuItem?.emoji ?? ""
+    }
+    
+    override var accessibilityLabel: String? {
+        return strings().voiceOverCommonSkinTone
     }
     var callback:((String?)->Void)? {
         return castMenuItem?.callback

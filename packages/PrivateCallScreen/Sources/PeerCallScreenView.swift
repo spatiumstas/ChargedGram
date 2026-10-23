@@ -6,6 +6,7 @@ import CallVideoLayer
 import TGUIKit
 import MetalEngine
 import AppKit
+import Localization
 
 
 let colorSets_fallback = [
@@ -267,6 +268,9 @@ final class PeerCallScreenView : Control {
         
         actions.layer?.masksToBounds = false
         
+        settingsView.setAccessibilityLabel(strings().voiceOverCommonSettings)
+        addPeerView.setAccessibilityLabel(strings().voiceOverCommonInvite)
+
         settingsView.set(handler: { [weak self] _ in
             self?.arguments?.openSettings()
         }, for: .SingleClick)
@@ -856,6 +860,10 @@ final class PeerCallScreenView : Control {
             }
             
             self.actionsList = state.actions
+            let declines = state.actions.contains(where: { $0.stableId == .accept })
+            for view in self.actionsViews {
+                view.accessibilityDeclines = declines
+            }
         }
         
         
@@ -891,6 +899,7 @@ final class PeerCallScreenView : Control {
                     current = view
                 } else {
                     current = Control(frame: bounds)
+                    current.setAccessibilityLabel(strings().voiceOverCommonHide)
                     self.addSubview(current, positioned: .below, relativeTo: revealedKey)
                     self.keyoverlay = current
                     

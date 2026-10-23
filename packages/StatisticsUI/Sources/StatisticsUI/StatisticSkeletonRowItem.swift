@@ -5,6 +5,7 @@ import InputDataUI
 import TelegramTheme
 import ColorPalette
 import GraphUI
+import Localization
 
 public final class StatisticSkeletonRowItem: GeneralRowItem {
     let seriesCount: Int
@@ -24,6 +25,14 @@ public final class StatisticSkeletonRowItem: GeneralRowItem {
 
     public override var height: CGFloat {
         return self.chartHeight + self.viewType.innerInset.top + self.viewType.innerInset.bottom
+    }
+
+    public override var accessibilityLabel: String? {
+        return strings().voiceOverCommonLoading
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
     }
 
     public override var instantlyResize: Bool {
@@ -52,6 +61,14 @@ public final class StatisticSkeletonListRowItem: GeneralRowItem {
         self.heightProvider = heightProvider
         super.init(initialSize, stableId: stableId, viewType: viewType)
         _ = self.makeSize(initialSize.width, oldWidth: 0)
+    }
+
+    public override var accessibilityLabel: String? {
+        return strings().voiceOverCommonLoading
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
     }
 
     fileprivate static func lineHeight(_ font: NSFont) -> CGFloat {

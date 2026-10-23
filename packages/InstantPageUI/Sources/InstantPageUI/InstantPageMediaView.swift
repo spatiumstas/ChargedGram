@@ -174,6 +174,7 @@ public final class InstantPageMediaView: View, InstantPageView, SlideViewProtoco
             let iconView = ImageView()
             iconView.image = theme.icons.chatMapPin
             iconView.sizeToFit()
+            iconView.isAccessibilityDecorative = true
             addSubview(iconView)
             
             self.iconView = iconView

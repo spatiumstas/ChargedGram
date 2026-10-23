@@ -363,6 +363,10 @@ class PassportNewPhoneNumberRowItem: GeneralRowItem, InputDataRowDataValue {
     override func viewClass() -> AnyClass {
         return PassportNewPhoneNumberRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return strings().secureIdPhoneNumber
+    }
 }
 
 

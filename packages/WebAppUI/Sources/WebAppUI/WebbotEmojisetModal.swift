@@ -60,6 +60,14 @@ private final class HeaderItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return HeaderView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return header.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return info.attributedString.string
+    }
     
     
     public override func makeSize(_ width: CGFloat, oldWidth: CGFloat = 0) -> Bool {
@@ -158,6 +166,7 @@ private final class HeaderView: GeneralRowView {
         }, for: .Click)
         
         dismiss.set(image: theme.icons.glass_close, for: .Normal)
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
         dismiss.setGlassEffect(size: NSMakeSize(36, 36))
         dismiss.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
         dismiss.scaleOnClick = true
@@ -228,32 +237,20 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
     case fail
 }
 
-public func WebbotEmojisetModal(context: (any AccountContextProtocol), bot: EnginePeer, file: TelegramMediaFile, expirationDate: Int32?, completed:@escaping(EmojiSetResultStatus)->Void) -> InputDataModalController {
+public func WebbotEmojisetModal(context: (any AccountContextProtocol), bot: EnginePeer, file: TelegramMediaFile, completed:@escaping(EmojiSetResultStatus)->Void) -> InputDataModalController {
 
-    let actionsDisposable = DisposableSet()
-    
-    var status: EmojiSetResultStatus = .fail
+    var didComplete = false
+    let complete: (EmojiSetResultStatus) -> Void = { status in
+        guard !didComplete else { return }
+        didComplete = true
+        completed(status)
+    }
     
     var close:(()->Void)? = nil
 
     let initialState = State(peer: bot, file: file)
     
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
-    let stateValue = Atomic(value: initialState)
-    let _: ((State) -> State) -> Void = { f in
-        statePromise.set(stateValue.modify (f))
-    }
-    
-    
-    
-    var getController:(()->ViewController?)? = nil
-    
-    var window:Window {
-        get {
-            return getController?()?.window ?? context.window
-        }
-    }
-
     let arguments = Arguments(context: context, close: {
         close?()
     })
@@ -264,27 +261,13 @@ public func WebbotEmojisetModal(context: (any AccountContextProtocol), bot: Engi
     
     let controller = InputDataController(dataSignal: signal, title: "")
     
-    getController = { [weak controller] in
-        return controller
-    }
-    
     controller.onDeinit = {
-        actionsDisposable.dispose()
-        completed(status)
+        complete(.fail)
     }
     
     controller.validateData = { _ in
-        
-        if context.isPremium {
-            let file = stateValue.with { $0.file }
-            context.reactions.setStatus(file, peer: context.myPeer!, timestamp: context.timestamp, timeout: expirationDate, fromRect: nil, handleInteractive: false)
-
-            status = .success
-            close?()
-        } else {
-            BrowserHooks.shared.openPremiumBoarding(context, window)
-        }
-       
+        complete(.success)
+        close?()
         return .none
     }
 

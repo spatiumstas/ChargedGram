@@ -17,11 +17,23 @@ import InlineStickerLayer
 public let starsGradient = [NSColor(0xFFAC04), NSColor(0xFFCA35)]
 
 public final class StarsButtonEffectLayer: SimpleLayer {
-    private static let whiteParticle: CGImage = TelegramThemeHooks.shared.image(.starReactionParticle).precomposed(.white)
+    fileprivate static let whiteParticle: CGImage = TelegramThemeHooks.shared.image(.starReactionParticle).precomposed(.white)
 
     public let emitterLayer = CAEmitterLayer()
     
-    public var color: NSColor = NSColor(0xffbe27)
+    private var currentColor: CGColor?
+    private var currentSize: CGSize?
+    public var color: NSColor = NSColor(0xffbe27) {
+        didSet { updateEmitterColor() }
+    }
+    
+    public var isPlaying: Bool = true {
+        didSet {
+            if self.isPlaying != oldValue {
+                self.emitterLayer.birthRate = self.isPlaying ? 1.0 : 0.0
+            }
+        }
+    }
     
     public override init() {
         super.init()
@@ -54,39 +66,49 @@ public final class StarsButtonEffectLayer: SimpleLayer {
         emitter.setValue(3.0, forKey: "mass")
         emitter.setValue(2.0, forKey: "massRange")
         
-        let staticColors: [Any] = [
-            color.withAlphaComponent(0.0).cgColor,
-            color.cgColor,
-            color.cgColor,
-            color.withAlphaComponent(0.0).cgColor
-        ]
-        let staticColorBehavior = createEmitterBehavior(type: "colorOverLife")
-        staticColorBehavior.setValue(staticColors, forKey: "colors")
-        emitter.setValue([staticColorBehavior], forKey: "emitterBehaviors")
-        
-        self.emitterLayer.emitterCells = [emitter]
+        self.currentColor = nil
+        updateEmitterColor(emitter: emitter)
     }
-    
+
+    private func updateEmitterColor(emitter: CAEmitterCell? = nil) {
+        let resolvedColor = color.cgColor
+        guard currentColor != resolvedColor, let emitter = emitter ?? emitterLayer.emitterCells?.first else { return }
+        let clearColor = color.withAlphaComponent(0.0).cgColor
+        let behavior = createEmitterBehavior(type: "colorOverLife")
+        behavior.setValue([clearColor, resolvedColor, resolvedColor, clearColor], forKey: "colors")
+        emitter.setValue([behavior], forKey: "emitterBehaviors")
+        emitterLayer.emitterCells = [emitter]
+        currentColor = resolvedColor
+    }
+
     public func update(size: CGSize) {
-        if self.emitterLayer.emitterCells == nil {
+        let needsSetup = self.emitterLayer.emitterCells == nil
+        if needsSetup {
             self.setup()
+            self.emitterLayer.emitterShape = .circle
+            self.emitterLayer.emitterMode = .surface
+        } else if color.type != .componentBased {
+            updateEmitterColor()
         }
-        self.emitterLayer.emitterShape = .circle
+        guard needsSetup || currentSize != size else { return }
         self.emitterLayer.emitterSize = CGSize(width: size.width * 0.7, height: size.height * 0.7)
-        self.emitterLayer.emitterMode = .surface
         self.emitterLayer.frame = CGRect(origin: .zero, size: size)
         self.emitterLayer.emitterPosition = CGPoint(x: size.width / 2.0, y: size.height / 2.0)
-
+        currentSize = size
     }
 }
 
 public final class BadgeStarsViewEffect: View {
-    private static let whiteParticle: CGImage = BadgeStarsViewEffect.whiteParticle
+    private static let whiteParticle: CGImage = StarsButtonEffectLayer.whiteParticle
 
     private let staticEmitterLayer = CAEmitterLayer()
     private let dynamicEmitterLayer = CAEmitterLayer()
     
-    public var color = NSColor(rgb: 0xffbe27)
+    private var currentColor: CGColor?
+    private var currentLayout: CGRect?
+    public var color = NSColor(rgb: 0xffbe27) {
+        didSet { updateEmitterColor() }
+    }
 
     
     public required init(frame: CGRect) {
@@ -143,28 +165,6 @@ public final class BadgeStarsViewEffect: View {
         dynamicEmitter.setValue(3.0, forKey: "mass")
         dynamicEmitter.setValue(2.0, forKey: "massRange")
         
-        let staticColors: [Any] = [
-            NSColor.white.withAlphaComponent(0.0).cgColor,
-            NSColor.white.withAlphaComponent(0.35).cgColor,
-            color.cgColor,
-            color.cgColor,
-            color.withAlphaComponent(0.0).cgColor
-        ]
-        let staticColorBehavior = createEmitterBehavior(type: "colorOverLife")
-        staticColorBehavior.setValue(staticColors, forKey: "colors")
-        staticEmitter.setValue([staticColorBehavior], forKey: "emitterBehaviors")
-        
-        let dynamicColors: [Any] = [
-            NSColor.white.withAlphaComponent(0.35).cgColor,
-            color.withAlphaComponent(0.85).cgColor,
-            color.cgColor,
-            color.cgColor,
-            color.withAlphaComponent(0.0).cgColor
-        ]
-        let dynamicColorBehavior = createEmitterBehavior(type: "colorOverLife")
-        dynamicColorBehavior.setValue(dynamicColors, forKey: "colors")
-        dynamicEmitter.setValue([dynamicColorBehavior], forKey: "emitterBehaviors")
-        
         let attractor = createEmitterBehavior(type: "simpleAttractor")
         attractor.setValue("attractor", forKey: "name")
         attractor.setValue(20, forKey: "falloff")
@@ -173,10 +173,28 @@ public final class BadgeStarsViewEffect: View {
         self.staticEmitterLayer.setValue(4.0, forKeyPath: "emitterBehaviors.attractor.stiffness")
         self.staticEmitterLayer.setValue(false, forKeyPath: "emitterBehaviors.attractor.enabled")
         
-        self.staticEmitterLayer.emitterCells = [staticEmitter]
-        self.dynamicEmitterLayer.emitterCells = [dynamicEmitter]
+        self.currentColor = nil
+        updateEmitterColor(staticEmitter: staticEmitter, dynamicEmitter: dynamicEmitter)
     }
-    
+
+    private func updateEmitterColor(staticEmitter: CAEmitterCell? = nil, dynamicEmitter: CAEmitterCell? = nil) {
+        let resolvedColor = color.cgColor
+        guard currentColor != resolvedColor,
+              let staticEmitter = staticEmitter ?? staticEmitterLayer.emitterCells?.first,
+              let dynamicEmitter = dynamicEmitter ?? dynamicEmitterLayer.emitterCells?.first else { return }
+        let clearColor = color.withAlphaComponent(0.0).cgColor
+        let whiteColor = NSColor.white.withAlphaComponent(0.35).cgColor
+        let staticColors = [NSColor.white.withAlphaComponent(0.0).cgColor, whiteColor, resolvedColor, resolvedColor, clearColor]
+        let dynamicColors = [whiteColor, color.withAlphaComponent(0.85).cgColor, resolvedColor, resolvedColor, clearColor]
+        for (layer, emitter, colors) in [(staticEmitterLayer, staticEmitter, staticColors), (dynamicEmitterLayer, dynamicEmitter, dynamicColors)] {
+            let behavior = createEmitterBehavior(type: "colorOverLife")
+            behavior.setValue(colors, forKey: "colors")
+            emitter.setValue([behavior], forKey: "emitterBehaviors")
+            layer.emitterCells = [emitter]
+        }
+        currentColor = resolvedColor
+    }
+
     public func update(speed: Float, delta: Float? = nil) {
         if speed > 0.0 {
             if self.dynamicEmitterLayer.birthRate.isZero {
@@ -210,16 +228,20 @@ public final class BadgeStarsViewEffect: View {
     }
     
     public func update(size: CGSize, emitterPosition: CGPoint) {
-        if self.staticEmitterLayer.emitterCells == nil {
+        let needsSetup = self.staticEmitterLayer.emitterCells == nil || self.dynamicEmitterLayer.emitterCells == nil
+        if needsSetup {
             self.setupEmitter()
+        } else if color.type != .componentBased {
+            updateEmitterColor()
         }
-        
+        let layout = CGRect(origin: emitterPosition, size: size)
+        guard needsSetup || currentLayout != layout else { return }
         self.staticEmitterLayer.frame = CGRect(origin: .zero, size: size)
         self.staticEmitterLayer.emitterPosition = emitterPosition
-        
         self.dynamicEmitterLayer.frame = CGRect(origin: .zero, size: size)
         self.dynamicEmitterLayer.emitterPosition = emitterPosition
         self.staticEmitterLayer.setValue(emitterPosition, forKeyPath: "emitterBehaviors.attractor.position")
+        currentLayout = layout
     }
 }
 
@@ -367,7 +389,7 @@ public final class Star_SliderView : Control {
     }
     
     public func updateColors(_ gradient: [NSColor], effect: NSColor) {
-        foregroundLayer.colors = starsGradient.map { $0.cgColor }
+        foregroundLayer.colors = gradient.map { $0.cgColor }
         self.effectLayer.color = effect
     }
     
@@ -466,6 +488,7 @@ public final class Star_SliderView : Control {
                 current = ImageButton()
                 current.autohighlight = false
                 current.scaleOnClick = true
+                current.setAccessibilityLabel(strings().voiceOverCommonAdd)
                 addSubview(current)
                 self.addCustomView_Line = current
             }
@@ -528,7 +551,7 @@ public final class Star_BadgeView : View {
     }
     
     public func updateColors(_ gradient: [NSColor], effect: NSColor) {
-        self.foregroundLayer.colors = starsGradient.map { $0.cgColor }
+        self.foregroundLayer.colors = gradient.map { $0.cgColor }
         self.effectLayer.color = effect
     }
     

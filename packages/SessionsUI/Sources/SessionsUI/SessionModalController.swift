@@ -108,34 +108,52 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
 
 public func SessionModalController(context: any AccountContextProtocol, session: RecentAccountSession) -> InputDataModalController {
 
-    let actionsDisposable = MetaDisposable()
-
-    let initialState = State(session: session)
-    
-    let statePromise = ValuePromise(initialState, ignoreRepeated: true)
-    let stateValue = Atomic(value: initialState)
-    let _: ((State) -> State) -> Void = { f in
-        statePromise.set(stateValue.modify (f))
-    }
-    
     var close:(()->Void)? = nil
+    var isUpdating = false
+
+    let updateSession: (Signal<Never, UpdateSessionError>) -> Void = { signal in
+        guard !isUpdating else {
+            return
+        }
+        isUpdating = true
+        var finished = false
+        let signal = signal |> afterDisposed {
+            Queue.mainQueue().async {
+                if !finished {
+                    isUpdating = false
+                    context.activeSessionsContext.loadMore()
+                }
+            }
+        }
+        _ = showModalProgress(signal: signal, for: context.window).start(error: { _ in
+            finished = true
+            isUpdating = false
+            context.activeSessionsContext.loadMore()
+            alert(for: context.window, info: strings().unknownError)
+        }, completed: {
+            finished = true
+            isUpdating = false
+        })
+    }
 
     let arguments = Arguments(context: context, toggleChats: { updated in
-        actionsDisposable.set(context.activeSessionsContext.updateSessionAcceptsSecretChats(session, accepts: updated).start())
+        updateSession(context.activeSessionsContext.updateSessionAcceptsSecretChats(session, accepts: updated))
     }, toggleIncomingCalls: { updated in
-        actionsDisposable.set(context.activeSessionsContext.updateSessionAcceptsIncomingCalls(session, accepts: updated).start())
+        updateSession(context.activeSessionsContext.updateSessionAcceptsIncomingCalls(session, accepts: updated))
     })
     
-    let signal = statePromise.get() |> deliverOnPrepareQueue |> map { state in
+    let signal = context.activeSessionsContext.state
+    |> map { state in
+        return State(session: state.sessions.first(where: { $0.hash == session.hash }) ?? session)
+    }
+    |> distinctUntilChanged
+    |> deliverOnPrepareQueue
+    |> map { state in
         return InputDataSignalValue(entries: entries(state, arguments: arguments))
     }
     
     let controller = InputDataController(dataSignal: signal, title: strings().sessionPreviewTitle)
     
-    controller.onDeinit = {
-        actionsDisposable.dispose()
-    }
-
     let modalInteractions: ModalInteractions
     if session.isCurrent {
         modalInteractions = ModalInteractions(acceptTitle: strings().modalOK, accept: {
@@ -144,8 +162,18 @@ public func SessionModalController(context: any AccountContextProtocol, session:
     } else {
         modalInteractions = ModalInteractions(acceptTitle: strings().sessionPreviewTerminateSession, accept: {
             verifyAlert_button(for: context.window, information: strings().recentSessionsConfirmRevoke, successHandler: { _ in
-                _ = context.activeSessionsContext.remove(hash: session.hash).start()
-                close?()
+                _ = showModalProgress(signal: context.activeSessionsContext.remove(hash: session.hash), for: context.window).start(error: { error in
+                    let text: String
+                    switch error {
+                    case .freshReset:
+                        text = strings().recentSessionsErrorFreshReset
+                    case .generic:
+                        text = strings().unknownError
+                    }
+                    alert(for: context.window, info: text)
+                }, completed: {
+                    close?()
+                })
             })
         }, singleButton: true)
     }

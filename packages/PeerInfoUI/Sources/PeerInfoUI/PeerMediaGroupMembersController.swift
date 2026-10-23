@@ -454,7 +454,7 @@ private func groupPeersEntries<Context: AccountContextProtocol>(state: GroupPeer
                     }
                     if !tag.isEmpty {
                         badgeAction = { [weak channel] _ in
-                            PeerInfoNavigationHooks.shared.showUserTagInfo(arguments.context, tag, sortedParticipants[i].peer._asPeer().compactDisplayTitle, channel?.compactDisplayTitle ?? "", badgeType, false)
+                            PeerInfoNavigationHooks.shared.showUserTagInfoObserved(arguments.context, tag, sortedParticipants[i].peer._asPeer().compactDisplayTitle, channel?.compactDisplayTitle ?? "", badgeType, false)
                         }
                     } else {
                         badgeAction = nil
@@ -492,7 +492,6 @@ private func groupPeersEntries<Context: AccountContextProtocol>(state: GroupPeer
 
 func PeerMediaGroupMembersController<Context: AccountContextProtocol>(context: Context, peerId: PeerId, editing: Signal<Bool, NoError>) -> InputDataController {
     
-    
     let initialState = GroupPeersState(temporaryParticipants: [], successfullyAddedParticipantIds: Set(), removingParticipantIds: Set(), hasShowMoreButton: true)
     
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
@@ -522,48 +521,14 @@ func PeerMediaGroupMembersController<Context: AccountContextProtocol>(context: C
             channelMembersPromise.set(.single(state))
         })
         loadMoreControl = control
-        actionsDisposable.add(disposable)
+        actionsDisposable.add(ActionDisposable {
+            disposable.dispose()
+        })
     } else {
         channelMembersPromise.set(.single(.init(list: [], peerStoryStats: [:], loadingState: .ready(hasMore: false))))
     }
     
-    let _: (PeerId, @escaping () -> Void) -> Void = { upgradedPeerId, f in
-        _ = (context.account.postbox.loadedPeerWithId(upgradedPeerId) |> deliverOnMainQueue).start(next: { upgradedPeer in
-            
-            let navigationController = context.bindings.rootNavigation()
-            
-            var chatController: ChatController<Context>? = ChatController(context: context, chatLocation: .peer(upgradedPeerId))
-            
-            chatController!.navigationController = navigationController
-            chatController!.loadViewIfNeeded(navigationController.bounds)
-            
-            var signal = chatController!.ready.get() |> filter {$0} |> take(1) |> ignoreValues
-            
-            var controller: PeerInfoController<Context>? = PeerInfoController(context: context, peer: upgradedPeer)
-            
-            controller!.navigationController = navigationController
-            controller!.loadViewIfNeeded(navigationController.bounds)
-            
-            let mainSignal = combineLatest(controller!.ready.get(), controller!.ready.get()) |> map { $0 && $1 } |> filter {$0} |> take(1) |> ignoreValues
-            
-            signal = combineLatest(queue: .mainQueue(), signal, mainSignal) |> ignoreValues
-            
-            _ = signal.start(completed: { [weak navigationController] in
-                navigationController?.removeAll()
-                navigationController?.push(chatController!, false, style: ViewControllerStyle.none)
-                navigationController?.push(controller!, false, style: ViewControllerStyle.none)
-                
-                chatController = nil
-                controller = nil
-            })
-        })
-        
-    }
-    
-    
-    
     let arguments = GroupPeersArguments(context: context, removePeer: { memberId in
-        
         let signal = context.account.postbox.loadedPeerWithId(memberId)
             |> deliverOnMainQueue
             |> mapToSignal { peer -> Signal<Bool, NoError> in
@@ -610,7 +575,7 @@ func PeerMediaGroupMembersController<Context: AccountContextProtocol>(context: C
                     return .complete()
                 }
         }
-        actionsDisposable.add(signal.start())
+        actionsDisposable.add((signal).start())
         
     }, showMore: {
         updateState { state in
@@ -619,12 +584,12 @@ func PeerMediaGroupMembersController<Context: AccountContextProtocol>(context: C
             return state
         }
     }, openInfo: { participant in
-        PeerInfoNavigationHooks.shared.showChannelParticipant(context, peerId, participant)
+        PeerInfoNavigationHooks.shared.showChannelParticipantObserved(context, peerId, participant)
     }, promote: { participant in
         showModal(with: ChannelAdminModalController(context, peerId: peerId, adminId: participant.participant.peerId, initialParticipant: participant.participant, updated: { _ in }, upgradedToSupergroup: { _, _ in }), for: context.window)
     }, restrict: { participant in
-        PeerInfoNavigationHooks.shared.showRestrictMember(context, peerId, participant.participant.peerId, participant.participant, { updatedRights in
-            _ = context.peerChannelMemberCategoriesContextsManager.updateMemberBannedRights(peerId: peerId, memberId: participant.participant.peerId, bannedRights: updatedRights).start()
+        PeerInfoNavigationHooks.shared.showRestrictMemberObserved(context, peerId, participant.participant.peerId, participant.participant, { updatedRights in
+            _ = (context.peerChannelMemberCategoriesContextsManager.updateMemberBannedRights(peerId: peerId, memberId: participant.participant.peerId, bannedRights: updatedRights)).start()
         })
     }, openStory: { index in
         StoryModalController<Context>.ShowStories(context: context, isHidden: false, initialId: index, singlePeer: true)
@@ -632,7 +597,7 @@ func PeerMediaGroupMembersController<Context: AccountContextProtocol>(context: C
     
     
 
-    let peerViewAndStories:Signal<(PeerView, [PeerId: PeerStoryStats]), NoError> = context.account.postbox.peerView(id: peerId) |> mapToSignal { peerView in
+    let peerViewAndStories:Signal<(PeerView, [PeerId: PeerStoryStats]), NoError> = (context.account.postbox.peerView(id: peerId)) |> mapToSignal { peerView in
         if let cachedData = peerView.cachedData as? CachedGroupData, let participants = cachedData.participants {
             let key: PostboxViewKey = .peerStoryStats(peerIds: Set(participants.participants.map(\.peerId)))
             return context.account.postbox.combinedView(keys: [key])
@@ -648,7 +613,7 @@ func PeerMediaGroupMembersController<Context: AccountContextProtocol>(context: C
     }
     
     
-    let dataSignal = combineLatest(queue: prepareQueue, statePromise.get(), peerViewAndStories, channelMembersPromise.get(), inputActivity, editing) |> map {
+    let dataSignal = (combineLatest(queue: prepareQueue, statePromise.get(), peerViewAndStories, channelMembersPromise.get(), inputActivity, editing)) |> map {
         return InputDataSignalValue(entries: groupPeersEntries(state: $0, isEditing: $4, viewAndStories: $1, inputActivities: $3, memberListState: $2, arguments: arguments))
     }
     

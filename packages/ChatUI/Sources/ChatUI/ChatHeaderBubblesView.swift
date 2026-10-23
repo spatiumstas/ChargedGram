@@ -16,9 +16,9 @@ import InlineStickerLayer
 
 private final class RightActionsCluster: Control {
     let doneFill: View = View()
-    let callButton: ImageButton = ImageButton()
-    let searchButton: ImageButton = ImageButton()
-    let menuButton: ImageButton = ImageButton()
+    let callButton: ChatAccessibleImageButton = ChatAccessibleImageButton()
+    let searchButton: ChatAccessibleImageButton = ChatAccessibleImageButton()
+    let menuButton: ChatAccessibleImageButton = ChatAccessibleImageButton()
 
     var onCallClick: (() -> Void)?
     var onSearchClick: (() -> Void)?
@@ -45,6 +45,14 @@ private final class RightActionsCluster: Control {
         self.set(handler: { [weak self] _ in
             self?.dispatchClick()
         }, for: .Click)
+
+        callButton.accessibilityPress = { [weak self] in self?.onCallClick?() }
+        searchButton.accessibilityPress = { [weak self] in self?.onSearchClick?() }
+        searchButton.setAccessibilityLabel(strings().voiceOverCommonSearch)
+    }
+
+    override func isAccessibilityElement() -> Bool {
+        return false
     }
 
     required init?(coder: NSCoder) {
@@ -158,6 +166,39 @@ private final class TitlePillView: Control {
     var avatarRect: NSRect = .zero
     var avatarTapHandler: (() -> Void)?
     var titleTapHandler: (() -> Void)?
+    var accessibilityTitleProvider: (() -> String?)?
+    var accessibilityStatusProvider: (() -> String?)?
+    var accessibilityAvatarActionProvider: (() -> String?)?
+
+    override var accessibilityDefaultLabel: String? {
+        return accessibilityTitleProvider?()
+    }
+
+    override func accessibilityValue() -> Any? {
+        return accessibilityStatusProvider?()
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+        return []
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        guard let titleTapHandler else {
+            return false
+        }
+        titleTapHandler()
+        return true
+    }
+
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        guard avatarTapHandler != nil, let name = accessibilityAvatarActionProvider?() else {
+            return nil
+        }
+        return [NSAccessibilityCustomAction(name: name, handler: { [weak self] in
+            self?.avatarTapHandler?()
+            return true
+        })]
+    }
 
     override init() {
         super.init(frame: .zero)
@@ -238,9 +279,9 @@ final class ChatHeaderBubblesView: View, InteractionContentViewProtocol {
         }
     }
 
-    private var callButton: ImageButton { return rightCluster.callButton }
-    private var searchButton: ImageButton { return rightCluster.searchButton }
-    private var menuButton: ImageButton { return rightCluster.menuButton }
+    private var callButton: ChatAccessibleImageButton { return rightCluster.callButton }
+    private var searchButton: ChatAccessibleImageButton { return rightCluster.searchButton }
+    private var menuButton: ChatAccessibleImageButton { return rightCluster.menuButton }
 
     private let avatarControl: AvatarStoryControl = AvatarStoryControl(font: .avatar(12), size: NSMakeSize(32, 32))
     private let titleView: TextView = TextView()
@@ -358,10 +399,12 @@ final class ChatHeaderBubblesView: View, InteractionContentViewProtocol {
         self.backGhost.isHidden = !hasBackButton
         let icon = isCloseButton ? theme.icons.chat_header_close : theme.icons.chat_header_back
         backButton.set(image: icon, for: .Normal)
+        backButton.setAccessibilityLabel(isCloseButton ? strings().voiceOverCommonClose : strings().voiceOverCommonBack)
     }
 
     var backHandler: (() -> Void)?
     var avatarHandler: (() -> Void)?
+    var avatarAccessibilityActionName: (() -> String?)?
     var titleHandler: (() -> Void)?
     var searchHandler: (() -> Void)?
     var callHandler: (() -> Void)?
@@ -421,6 +464,7 @@ final class ChatHeaderBubblesView: View, InteractionContentViewProtocol {
         leftEdgeHandle.set(handler: { [weak self] _ in
             self?.backHandler?()
         }, for: .Click)
+        leftEdgeHandle.isAccessibilityDecorative = true
 
         centerBubble.addSubview(avatarControl)
         avatarControl.userInteractionEnabled = false
@@ -435,6 +479,19 @@ final class ChatHeaderBubblesView: View, InteractionContentViewProtocol {
         }
         centerBubble.titleTapHandler = { [weak self] in
             self?.titleHandler?()
+        }
+        centerBubble.accessibilityAvatarActionProvider = { [weak self] in
+            return self?.avatarAccessibilityActionName?()
+        }
+        centerBubble.accessibilityTitleProvider = { [weak self] in
+            return self?.titleView.textLayout?.attributedString.string
+        }
+        centerBubble.accessibilityStatusProvider = { [weak self] in
+            guard let self else { return nil }
+            if self.showActivities, let text = self.activities.view?.subviews.compactMap({ ($0 as? TextView)?.textLayout?.attributedString.string }).first {
+                return text
+            }
+            return self.statusView.textLayout?.attributedString.string
         }
 
         titleView.userInteractionEnabled = false
@@ -455,6 +512,20 @@ final class ChatHeaderBubblesView: View, InteractionContentViewProtocol {
         rightCluster.onCallClick = { [weak self] in self?.callHandler?() }
         rightCluster.onSearchClick = { [weak self] in self?.searchHandler?() }
         rightCluster.onMenuClick = { [weak self] in self?.handleMenuClick() }
+
+        callButton.accessibilityLabelProvider = { [weak self] in
+            guard let self else { return nil }
+            if let peer = self.peerView.flatMap({ peerViewMainPeer($0) }), peer.isGroup || peer.isSupergroup || peer.isChannel {
+                return strings().peerInfoActionVoiceChat
+            }
+            return strings().voiceOverCommonCall
+        }
+        menuButton.accessibilityLabelProvider = { [weak self] in
+            return self?.menuMode == .done ? strings().voiceOverCommonDone : strings().voiceOverCommonMore
+        }
+        menuButton.accessibilityPress = { [weak self] in
+            self?.handleAccessibilityMenuPress()
+        }
 
         self.presenceManager = PeerPresenceStatusManager(update: { [weak self] in
             guard let self else { return }
@@ -575,6 +646,18 @@ final class ChatHeaderBubblesView: View, InteractionContentViewProtocol {
         rightCluster.doneFill.change(opacity: menuMode == .done ? 1 : 0, animated: animated, duration: Self.menuModeTransition.duration)
     }
 
+    private func handleAccessibilityMenuPress() {
+        switch menuMode {
+        case .menu:
+            guard let menu = menuContextMenu?(), let window = window else { return }
+            let point = menuButton.convert(NSMakePoint(menuButton.bounds.midX, menuButton.bounds.midY), to: nil)
+            guard let event = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { return }
+            AppMenu.show(menu: menu, event: event, for: rightCluster)
+        case .done:
+            doneHandler?()
+        }
+    }
+
     private func handleMenuClick() {
         switch menuMode {
         case .menu:
@@ -627,6 +710,7 @@ final class ChatHeaderBubblesView: View, InteractionContentViewProtocol {
             } else {
                 current = ImageView()
                 current.isEventLess = true
+                current.isAccessibilityDecorative = true
                 self.liveStreamView = current
                 centerBubble.addSubview(current)
             }
@@ -656,6 +740,7 @@ final class ChatHeaderBubblesView: View, InteractionContentViewProtocol {
             } else {
                 current = ImageView()
                 current.isEventLess = true
+                current.isAccessibilityDecorative = true
                 centerBubble.addSubview(current, positioned: .above, relativeTo: avatarControl)
                 titleImageView = current
             }
@@ -872,6 +957,9 @@ final class ChatHeaderBubblesView: View, InteractionContentViewProtocol {
     }
 
     private func sideInsetForCenterContent() -> CGFloat {
+        if chatInteraction.mode == .preview {
+            return Self.sideInset * 2 + Self.bubbleHeight + Self.interBubbleSpacing + 32 + 24
+        }
         return Self.sideInset * 2 + Self.bubbleHeight * 4 + Self.interBubbleSpacing * 4 + 32 + 24
     }
 
@@ -913,6 +1001,7 @@ final class ChatHeaderBubblesView: View, InteractionContentViewProtocol {
         let inDoneMode = (menuMode == .done)
         callButton.isHidden = callHidden || inDoneMode
         searchButton.isHidden = searchHidden || inDoneMode
+        menuButton.isHidden = chatInteraction.mode == .preview
 
         let clusterCount = rightCluster.visibleButtonCount
         let clusterWidth = rightCluster.desiredWidth(buttonSize: bubbleHeight)

@@ -97,6 +97,11 @@ final class WalletTonConnectSigningRowItem: GeneralRowItem {
     override func viewClass() -> AnyClass {
         return WalletTonConnectSigningRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        let title = titleLayout.attributedString.string
+        return title.isEmpty ? nil : title
+    }
 }
 
 @available(macOS 10.15, *)
@@ -113,6 +118,7 @@ private final class WalletTonConnectSigningRowView: TableRowView {
 
         titleView.userInteractionEnabled = false
         titleView.isSelectable = false
+        titleView.isAccessibilityDecorative = true
 
         cardView.layer?.cornerCurve = .continuous
         cardView.layer?.masksToBounds = true
@@ -121,6 +127,7 @@ private final class WalletTonConnectSigningRowView: TableRowView {
         contentView.isSelectable = true
 
         iconView.contentGravity = .resizeAspect
+        iconView.isAccessibilityDecorative = true
         binaryTitleView.userInteractionEnabled = false
         binaryTitleView.isSelectable = false
         binaryTextView.userInteractionEnabled = false

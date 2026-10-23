@@ -29,6 +29,7 @@ public class WallpaperPatternView : Control {
         addSubview(checkbox)
         checkbox.image = theme.icons.chatGroupToggleSelected
         checkbox.sizeToFit()
+        checkbox.isAccessibilityDecorative = true
         self.layer?.cornerRadius = 12
 
         emptyTextView.userInteractionEnabled = false

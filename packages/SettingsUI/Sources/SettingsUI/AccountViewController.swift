@@ -774,7 +774,15 @@ public final class AccountControllerView : Control {
     fileprivate let searchView: AccountSearchBarView
     fileprivate let tableView: TableView
     fileprivate let edit = TextButton()
+    fileprivate let qrCode = ImageButton()
     private let statusContainer: View
+    fileprivate var hasSidebar: Bool = false {
+        didSet {
+            if oldValue != hasSidebar {
+                needsLayout = true
+            }
+        }
+    }
     private let textView = TextView()
     
     public required init(frame frameRect: NSRect) {
@@ -784,6 +792,7 @@ public final class AccountControllerView : Control {
         super.init(frame: frameRect)
         addSubview(statusContainer)
         addSubview(searchView)
+        addSubview(qrCode)
         addSubview(tableView)
         
         textView.userInteractionEnabled = false
@@ -792,6 +801,7 @@ public final class AccountControllerView : Control {
         statusContainer.addSubview(edit)
         statusContainer.addSubview(textView)
         edit.scaleOnClick = true
+        qrCode.scaleOnClick = true
     }
 
     public override func updateLocalizationAndTheme(theme: PresentationTheme) {
@@ -801,6 +811,8 @@ public final class AccountControllerView : Control {
         edit.set(text: strings().navigationEdit, for: .Normal)
         edit.set(color: theme.colors.accent, for: .Normal)
         edit.scaleOnClick = true
+        qrCode.set(image: (theme as! TelegramPresentationTheme).icons.wallet_qr, for: .Normal)
+        qrCode.sizeToFit(.zero, NSMakeSize(30, 30), thatFit: true)
         self.backgroundColor = .clear
 
         let layout = TextViewLayout(.initialize(string: strings().accountViewControllerTitle, color: theme.colors.text, font: .medium(.title)), maximumNumberOfLines: 1)
@@ -817,7 +829,13 @@ public final class AccountControllerView : Control {
         edit.setFrameOrigin(NSMakePoint(statusContainer.frame.width - edit.frame.width - 10, statusContainer.frame.height - edit.frame.height))
         textView.centerX(y: 14)
 
-        searchView.frame = NSMakeRect(0, statusContainer.frame.maxY, frame.width, 50)
+        if hasSidebar {
+            searchView.frame = NSMakeRect(0, statusContainer.frame.maxY, frame.width, 50)
+            qrCode.setFrameOrigin(NSMakePoint(10, floor(edit.frame.midY - qrCode.frame.height / 2)))
+        } else {
+            searchView.frame = NSMakeRect(qrCode.frame.width + 10, statusContainer.frame.maxY, frame.width - qrCode.frame.width - 10, 50)
+            qrCode.setFrameOrigin(NSMakePoint(10, floor(searchView.frame.midY - qrCode.frame.height / 2)))
+        }
         tableView.frame = NSMakeRect(0, searchView.frame.maxY, frame.width, frame.height - searchView.frame.maxY)
     }
     
@@ -964,6 +982,8 @@ open class AccountViewController<Context: AccountContextProtocol> : TelegramGene
     }
     
     private let syncLocalizations = MetaDisposable()
+    private var hasAppeared = false
+    private let twoStepConfiguration = Promise<TwoStepVeriticationAccessConfiguration?>(nil)
     fileprivate let passportPromise: Promise<(Bool, Bool)> = Promise((false, false))
     fileprivate let hasFilters: Promise<Bool> = Promise(false)
 
@@ -991,6 +1011,15 @@ open class AccountViewController<Context: AccountContextProtocol> : TelegramGene
             self?.searchState.set(state)
         })
         
+        genericView.qrCode.set(handler: { [weak self] control in
+            guard let self else { return }
+            SettingsNavigationHooks.shared.openQrStudioObserved(context, { [weak control] in control })
+        }, for: .Click)
+
+        actionsDisposable.add((chatListFilterPreferences(engine: context.engine) |> map { $0.sidebar && !$0.isEmpty } |> distinctUntilChanged |> deliverOnMainQueue).start(next: { [weak self] hasSidebar in
+            self?.genericView.hasSidebar = hasSidebar
+        }))
+
         genericView.edit.set(handler: { [weak self] _ in
             guard let `self` = self else {return}
             let first: Atomic<Bool> = Atomic(value: true)
@@ -1082,10 +1111,12 @@ open class AccountViewController<Context: AccountContextProtocol> : TelegramGene
                     navigation.push(controller)
                 }
             }))
-        }, openStory: { initialId in
-            SettingsHooks.shared.showStories(context, false, initialId, true)
-        }, openWebBot: { bot in
-            SettingsNavigationHooks.shared.openWebBot(context, bot)
+        }, openStory: { [weak self] initialId in
+            guard let self else { return }
+            SettingsHooks.shared.showStoriesObserved(context, false, initialId, true)
+        }, openWebBot: { [weak self] bot in
+            guard let self else { return }
+            SettingsNavigationHooks.shared.openWebBotObserved(context, bot)
         }, stars: { [weak self] in
             SettingsNavigationHooks.shared.showStarsList(context, .stars, { [weak self] in (self?.tableView.item(stableId: AccountInfoEntryId.index(22))?.view as? GeneralContainableRowView)?.containerView })
         }, ton: { [weak self] in
@@ -1119,14 +1150,18 @@ open class AccountViewController<Context: AccountContextProtocol> : TelegramGene
             $0.sessions.count
         }
         
-        passportPromise.set(context.engine.auth.twoStepAuthData() |> map { value in
-            return (value.hasSecretValues, value.currentPasswordDerivation != nil)
-        } |> `catch` { error -> Signal<(Bool, Bool), NoError> in
-                return .single((false, false))
+        passportPromise.set(twoStepConfiguration.get() |> map { configuration in
+            switch configuration {
+            case let .set(_, _, hasSecureValues, _):
+                return (hasSecureValues, true)
+            case .notSet, nil:
+                return (false, false)
+            }
         })
 
-        let twoStep: Signal<TwoStepVeriticationAccessConfiguration?, NoError> = .single(nil) |> then(context.engine.auth.twoStepVerificationConfiguration() |> map { .init(configuration: $0, password: nil) })
-        
+        twoStepConfiguration.set(context.engine.auth.twoStepVerificationConfiguration() |> map { .init(configuration: $0, password: nil) })
+        let twoStep = twoStepConfiguration.get()
+
         let storyStats: Signal<EngineStorySubscriptions, NoError> = .single(EngineStorySubscriptions.init(accountItem: nil, items: [], hasMoreToken: nil)) |> then(context.engine.messages.storySubscriptions(isHidden: false))
         
         let bots = context.engine.messages.attachMenuBotsUpdates() |> mapToSignal { bots -> Signal<[AttachMenuBot], NoError> in
@@ -1310,12 +1345,6 @@ open class AccountViewController<Context: AccountContextProtocol> : TelegramGene
         super.viewDidAppear(animated)
         (navigation as? MajorNavigationController)?.add(listener: WeakReference(value: self))
 
-        passportPromise.set(context.engine.auth.twoStepAuthData() |> map { value in
-            return (value.hasSecretValues, value.currentPasswordDerivation != nil)
-        } |> `catch` { error -> Signal<(Bool, Bool), NoError> in
-                return .single((false, false))
-        })
-
         updateLocalizationAndTheme(theme: theme)
 
         if focusOnSearch {
@@ -1341,8 +1370,15 @@ open class AccountViewController<Context: AccountContextProtocol> : TelegramGene
     
     open override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        SettingsNavigationHooks.shared.prefetchQrStudio(context)
+        guard hasAppeared else {
+            hasAppeared = true
+            return
+        }
         let context = self.context
                 
+        twoStepConfiguration.set(context.engine.auth.twoStepVerificationConfiguration() |> map { .init(configuration: $0, password: nil) })
+
         let privacySettings = context.engine.privacy.requestAccountPrivacySettings() |> map(Optional.init)
 
         settings.set(combineLatest(Signal<AccountPrivacySettings?, NoError>.single(nil) |> then(privacySettings), context.webSessions.state, proxySettings(accountManager: context.sharedContext.accountManager) |> mapToSignal { settings in

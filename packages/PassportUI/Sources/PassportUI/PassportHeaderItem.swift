@@ -65,6 +65,14 @@ class PassportHeaderItem: TableRowItem {
     override var height: CGFloat {
         return max(50, textLayout.layoutSize.height)
     }
+
+    override var accessibilityLabel: String? {
+        return textLayout.attributedString.string
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
     
 }
 

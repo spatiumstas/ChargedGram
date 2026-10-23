@@ -196,7 +196,7 @@ public func MessagesPrivacyController<Context: AccountContextProtocol>(context: 
             initialPeers = [:]
         }
         
-        context.bindings.rootNavigation().push(SelectivePrivacySettingsPeersController(context, title: strings().privacySettingsControllerRemoveFee, initialPeers: initialPeers, premiumUsers: nil, enableForBots: nil, updated: { updatedPeerIds in
+        context.bindings.rootNavigation().push(SelectivePrivacySettingsPeersController(context, title: strings().privacySettingsControllerRemoveFee, initialPeers: initialPeers, premiumUsers: nil, enableForBots: nil, feeExceptions: true, updated: { updatedPeerIds in
             updateState { current in
                 var current = current
                 current.noPaidMessages = .enableContacts(enableFor: updatedPeerIds, disableFor: [:], enableForPremium: false, enableForBots: false)

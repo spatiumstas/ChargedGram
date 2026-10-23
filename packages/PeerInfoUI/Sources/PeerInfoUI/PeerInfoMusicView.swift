@@ -27,6 +27,9 @@ public final class PeerInfoMusicView : View {
 
         textView.userInteractionEnabled = false
         textView.isSelectable = false
+        textView.isAccessibilityDecorative = true
+        chevron.isAccessibilityDecorative = true
+        imageView.isAccessibilityDecorative = true
         
         control.scaleOnClick = true
         
@@ -69,6 +72,7 @@ public final class PeerInfoMusicView : View {
         textLayout.measure(width: frame.width - 40)
         
         self.textView.update(textLayout)
+        control.setAccessibilityLabel(attr.string)
         
         imageView.image = TelegramThemeHooks.shared.image(.iconPeerMusicWaveform).precomposed(primaryText)
         imageView.sizeToFit()

@@ -45,7 +45,10 @@ private final class StickerPackArguments {
     let close:()->Void
     let previewPremium: (TelegramMediaFile, NSView)->Void
     let closePremium: ()->Void
-    init(context: any AccountContextProtocol, send:@escaping(Media, NSView, Bool, Bool)->Void, setEmoji:@escaping(TelegramMediaFile)->Void, addpack:@escaping(PreviewState.Source, PreviewState.Collection, Bool)->Void, addAll:@escaping(PreviewState.Source, [PreviewState.Collection], Bool)->Void, share:@escaping(String)->Void, close:@escaping()->Void, previewPremium: @escaping(TelegramMediaFile, NSView)->Void, closePremium: @escaping()->Void) {
+    let addSticker: (PreviewState.Collection, Control)->Void
+    let ownStickerMenu: (PreviewState.Collection, TelegramMediaFile)->[ContextMenuItem]
+    let reorderSticker: (PreviewState.Collection, TelegramMediaFile, Int)->Void
+    init(context: any AccountContextProtocol, send:@escaping(Media, NSView, Bool, Bool)->Void, setEmoji:@escaping(TelegramMediaFile)->Void, addpack:@escaping(PreviewState.Source, PreviewState.Collection, Bool)->Void, addAll:@escaping(PreviewState.Source, [PreviewState.Collection], Bool)->Void, share:@escaping(String)->Void, close:@escaping()->Void, previewPremium: @escaping(TelegramMediaFile, NSView)->Void, closePremium: @escaping()->Void, addSticker: @escaping(PreviewState.Collection, Control)->Void, ownStickerMenu: @escaping(PreviewState.Collection, TelegramMediaFile)->[ContextMenuItem], reorderSticker: @escaping(PreviewState.Collection, TelegramMediaFile, Int)->Void) {
         self.context = context
         self.send = send
         self.setEmoji = setEmoji
@@ -55,6 +58,9 @@ private final class StickerPackArguments {
         self.close = close
         self.previewPremium = previewPremium
         self.closePremium = closePremium
+        self.addSticker = addSticker
+        self.ownStickerMenu = ownStickerMenu
+        self.reorderSticker = reorderSticker
     }
 }
 
@@ -106,6 +112,10 @@ private final class StickerPremiumRowItem : GeneralRowItem {
     override func viewClass() -> AnyClass {
         return StickerPremiumRowView.self
     }
+    
+    override var accessibilityLabel: String? {
+        return file.stickerText ?? strings().voiceOverCommonSticker
+    }
 
     override var hasBorder: Bool {
         return false
@@ -156,6 +166,18 @@ private final class StickerLoadingRowItem : GeneralRowItem {
     override func viewClass() -> AnyClass {
         return StickerLoadingRowView.self
     }
+    
+    override var accessibilityLabel: String? {
+        return strings().voiceOverCommonLoading
+    }
+    
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .staticText
+    }
+    
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 
     override var hasBorder: Bool {
         return false
@@ -190,11 +212,15 @@ private struct State : Equatable {
     var preview: PreviewStateEquatable
     var installed: Set<StickerPackPreviewSource>
     var premiumFile: TelegramMediaFile?
+    var isEditing: Bool = false
+    var titleOverride: String?
 
     static func == (lhs: State, rhs: State) -> Bool {
         return lhs.preview === rhs.preview
             && lhs.installed == rhs.installed
             && lhs.premiumFile?.fileId == rhs.premiumFile?.fileId
+            && lhs.isEditing == rhs.isEditing
+            && lhs.titleOverride == rhs.titleOverride
     }
 }
 
@@ -289,8 +315,19 @@ private func entries(_ state: State, controllerSource: StickerPackPreviewModalSo
             case .stickers:
                 let files = collection.items.map { $0.file._parse() }
                 let ids = files.map { $0.fileId.id }
-                result.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: InputDataIdentifier("stickers_\(collection.info.id.id)"), equatable: .init(StickerChunkEquatable(ids: ids, installed: installed)), comparable: nil, item: { initialSize, stableId in
-                    return StickerPackPanelRowItem(initialSize, context: arguments.context, arguments: stickerArguments, files: files, packInfo: .emojiRelated, collectionId: .pack(collection.info.id), canSend: EntertainmentUIHooks.shared.currentChatInteraction(arguments.context) != nil, isPreview: true)
+                let isOwn = controllerSource == .install && collections.count == 1 && isOwnStickerPack(collection.info)
+                let canAdd = isOwn && collection.items.count < stickerPackMaxStickers
+                let isEditing = isOwn && state.isEditing
+                let addTile: StickerPackPanelAddTile? = canAdd ? StickerPackPanelAddTile(position: .trailing, accessibilityLabel: strings().stickerPackPreviewModalControllerAddSticker, action: { control in
+                    arguments.addSticker(collection, control)
+                }) : nil
+                let editing: StickerPackPanelEditing? = isOwn ? StickerPackPanelEditing(isEditing: isEditing, menuItems: { file in
+                    return arguments.ownStickerMenu(collection, file)
+                }, reorder: { file, index in
+                    arguments.reorderSticker(collection, file, index)
+                }) : nil
+                result.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: InputDataIdentifier("stickers_\(collection.info.id.id)"), equatable: .init(StickerChunkEquatable(ids: ids, installed: installed, canAdd: canAdd, isEditing: isEditing)), comparable: nil, item: { initialSize, stableId in
+                    return StickerPackPanelRowItem(initialSize, context: arguments.context, arguments: stickerArguments, files: files, packInfo: .emojiRelated, collectionId: .pack(collection.info.id), canSend: EntertainmentUIHooks.shared.currentChatInteraction(arguments.context) != nil, isPreview: true, addTile: addTile, editing: editing)
                 }))
                 index += 1
             }
@@ -311,6 +348,8 @@ private struct EmojiChunkEquatable : Equatable {
 private struct StickerChunkEquatable : Equatable {
     let ids: [Int64]
     let installed: Bool
+    let canAdd: Bool
+    let isEditing: Bool
 }
 
 
@@ -327,13 +366,108 @@ public func StickerPackPreviewModalController(_ context: any AccountContextProto
 
     var close: (() -> Void)? = nil
 
+    let reloadCounter = Atomic<Int>(value: 0)
+    let reloadPromise = ValuePromise<Int>(0, ignoreRepeated: true)
+    let reload: () -> Void = {
+        reloadPromise.set(reloadCounter.modify { $0 + 1 })
+    }
+
+    let packReference: (PreviewState.Collection) -> StickerPackReference = { collection in
+        return .id(id: collection.info.id.id, accessHash: collection.info.accessHash)
+    }
+
+    let currentItems: (PreviewState.Collection) -> [StickerPackItem] = { collection in
+        if case let .loaded(_, collections) = stateValue.with({ $0.preview.value }), let value = collections.first(where: { $0.info.id == collection.info.id }) {
+            return value.items
+        }
+        return collection.items
+    }
+
+    let updateItems: (PreviewState.Collection, ([StickerPackItem]) -> [StickerPackItem]) -> Void = { collection, f in
+        updateState { current in
+            var current = current
+            if case let .loaded(source, collections) = current.preview.value {
+                current.preview = PreviewStateEquatable(.loaded(source: source, collections: collections.map { value in
+                    if value.info.id == collection.info.id {
+                        return PreviewState.Collection(info: value.info, items: f(value.items), installed: value.installed)
+                    }
+                    return value
+                }))
+            }
+            return current
+        }
+    }
+
+    let setEditing: (Bool) -> Void = { value in
+        updateState { current in
+            var current = current
+            current.isEditing = value
+            return current
+        }
+    }
+
+    let addToPack: (PreviewState.Collection, ImportSticker) -> Void = { collection, sticker in
+        let title = stateValue.with { $0.titleOverride } ?? collection.info.title
+        _ = (showModalProgress(signal: context.engine.stickers.addStickerToStickerSet(packReference: packReference(collection), sticker: sticker), for: context.window) |> deliverOnMainQueue).start(next: { accepted in
+        }, error: { _ in
+            showModalText(for: context.window, text: strings().unknownError)
+        }, completed: {
+            reload()
+            showModalText(for: context.window, text: strings().stickerPackPreviewModalControllerStickerAdded(title))
+        })
+    }
+
+    let replaceSticker: (PreviewState.Collection, TelegramMediaFile) -> Void = { collection, file in
+        let emojis = currentItems(collection).first(where: { $0.file.fileId == file.fileId })?.getStringRepresentationsOfIndexKeys() ?? []
+        EntertainmentUIHooks.shared.makeStickerImageObserved(context, context.window, doneMenu: nil, completion: { image in
+            _ = (showModalProgress(signal: context.engine.stickers.replaceSticker(previousSticker: .stickerPack(stickerPack: packReference(collection), media: file), sticker: importSticker(image, emojis: emojis)), for: context.window) |> deliverOnMainQueue).start(error: { _ in
+                showModalText(for: context.window, text: strings().unknownError)
+            }, completed: {
+                reload()
+                showModalText(for: context.window, text: strings().stickerPackPreviewModalControllerStickerUpdated)
+            })
+        })
+    }
+
+    let deleteSticker: (PreviewState.Collection, TelegramMediaFile) -> Void = { collection, file in
+        let remaining = currentItems(collection).filter { $0.file.fileId != file.fileId }
+        if remaining.isEmpty {
+            _ = (context.engine.stickers.deleteStickerSet(packReference: packReference(collection))).start()
+            close?()
+        } else {
+            updateItems(collection, { _ in remaining })
+            _ = (context.engine.stickers.deleteStickerFromStickerSet(sticker: .stickerPack(stickerPack: packReference(collection), media: file))).start()
+        }
+    }
+
+    let editTitle: (PreviewState.Collection) -> Void = { collection in
+        let value = stateValue.with { $0.titleOverride } ?? collection.info.title
+        showModal(with: StickerPackTitleController(context: context, title: strings().stickerPackPreviewModalControllerEditNameTitle, text: strings().stickerPackPreviewModalControllerEditNameText, value: value, apply: { title in
+            updateState { current in
+                var current = current
+                current.titleOverride = title
+                return current
+            }
+            _ = (context.engine.stickers.renameStickerSet(packReference: packReference(collection), title: title)).start(error: { _ in
+            }, completed: {
+            })
+        }), for: context.window)
+    }
+
+    let deletePack: (PreviewState.Collection) -> Void = { collection in
+        verifyAlert(for: context.window, header: strings().stickerPackPreviewModalControllerDeleteSetHeader, information: strings().stickerPackPreviewModalControllerDeleteSetInfo, ok: strings().messageContextDelete, successHandler: { _ in
+            _ = (context.engine.stickers.deleteStickerSet(packReference: packReference(collection))).start()
+            close?()
+        })
+    }
+
     let arguments = StickerPackArguments(context: context, send: { media, view, silent, schedule in
         let interactions = EntertainmentUIHooks.shared.currentChatInteraction(context)
         if let interactions = interactions, let media = media as? TelegramMediaFile, media.maskData == nil {
             if let slowMode = interactions.presentationSlowMode, slowMode.hasLocked {
                 showSlowModeTimeoutTooltip(slowMode, for: view)
             } else {
-                interactions.sendFile(media, silent: silent, query: nil, scheduled: schedule, collectionId: nil)
+                EntertainmentUIHooks.shared.sendPackStickerObserved(interactions, file: media, silent: silent, scheduled: schedule)
                 close?()
             }
         }
@@ -342,13 +476,13 @@ public func StickerPackPreviewModalController(_ context: any AccountContextProto
         guard let interactions = interactions else { return }
         if context.isPremium {
             if interactions.presentationIsNormalState {
-                _ = interactions.appendText(.makeAnimated(file, text: file.customEmojiText ?? ""), selectedRange: nil)
+                EntertainmentUIHooks.shared.appendPackEmojiObserved(interactions, text: .makeAnimated(file, text: file.customEmojiText ?? ""))
                 interactions.showEmojiUseTooltip()
                 close?()
             }
         } else {
             showModalText(for: context.window, text: strings().emojiPackPremiumAlert, callback: { _ in
-                FeatureNavigationHooks.shared.showPremiumBoarding(context, context.window, .premiumEmoji, false, nil)
+                FeatureNavigationHooks.shared.showPremiumBoardingObserved(context, context.window, .premiumEmoji, false, nil)
             })
         }
     }, addpack: { source, collection, shouldClose in
@@ -357,7 +491,7 @@ public func StickerPackPreviewModalController(_ context: any AccountContextProto
             let title: String
             let text: String
             if !collection.installed {
-                _ = context.engine.stickers.addStickerPackInteractively(info: collection.info, items: collection.items).start()
+                _ = (context.engine.stickers.addStickerPackInteractively(info: collection.info, items: collection.items)).start()
                 switch source {
                 case .stickers:
                     title = strings().stickerPackAddedTitle
@@ -375,7 +509,7 @@ public func StickerPackPreviewModalController(_ context: any AccountContextProto
                     title = strings().emojiPackRemovedTitle
                     text = strings().emojiPackRemovedInfo(collection.info.title)
                 }
-                _ = context.engine.stickers.removeStickerPackInteractively(id: collection.info.id, option: .archive).start()
+                _ = (context.engine.stickers.removeStickerPackInteractively(id: collection.info.id, option: .archive)).start()
             }
             showModalText(for: context.window, text: text, title: title)
 
@@ -388,7 +522,7 @@ public func StickerPackPreviewModalController(_ context: any AccountContextProto
                     case .emoji:
                         current.installed.insert(.emoji(.name(collection.info.shortName)))
                     case .stickers:
-                        current.installed.insert(.emoji(.name(collection.info.shortName)))
+                        current.installed.insert(.stickers(.name(collection.info.shortName)))
                     }
                     return current
                 }
@@ -402,7 +536,7 @@ public func StickerPackPreviewModalController(_ context: any AccountContextProto
         let signals = collections.map {
             context.engine.stickers.addStickerPackInteractively(info: $0.info, items: $0.items)
         }
-        _ = combineLatest(signals).start()
+        _ = (combineLatest(signals)).start()
 
         if shouldClose {
             close?()
@@ -414,7 +548,7 @@ public func StickerPackPreviewModalController(_ context: any AccountContextProto
                     case .emoji:
                         current.installed.insert(.emoji(.name(collection.info.shortName)))
                     case .stickers:
-                        current.installed.insert(.emoji(.name(collection.info.shortName)))
+                        current.installed.insert(.stickers(.name(collection.info.shortName)))
                     }
                 }
                 return current
@@ -425,7 +559,7 @@ public func StickerPackPreviewModalController(_ context: any AccountContextProto
 
     }, share: { link in
         close?()
-        EntertainmentUIHooks.shared.shareLink(context, link)
+        EntertainmentUIHooks.shared.shareLinkObserved(context, link)
     }, close: {
         close?()
     }, previewPremium: { file, _ in
@@ -440,9 +574,56 @@ public func StickerPackPreviewModalController(_ context: any AccountContextProto
             current.premiumFile = nil
             return current
         }
+    }, addSticker: { collection, control in
+        guard let event = NSApp.currentEvent else {
+            return
+        }
+        var items: [ContextMenuItem] = []
+        items.append(ContextMenuItem(strings().stickerPackPreviewModalControllerCreateSticker, handler: {
+            EntertainmentUIHooks.shared.makeStickerImageObserved(context, context.window, doneMenu: nil, completion: { image in
+                addToPack(collection, importSticker(image))
+            })
+        }, itemImage: MenuAnimation.menu_plus.value))
+        items.append(ContextMenuItem(strings().stickerPackPreviewModalControllerAddExistingSticker, handler: { [weak control] in
+            guard let control = control else {
+                return
+            }
+            showExistingStickerPicker(context: context, control: control, picked: { file in
+                addToPack(collection, importSticker(existing: file))
+            })
+        }, itemImage: MenuAnimation.menu_view_sticker_set.value))
+        ContextMenu.show(items: items, view: control, event: event)
+    }, ownStickerMenu: { collection, file in
+        var items: [ContextMenuItem] = []
+        items.append(ContextMenuItem(strings().stickerPackPreviewModalControllerReplaceSticker, handler: {
+            replaceSticker(collection, file)
+        }, itemImage: MenuAnimation.menu_replace.value))
+        if !stateValue.with({ $0.isEditing }) {
+            items.append(ContextMenuItem(strings().stickerPackPreviewModalControllerReorder, handler: {
+                setEditing(true)
+            }, itemImage: MenuAnimation.menu_list.value))
+        }
+        let delete = ContextMenuItem(strings().messageContextDelete, itemMode: .destruct, itemImage: MenuAnimation.menu_delete.value)
+        let submenu = ContextMenu()
+        submenu.addItem(ContextMenuItem(strings().stickerPackPreviewModalControllerDeleteForEveryone, handler: {
+            deleteSticker(collection, file)
+        }, itemMode: .destruct))
+        delete.submenu = submenu
+        items.append(delete)
+        return items
+    }, reorderSticker: { collection, file, index in
+        updateItems(collection, { items in
+            var items = items
+            if let from = items.firstIndex(where: { $0.file.fileId == file.fileId }) {
+                let item = items.remove(at: from)
+                items.insert(item, at: min(index, items.count))
+            }
+            return items
+        })
+        _ = (context.engine.stickers.reorderSticker(sticker: .standalone(media: file), position: index)).start()
     })
 
-    let signal = statePromise.get() |> deliverOnPrepareQueue |> map { state -> InputDataSignalValue in
+    let signal = (statePromise.get() |> deliverOnPrepareQueue) |> map { state -> InputDataSignalValue in
         return InputDataSignalValue(entries: entries(state, controllerSource: controllerSource, arguments: arguments, premiumFile: state.premiumFile))
     }
 
@@ -517,7 +698,37 @@ public func StickerPackPreviewModalController(_ context: any AccountContextProto
                     return state.installed.contains(.stickers(.name(collection.info.shortName)))
                 }
             }()
-            if isInstalled {
+            if source == .stickers, isOwnStickerPack(collection.info) {
+                items.append(ContextSeparatorItem())
+                if !collection.items.isEmpty, !state.isEditing {
+                    items.append(ContextMenuItem(strings().stickerPackPreviewModalControllerReorder, handler: {
+                        setEditing(true)
+                    }, itemImage: MenuAnimation.menu_list.value))
+                }
+                items.append(ContextMenuItem(strings().stickerPackPreviewModalControllerEditName, handler: {
+                    editTitle(collection)
+                }, itemImage: MenuAnimation.menu_edit.value))
+                let deleteHandler: (() -> Void)? = isInstalled ? nil : {
+                    deletePack(collection)
+                }
+                let delete = ContextMenuItem(strings().messageContextDelete, handler: deleteHandler, itemMode: .destruct, itemImage: MenuAnimation.menu_delete.value)
+                if isInstalled {
+                    let submenu = ContextMenu()
+                    submenu.addItem(ContextMenuItem(strings().stickerPackPreviewModalControllerDeleteForEveryone, handler: {
+                        deletePack(collection)
+                    }, itemMode: .destruct))
+                    submenu.addItem(ContextMenuItem(strings().stickerPackPreviewModalControllerRemoveForMe, handler: {
+                        arguments.addpack(source, collection, true)
+                    }))
+                    delete.submenu = submenu
+                }
+                items.append(delete)
+                items.append(ContextSeparatorItem())
+                items.append(ContextMenuItem(strings().stickerPackPreviewModalControllerStickersBotHint, handler: {
+                    close?()
+                    EntertainmentUIHooks.shared.openStickersBotObserved(context)
+                }))
+            } else if isInstalled {
                 items.append(ContextMenuItem(strings().messageContextDelete, handler: {
                     arguments.addpack(source, collection, true)
                 }, itemMode: .destruct, itemImage: MenuAnimation.menu_delete.value))
@@ -536,13 +747,15 @@ public func StickerPackPreviewModalController(_ context: any AccountContextProto
         }
     }
     let namespaces = references.map { namespaceForMode($0) }
-    let namespace = namespaces[0]
+    let namespace = namespaces.first ?? Namespaces.ItemCollection.CloudStickerPacks
 
-    let packsSignal = combineLatest(references.map {
-        context.engine.stickers.loadedStickerPack(reference: $0.reference, forceActualized: true)
-    }) |> deliverOnMainQueue
+    let packsSignal = (reloadPromise.get()) |> mapToSignal { _ in
+        return combineLatest(references.map {
+            context.engine.stickers.loadedStickerPack(reference: $0.reference, forceActualized: true)
+        })
+    } |> deliverOnMainQueue
 
-    actionsDisposable.add(packsSignal.start(next: { [weak modalController] result in
+    actionsDisposable.add((packsSignal).start(next: { [weak modalController] result in
         let isEmpty = result.filter { value in
             switch value {
             case .none: return true
@@ -588,7 +801,7 @@ public func StickerPackPreviewModalController(_ context: any AccountContextProto
         let headerTitle: String
         if case let .loaded(source, collections) = state.preview.value {
             if collections.count == 1 {
-                headerTitle = collections[0].info.title
+                headerTitle = state.titleOverride ?? collections[0].info.title
             } else {
                 switch source {
                 case .emoji:
@@ -626,12 +839,15 @@ public func StickerPackPreviewModalController(_ context: any AccountContextProto
             }
         }
         let notInstalledCount = collections.filter { !isInstalled($0) }.count
+        let isOwnInstalled = controllerSource == .install && source == .stickers && collections.count == 1 && isOwnStickerPack(collections[0].info) && isInstalled(collections[0])
 
         let title: String?
         switch controllerSource {
         case .install:
             let allInstalled = !collections.contains(where: { !isInstalled($0) })
-            if allInstalled {
+            if isOwnInstalled {
+                title = state.isEditing ? strings().modalDone.uppercased() : strings().stickerPackPreviewModalControllerEditStickers
+            } else if allInstalled {
                 title = nil
             } else {
                 switch source {
@@ -652,7 +868,9 @@ public func StickerPackPreviewModalController(_ context: any AccountContextProto
         }
 
         _ = pendingAddAction.swap({
-            if collections.count == 1 {
+            if isOwnInstalled {
+                setEditing(!stateValue.with { $0.isEditing })
+            } else if collections.count == 1 {
                 arguments.addpack(source, collections[0], true)
             } else {
                 arguments.addAll(source, collections, true)

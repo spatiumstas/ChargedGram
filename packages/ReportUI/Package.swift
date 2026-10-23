@@ -11,6 +11,7 @@ let deps: [(String, String)] = [
     ("TelegramUtils", "../TelegramUtils"),
     ("GeneralRows", "../GeneralRows"),
     ("InputDataUI", "../InputDataUI"),
+
 ]
 
 let package = Package(

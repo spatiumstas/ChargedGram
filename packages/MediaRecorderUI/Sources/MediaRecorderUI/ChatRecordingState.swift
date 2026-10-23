@@ -19,13 +19,24 @@ public enum ChatRecordingStatus : Equatable {
     case recording(duration: Double)
 }
 
-private func trimmedVideoFile(_ path: String, trimRange: Range<Double>) -> Signal<(String, Double), NoError> {
-    return exportTrimmedVideo(path: path, range: trimRange) |> map { output in
-        if let output, output != path {
-            removeFile(at: path)
+private func trimmedVideoFile(_ path: String, trimRange: Range<Double>) -> Signal<(String, Double)?, NoError> {
+    return exportTrimmedVideo(path: path, range: trimRange) |> deliverOnMainQueue |> map { output in
+        guard let output, output.path != path else { return nil }
+        let duration = output.duration
+        guard duration.isFinite, duration > 0, Int(exactly: ceil(duration)) != nil,
+            let outputPath = output.takePath() else {
+            output.discard()
+            return nil
         }
-        return (output ?? path, trimRange.upperBound - trimRange.lowerBound)
-    } |> deliverOnMainQueue
+        removeFile(at: path)
+        return (outputPath, duration)
+    }
+}
+
+public enum ChatRecordingSubmissionState {
+    case idle
+    case preparing
+    case failed
 }
 
 public struct ChatRecordingPreviewData : Equatable {
@@ -47,12 +58,20 @@ public struct ChatRecordingPreviewData : Equatable {
 
 
 open class ChatRecordingState : Equatable {
+    public final var contextBoundData: Signal<[MediaSenderContainer], NoError> {
+        return data |> deliverOnMainQueue
+    }
   
     public let autohold: Bool
     public let holdpromise: ValuePromise<Bool> = ValuePromise()
     
     public var isOneTime: Bool = false
     public private(set) var isCancelled: Bool = false
+    public private(set) var isPreparingSubmission = false
+    public let submissionState = ValuePromise<ChatRecordingSubmissionState>(.idle)
+    private var hasSubmitted = false
+    private var trimOperationId: UUID?
+    private let submissionDisposable = MetaDisposable()
     
     public private(set) var trimRange: Range<Double>?
     public private(set) var trimSourceDuration: Double?
@@ -109,19 +128,67 @@ open class ChatRecordingState : Equatable {
     public func performTrim(_ range: Range<Double>) -> Signal<Bool, NoError> {
         return .single(false)
     }
-    public final func applyTrimAndResume() -> Signal<Never, NoError> {
-        let range = pendingTrimRange
-        updateTrimRange(nil)
-        guard let range else {
-            resume()
-            return .complete()
-        }
-        return performTrim(range)
-            |> deliverOnMainQueue
-            |> mapToSignal { [weak self] _ -> Signal<Never, NoError> in
-                self?.resume()
-                return .complete()
+    public final func applyTrimAndResume() -> Signal<Bool, NoError> {
+        return deferred { [weak self] in
+            guard let self, !self.isCancelled, !self.isPreparingSubmission, !self.hasSubmitted, self.trimOperationId == nil else { return .single(false) }
+            guard let range = self.pendingTrimRange else {
+                self.updateTrimRange(nil)
+                self.resume()
+                return .single(true)
             }
+            let sourceDuration = self.trimSourceDuration
+            let operationId = UUID()
+            self.trimOperationId = operationId
+            let result = self.performTrim(range)
+                |> then(.single(false))
+                |> take(1)
+            return Signal { [weak self] subscriber in
+                let cancelled = Atomic(value: false)
+                let disposable = result.start(next: { [weak self] success in
+                    let apply = { [weak self] in
+                        guard let self else {
+                            subscriber.putNext(false)
+                            subscriber.putCompletion()
+                            return
+                        }
+                        if self.trimOperationId == operationId {
+                            self.trimOperationId = nil
+                        }
+                        let accepted = success && self.pendingTrimRange == range && self.trimSourceDuration == sourceDuration
+                        if accepted {
+                            self.updateTrimRange(nil)
+                        }
+                        guard !cancelled.with({ $0 }) else { return }
+                        if accepted && !self.isCancelled {
+                            self.resume()
+                            subscriber.putNext(true)
+                        } else {
+                            subscriber.putNext(false)
+                        }
+                        subscriber.putCompletion()
+                    }
+                    if Queue.mainQueue().isCurrent() {
+                        apply()
+                    } else {
+                        Queue.mainQueue().async(apply)
+                    }
+                })
+                return ActionDisposable { [weak self] in
+                    _ = cancelled.swap(true)
+                    disposable.dispose()
+                    let clear = { [weak self] in
+                        if self?.trimOperationId == operationId {
+                            self?.trimOperationId = nil
+                        }
+                    }
+                    if Queue.mainQueue().isCurrent() {
+                        clear()
+                    } else {
+                        Queue.mainQueue().async(clear)
+                    }
+                }
+            }
+        }
     }
     public func updatePreviewTrim(_ range: Range<Double>, updatedEnd: Bool, applied: Bool) {}
     public func dispose() {
@@ -130,18 +197,65 @@ open class ChatRecordingState : Equatable {
     public func closeRecorderModal() {}
     public final func cancel() {
         isCancelled = true
+        submissionDisposable.set(nil)
+        isPreparingSubmission = false
         stop()
         dispose()
         closeRecorderModal()
     }
+    public final func send(from chatInteraction: Any, closingOtherModals: Bool = false) {
+        guard !isCancelled, !hasSubmitted, !isPreparingSubmission, trimOperationId == nil else { return }
+        isPreparingSubmission = true
+        guard !isCancelled else { return }
+        guard let range = pendingTrimRange else {
+            completeSubmission(from: chatInteraction, closingOtherModals: closingOtherModals)
+            return
+        }
+        let sourceDuration = trimSourceDuration
+        let operation = MetaDisposable()
+        submissionDisposable.set(operation)
+        submissionState.set(.preparing)
+        guard !isCancelled else { return }
+        weak var destination = chatInteraction as AnyObject
+        operation.set((performTrim(range) |> then(.single(false)) |> take(1) |> deliverOnMainQueue).start(next: { [weak self] success in
+            guard let self, !self.isCancelled else { return }
+            let accepted = success && self.pendingTrimRange == range && self.trimSourceDuration == sourceDuration
+            if accepted {
+                self.updateTrimRange(nil)
+            }
+            guard let destination else {
+                self.isPreparingSubmission = false
+                self.submissionState.set(.failed)
+                return
+            }
+            guard accepted else {
+                self.isPreparingSubmission = false
+                self.submissionState.set(.failed)
+                return
+            }
+            self.completeSubmission(from: destination, closingOtherModals: closingOtherModals)
+        }))
+    }
+
+    private func completeSubmission(from chatInteraction: Any, closingOtherModals: Bool) {
+        guard !isCancelled, !hasSubmitted else { return }
+        hasSubmitted = true
+        isPreparingSubmission = false
+        stop()
+        MediaRecorderHooks.shared.setPendingMedia(chatInteraction, contextBoundData)
+        closeRecorderModal()
+        if closingOtherModals {
+            closeAllModals()
+        }
+        MediaRecorderHooks.shared.clearRecordingState(chatInteraction)
+    }
+
     public final func discard(from chatInteraction: Any, sendingMedia: Bool = false, closingOtherModals: Bool = false) {
         if sendingMedia {
-            stop()
-            MediaRecorderHooks.shared.setPendingMedia(chatInteraction, data)
-            closeRecorderModal()
-        } else {
-            cancel()
+            send(from: chatInteraction, closingOtherModals: closingOtherModals)
+            return
         }
+        cancel()
         if closingOtherModals {
             closeAllModals()
         }
@@ -149,8 +263,7 @@ open class ChatRecordingState : Equatable {
     }
     
     deinit {
-        var bp:Int = 0
-        bp += 1
+        submissionDisposable.dispose()
     }
 }
 
@@ -198,20 +311,21 @@ public final class ChatRecordingVideoState : ChatRecordingState {
         }
         return pipeline.statePromise.get() |> filter { state in
             switch state {
-            case .finishRecording:
+            case .finishRecording, .failed, .stopped:
                 return true
             default:
                 return false
             }
         } |> take(1) |> mapToSignal { state -> Signal<[MediaSenderContainer], NoError> in
             guard case let .finishRecording(path, duration, id, _) = state else {
-                return .single([])
+                return .complete()
             }
             guard let trimRange else {
                 return .single([container(path: path, duration: duration, id: id)])
             }
-            return trimmedVideoFile(path, trimRange: trimRange) |> map { trimmedPath, trimmedDuration in
-                return [container(path: trimmedPath, duration: Int(ceil(trimmedDuration)), id: nil)]
+            return trimmedVideoFile(path, trimRange: trimRange) |> map { output in
+                guard let (trimmedPath, trimmedDuration) = output, let duration = Int(exactly: ceil(trimmedDuration)) else { return [] }
+                return [container(path: trimmedPath, duration: duration, id: nil)]
             }
         }
     }
@@ -293,7 +407,8 @@ public final class ChatRecordingAudioState : ChatRecordingState {
         guard let trimRange = pendingTrimRange else {
             return takeMedia()
         }
-        return performTrim(trimRange) |> mapToSignal { _ in
+        return performTrim(trimRange) |> then(.single(false)) |> take(1) |> mapToSignal { success in
+            guard success else { return .single([]) }
             return takeMedia()
         }
     }

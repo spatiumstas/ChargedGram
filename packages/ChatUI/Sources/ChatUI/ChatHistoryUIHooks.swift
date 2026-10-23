@@ -57,9 +57,34 @@ public protocol ChatHistoryReactionsWindow: AnyObject {
     func showChatHistoryReactions(_ initialView: NSView & StickerFramesCollector)
 }
 
+public enum ChatHistoryForwardResult {
+    case draftPrepared
+    case destinationReady
+    case accepted
+    case partiallyAccepted
+    case rejected
+    case acceptanceUnknown
+    case sourceUnavailable
+    case targetUnavailable
+    case restricted
+    case completionUnknown
+}
+
 public protocol ChatHistoryForwardMessagesObject: AnyObject {
     func chatHistoryPerform(to peerIds: [PeerId], threadId: Int64?) -> Signal<Never, String>
     func possibilityPerformTo(_ peer: Peer) -> Bool
+    func chatHistoryPerformObserved(to peerId: PeerId, threadId: Int64?) -> Signal<ChatHistoryForwardResult, String>
+}
+
+public extension ChatHistoryForwardMessagesObject {
+    func chatHistoryPerformObserved(to peerId: PeerId, threadId: Int64?) -> Signal<ChatHistoryForwardResult, String> {
+        return Signal { subscriber in
+            self.chatHistoryPerform(to: [peerId], threadId: threadId).start(error: { subscriber.putError($0) }, completed: {
+                subscriber.putNext(.completionUnknown)
+                subscriber.putCompletion()
+            })
+        }
+    }
 }
 
 public protocol ChatHistoryAntiSpamBotConfiguration {
@@ -100,7 +125,11 @@ public enum ChatHistoryLink {
     }
 
     public static func execute(inapp: Any) {
-        ChatHistoryUIHooks.shared.executeLink(inapp)
+        if let executeLinkWithContext = ChatHistoryUIHooks.shared.executeLinkWithContext {
+            executeLinkWithContext(inapp)
+        } else {
+            ChatHistoryUIHooks.shared.executeLink(inapp)
+        }
     }
 
     public static func detectLinks(_ string: NSMutableAttributedString, type: ParsingType, onlyInApp: Bool = false, context: (any AccountContextProtocol)? = nil, color: NSColor = theme.colors.link, openInfo: ((PeerId, Bool, MessageId?, ChatInitialAction?) -> Void)? = nil, hashtag: ((String) -> Void)? = nil, command: ((String) -> Void)? = nil, applyProxy: ((ProxyServerSettings) -> Void)? = nil, dotInMention: Bool = false) {
@@ -175,6 +204,21 @@ public struct ChatHistoryRichTextHooks {
     }
 }
 
+public enum ChatHistoryTranslationSource {
+    case richMessage(MessageId?, InstantPage?)
+    case poll(MessageId?)
+    case message(MessageId?)
+    case selectedText
+    case transcription(MessageId?)
+
+    var messageId: MessageId? {
+        switch self {
+        case let .richMessage(id, _), let .poll(id), let .message(id), let .transcription(id): return id
+        case .selectedText: return nil
+        }
+    }
+}
+
 public struct ChatHistoryUIHooks {
     public let peerInfoLink: (String, PeerId, ChatInitialAction?, Bool, Int32?, @escaping (PeerId, Bool, MessageId?, ChatInitialAction?) -> Void) -> Any
     public let followResolvedNameLink: (String, String, Int32?, Bool, any AccountContextProtocol, ChatInitialAction?, @escaping (PeerId, Bool, MessageId?, ChatInitialAction?) -> Void) -> Any
@@ -185,16 +229,47 @@ public struct ChatHistoryUIHooks {
     public let giftLink: (String, String, any AccountContextProtocol) -> ChatHistoryInAppLinkValue
     public let inAppLink: (NSString, (any AccountContextProtocol)?, PeerId?, MessageId?, ((PeerId, Bool, MessageId?, ChatInitialAction?) -> Void)?, ((String) -> Void)?, ((String) -> Void)?, ((ProxyServerSettings) -> Void)?, Bool) -> ChatHistoryInAppLinkValue
     public let executeLink: (Any) -> Void
+    public var executeLinkWithContext: ((Any) -> Void)?
     public let detectLinks: (NSMutableAttributedString, ParsingType, Bool, (any AccountContextProtocol)?, NSColor, ((PeerId, Bool, MessageId?, ChatInitialAction?) -> Void)?, ((String) -> Void)?, ((String) -> Void)?, ((ProxyServerSettings) -> Void)?, Bool) -> Void
     public let copyContextText: (LinkType) -> String
     public let applyCodeSyntax: (NSMutableAttributedString, NSRange, String?, Message?, Bool, Bool, Bool, NSColor, CGFloat, [CodeSyntaxKey : CodeSyntaxResult], @escaping (MessageId, NSRange, String, String, ChatInterfaceSyntaxTheme) -> Void) -> Void
     public let generateSyntaxThemeParams: (TelegramPresentationTheme, Bool, Bool) -> [String: NSColor]
     public let makeShareMessageModal: (any AccountContextProtocol, Message) -> ModalViewController
     public let makeShareGroupedMessagesModal: (any AccountContextProtocol, Message, [Message]) -> ModalViewController
+    public var makeShareMessagesModalWithContext: ((any AccountContextProtocol, Message, [Message]?) -> ModalViewController)?
+
+    public func makeShareMessagesModalObserved(_ context: any AccountContextProtocol, _ message: Message, groupedMessages: [Message]? = nil) -> ModalViewController {
+        let controller: ModalViewController
+        if let makeShareMessagesModalWithContext {
+            controller = makeShareMessagesModalWithContext(context, message, groupedMessages)
+        } else if let groupedMessages {
+            controller = makeShareGroupedMessagesModal(context, message, groupedMessages)
+        } else {
+            controller = makeShareMessageModal(context, message)
+        }
+        return controller
+    }
     public let pushReactionPeerInfo: (NavigationViewController, any AccountContextProtocol, PeerId, MessageId) -> Void
+    public var pushReactionPeerInfoWithContext: ((NavigationViewController, any AccountContextProtocol, PeerId, MessageId) -> Void)?
+    public func pushReactionPeerInfoObserved(_ navigation: NavigationViewController, _ context: any AccountContextProtocol, _ peerId: PeerId, _ messageId: MessageId) {
+        if let pushReactionPeerInfoWithContext {
+            pushReactionPeerInfoWithContext(navigation, context, peerId, messageId)
+        } else {
+            pushReactionPeerInfo(navigation, context, peerId, messageId)
+        }
+    }
     public let pushEditPeerInfo: (NavigationViewController, any AccountContextProtocol, PeerId) -> Void
     public let openTopic: (Int64, PeerId, any AccountContextProtocol, MessageId?) -> Signal<Bool, NoError>
     public let makeChannelParticipantController: (any AccountContextProtocol, PeerId, RenderedChannelParticipant) -> InputDataModalController
+    public var makeChannelParticipantControllerWithContext: ((any AccountContextProtocol, PeerId, RenderedChannelParticipant) -> InputDataModalController)?
+    public func makeChannelParticipantControllerObserved(_ context: any AccountContextProtocol, _ peerId: PeerId, _ participant: RenderedChannelParticipant) -> InputDataModalController {
+        if let makeChannelParticipantControllerWithContext {
+            return makeChannelParticipantControllerWithContext(context, peerId, participant)
+        } else {
+            return makeChannelParticipantController(context, peerId, participant)
+        }
+    }
+
     public let makeRestrictedModalController: (any AccountContextProtocol, PeerId, PeerId, ChannelParticipant?, @escaping (TelegramChatBannedRights) -> Void) -> InputDataModalController
     public let makeChannelAdminModalController: (any AccountContextProtocol, PeerId, PeerId, ChannelParticipant?, @escaping (TelegramChatAdminRights?) -> Void, @escaping (PeerId, @escaping () -> Void) -> Void) -> InputDataModalController
     public let makeFragmentAdsInfoController: (any AccountContextProtocol, Message?, ChatInteraction?) -> InputDataModalController
@@ -203,6 +278,31 @@ public struct ChatHistoryUIHooks {
     public let makeMessageTranslateModal: (any AccountContextProtocol, String?, String, String, [MessageTextEntity], MessageId?, ((TranslationTone) -> Void)?, (() -> Void)?) -> InputDataModalController
     public let makeSelectedTextTranslateModal: (any AccountContextProtocol, String?, String, String, [MessageTextEntity], ((TranslationTone) -> Void)?, (() -> Void)?) -> InputDataModalController
     public let makeTranscriptionTranslateModal: (any AccountContextProtocol, String?, String, String, MessageId?, ((TranslationTone) -> Void)?, (() -> Void)?) -> InputDataModalController
+    public var makeTranslateModalWithContext: ((any AccountContextProtocol, String?, String, String, [MessageTextEntity], ChatHistoryTranslationSource, ((TranslationTone) -> Void)?, (() -> Void)?) -> InputDataModalController)?
+
+    public func makeTranslateModalObserved(_ context: any AccountContextProtocol, _ from: String?, _ toLang: String, _ text: String, _ entities: [MessageTextEntity], source: ChatHistoryTranslationSource, onToneChanged: ((TranslationTone) -> Void)?, translateEntireChat: (() -> Void)?) -> InputDataModalController {
+        let tone: ((TranslationTone) -> Void)? = onToneChanged.map { callback in
+            return { value in
+                callback(value)
+            }
+        }
+        let entire: (() -> Void)? = translateEntireChat.map { callback in
+            return {
+                callback()
+            }
+        }
+        if let makeTranslateModalWithContext {
+            return makeTranslateModalWithContext(context, from, toLang, text, entities, source, tone, entire)
+        }
+        switch source {
+        case let .richMessage(id, page): return makeRichMessageTranslateModal(context, from, toLang, text, entities, id, page, tone, entire)
+        case let .poll(id): return makePollTranslateModal(context, from, toLang, text, entities, id, tone, entire)
+        case let .message(id): return makeMessageTranslateModal(context, from, toLang, text, entities, id, tone, entire)
+        case .selectedText: return makeSelectedTextTranslateModal(context, from, toLang, text, entities, tone, entire)
+        case let .transcription(id): return makeTranscriptionTranslateModal(context, from, toLang, text, id, tone, entire)
+        }
+    }
+
     public let communityFilterCategories: (Account) -> Signal<[PeerId: ChatListFilterPeerCategories], NoError>
     public let chatListFilterPredicate: (ChatListFilter?, [PeerId: ChatListFilterPeerCategories]) -> ChatListFilterPredicate?
     public let chatListFilterIsAllChats: (ChatListFilter) -> Bool
@@ -210,6 +310,20 @@ public struct ChatHistoryUIHooks {
     public let makeDownloadSearch: (any AccountContextProtocol) -> Void
     public let folderEmoticonDrawable: (FolderEmoticon) -> MenuAnimation
     public let makeForwardMessagesObject: (any AccountContextProtocol, [Message], Bool, (([MessageId], Bool) -> Signal<[Message], NoError>)?) -> ChatHistoryForwardMessagesObject
+    public var makeForwardMessagesObjectWithContext: ((any AccountContextProtocol, [Message], Bool, (([MessageId], Bool) -> Signal<[Message], NoError>)?) -> ChatHistoryForwardMessagesObject)?
+
+    public func makeForwardMessagesObjectObserved(_ context: any AccountContextProtocol, _ messages: [Message], _ album: Bool, _ getMessages: (([MessageId], Bool) -> Signal<[Message], NoError>)?) -> ChatHistoryForwardMessagesObject {
+        let lookup = getMessages.map { lookup in
+            return { (ids: [MessageId], album: Bool) -> Signal<[Message], NoError> in
+                return (lookup(ids, album))
+            }
+        }
+        if let makeForwardMessagesObjectWithContext {
+            return makeForwardMessagesObjectWithContext(context, messages, album, lookup)
+        }
+        return makeForwardMessagesObject(context, messages, album, lookup)
+    }
+
     public let antiSpamBotConfiguration: (AppConfiguration) -> ChatHistoryAntiSpamBotConfiguration
     public let checkForUpdates: () -> Void
     public let navigateToScheduledChat: (NavigationViewController?, any AccountContextProtocol, ChatLocation) -> Void

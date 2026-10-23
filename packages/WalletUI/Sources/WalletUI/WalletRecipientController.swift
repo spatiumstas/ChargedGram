@@ -165,6 +165,7 @@ private final class Arguments {
     let openRecipient: (WalletContext.ResolvedTransferRecipient, WalletAddressOwner?) -> Void
     let selectPeer: (EnginePeer) -> Void
     let showMorePeers: () -> Void
+    var moveToGifts: (() -> Void)?
 
     init(environment: WalletUIEnvironment, filterRecipient: @escaping (String) -> String, openRecipient: @escaping (WalletContext.ResolvedTransferRecipient, WalletAddressOwner?) -> Void, selectPeer: @escaping (EnginePeer) -> Void, showMorePeers: @escaping () -> Void) {
         self.environment = environment
@@ -180,6 +181,7 @@ private let _id_resolving = InputDataIdentifier("_id_resolving")
 private let _id_recipient = InputDataIdentifier("_id_recipient")
 private let _id_no_results = InputDataIdentifier("_id_no_results")
 private let _id_show_more_peers = InputDataIdentifier("_id_show_more_peers")
+private let _id_move_to_gifts = InputDataIdentifier("_id_move_to_gifts")
 private func _id_recent_peer(_ peerId: PeerId) -> InputDataIdentifier {
     return InputDataIdentifier("_id_recent_peer_\(peerId.toInt64())")
 }
@@ -202,6 +204,14 @@ private func entries(_ state: WalletRecipientState, arguments: Arguments) -> [In
     }
     entries.append(.input(sectionId: sectionId, index: index, value: .string(state.address), error: addressError, identifier: _id_address, mode: .plain, data: .init(viewType: .singleItem), placeholder: nil, inputPlaceholder: addressPlaceholder, filter: arguments.filterRecipient, limit: 512))
     index += 1
+
+    if state.address.isEmpty, state.resolved == nil, state.owner == nil, let moveToGifts = arguments.moveToGifts {
+        entries.append(.sectionId(10, type: .customModern(12)))
+        entries.append(.custom(sectionId: 11, index: 100, value: .none, identifier: _id_move_to_gifts, equatable: nil, comparable: nil, item: { initialSize, stableId in
+            let thumb = walletMoveActionIcon("Wallet_MoveToGifts", diameter: 30).map { GeneralThumbAdditional(thumb: $0, textInset: 40) }
+            return GeneralInteractedRowItem(initialSize, stableId: stableId, name: strings().giftTransferMoveToGifts, nameStyle: ControlStyle(font: .medium(.title), foregroundColor: theme.colors.text), type: .none, viewType: .singleItem, action: moveToGifts, thumb: thumb)
+        }))
+    }
 
     if walletShowsNoRecipientResults(state) {
         let query = recipientQuery(state)
@@ -617,8 +627,13 @@ func makeWalletRecipientController(context: any AccountContextProtocol, environm
         return InputDataSignalValue(entries: entries(state, arguments: arguments))
     }
 
-    let controller = InputDataController(dataSignal: signal, title: strings().walletRecipientControllerTitle, hasDone: false, identifier: "wallet-recipient")
+    if case let .collectible(collectible) = mode, collectible.kind == .gift, let slug = collectible.giftSlug {
+        arguments.moveToGifts = {
+            walletMoveCollectibleToGifts(context: context, environment: environment, walletContext: walletContext, collectible: collectible, slug: slug, name: collectible.name, window: context.window)
+        }
+    }
 
+    let controller = InputDataController(dataSignal: signal, title: strings().walletRecipientControllerTitle, hasDone: false, identifier: "wallet-recipient")
     getController = { [weak controller] in
         return controller
     }
@@ -651,7 +666,13 @@ func makeWalletRecipientController(context: any AccountContextProtocol, environm
         continueAction()
     }, singleButton: true, customTheme: { walletModalTheme })
 
-    let modalController = WalletModalController(controller, modalInteractions: modalInteractions, size: NSMakeSize(360, 0))
+    let modalController = WalletModalController(controller, modalInteractions: modalInteractions, closeHandler: { close in
+        if let sendStep, getModal?()?.current === sendStep.controller {
+            sendStep.requestDismiss(close)
+        } else {
+            close()
+        }
+    }, size: NSMakeSize(360, 0))
 
     getModal = { [weak modalController] in
         return modalController
@@ -724,4 +745,39 @@ func makeWalletRecipientController(context: any AccountContextProtocol, environm
     }
 
     return modalController
+}
+
+@available(macOS 10.15, *)
+public func walletMoveCollectibleToGifts(context: any AccountContextProtocol, environment: WalletUIEnvironment, walletContext: WalletContext, collectible: WalletContext.Collectible?, slug: String, name: String, window: Window) {
+    let title = strings().giftMoveToGiftsTitle
+    let move = strings().giftMoveToWalletMove
+    let networkFee: Signal<Int64?, NoError>
+    if let address = collectible?.address ?? walletContext.stateValue.collectibles.items.first(where: { $0.giftSlug == slug })?.address {
+        networkFee = walletContext.estimateTransferFee(address: address, comment: .none)
+        |> map { Optional($0.fee) }
+        |> `catch` { _ -> Signal<Int64?, NoError> in .single(nil) }
+    } else {
+        networkFee = .single(nil)
+    }
+    environment.presentConfirmation(window: window, header: title, ok: move, cancel: strings().modalCancel, content: { size, stableId, updateSize in
+        WalletGiftDepositConfirmationRowItem(size, stableId: stableId, context: context, environment: environment, networkFee: networkFee, updateSize: updateSize)
+    }, confirmed: {
+        _ = showModalProgress(signal: context.engine.payments.depositStarGift(peerId: context.peerId, slug: slug, hideSender: false), for: window).start(next: { payload in
+            let collectible = collectible ?? walletContext.stateValue.collectibles.items.first(where: { $0.giftSlug == slug }) ?? WalletContext.Collectible(address: payload.nftAddress, name: name, kind: .gift, giftSlug: slug)
+            _ = showModalProgress(signal: walletContext.prepareCollectibleDeposit(collectible: collectible, address: payload.nftAddress, payload: payload.payload, amount: payload.amount), for: window).start(next: { prepared in
+                submitWalletTransferDetached(context: context, environment: environment, walletContext: walletContext, prepared: prepared, window: window, recipientName: nil, submitted: {
+                    closeAllModals(window: window)
+                    environment.showModalText(for: window, text: strings().giftMoveToGiftsSuccess, button: strings().alertView, callback: { _ in
+                        _ = showModalProgress(signal: context.engine.payments.getUniqueStarGift(slug: slug), for: window).start(next: { gift in
+                            environment.openGift(gift)
+                        })
+                    })
+                })
+            }, error: { error in
+                presentWalletAuthorizationError(environment: environment, error, window: window, fallbackTitle: strings().walletSendControllerTransferFailedTitle, fallbackText: strings().walletSendControllerSendFailedInfo)
+            })
+        }, error: { _ in
+            environment.alert(for: window, info: strings().unknownError)
+        })
+    })
 }

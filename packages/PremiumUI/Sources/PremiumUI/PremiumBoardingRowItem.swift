@@ -65,6 +65,27 @@ public final class PremiumBoardingRowItem : GeneralRowItem {
     public override var height: CGFloat {
         return titleLayout.layoutSize.height + 4 + infoLayout.layoutSize.height + 20
     }
+
+    public override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return infoLayout.attributedString.string
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        callback(value)
+        return true
+    }
     
     public override func viewClass() -> AnyClass {
         return PremiumBoardingRowView.self
@@ -86,6 +107,8 @@ private final class PremiumBoardingRowView: GeneralContainableRowView {
         addSubview(imageView)
         addSubview(nextView)
         addSubview(overlay)
+        imageView.isAccessibilityDecorative = true
+        nextView.isAccessibilityDecorative = true
         
         
         overlay.set(background: .clear, for: .Normal)
@@ -161,6 +184,7 @@ private final class PremiumBoardingRowView: GeneralContainableRowView {
         
         titleView.update(item.titleLayout)
         infoView.update(item.infoLayout)
+        overlay.setAccessibilityLabel(item.titleLayout.attributedString.string)
         
         
         if item.isNew {
@@ -169,6 +193,7 @@ private final class PremiumBoardingRowView: GeneralContainableRowView {
                 current = view
             } else {
                 current = ImageView()
+                current.isAccessibilityDecorative = true
                 addSubview(current)
                 self.newBadge = current
             }

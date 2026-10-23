@@ -22,6 +22,8 @@ public final class BoostCounterView : View {
         addSubview(container)
         
         textView.userInteractionEnabled = false
+        backgrounView.isAccessibilityDecorative = true
+        imageView.isAccessibilityDecorative = true
     }
     
     public override func layout() {
@@ -35,6 +37,20 @@ public final class BoostCounterView : View {
     public required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    private var boosts: Int?
+
+    public override func isAccessibilityElement() -> Bool {
+        return boosts != nil
+    }
+
+    public override func accessibilityRole() -> NSAccessibility.Role? {
+        return .staticText
+    }
+
+    public override func accessibilityLabel() -> String? {
+        return boosts.flatMap { "\($0)" }
+    }
     
     
     public func update(boosts: Int, context: any AccountContextProtocol, transition: ContainedViewLayoutTransition) -> NSSize {
@@ -42,6 +58,7 @@ public final class BoostCounterView : View {
         let dynamicValue = DynamicCounterTextView.make(for: "\(boosts)", count: "\(boosts)", font: .avatar(20), textColor: .white, width: .greatestFiniteMagnitude)
         
         textView.update(dynamicValue, animated: transition.isAnimated)
+        self.boosts = boosts
         transition.updateFrame(view: textView, frame: CGRect(origin: textView.frame.origin, size: dynamicValue.size))
         
         imageView.image = BoostHooks.shared.iconBoostLighting().precomposed()

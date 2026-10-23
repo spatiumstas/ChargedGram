@@ -24,6 +24,18 @@ open class ContextShowPeersHolderItem: GeneralRowItem {
     open override func viewClass() -> AnyClass {
         return ContextShowPeersHolderView.self
     }
+
+    open override var accessibilityLabel: String? {
+        return textLayout.attributedString.string
+    }
+
+    open override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    open override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 

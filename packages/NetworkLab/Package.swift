@@ -5,7 +5,6 @@ import PackageDescription
 let deps: [(String, String)] = [
     ("TelegramContext", "../TelegramContext"),
     ("PerfLab", "../PerfLab"),
-    ("TelegramApi", "../../submodules/telegram-ios/submodules/TelegramApi"),
 ]
 
 let package = Package(

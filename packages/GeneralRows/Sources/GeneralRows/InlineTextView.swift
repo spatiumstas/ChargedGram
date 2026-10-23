@@ -3,8 +3,8 @@ import TGUIKit
 import TelegramContext
 
 public final class InlineTextView: TextView {
-    private let inlineRenderer: InlineTextRenderer = GeneralRowsHooks.shared.makeInlineTextRenderer()
-    private let animatableContentObserver = AnimatableContentObserver()
+    private var inlineRenderer: InlineTextRenderer?
+    private var animatableContentObserver: AnimatableContentObserver?
     private var isLite: Bool = false
 
     public required init(frame frameRect: NSRect) {
@@ -22,13 +22,25 @@ public final class InlineTextView: TextView {
     }
 
     public func set(text: TextViewLayout?, context: (any AccountContextProtocol)?, insetEmoji: CGFloat = 0, decreaseAvatar: CGFloat = 0, emojiOffset: NSPoint = .init()) {
-        self.update(text)
-        if let context, let text {
-            self.isLite = context.isLite(.emoji)
-            self.inlineRenderer.update(textView: self, layout: text, context: context, insetEmoji: insetEmoji, emojiOffset: emojiOffset, decreaseAvatar: decreaseAvatar)
-        } else {
-            self.inlineRenderer.clear()
+        let hasInlineContent = context != nil && text?.embeddedItems.isEmpty == false
+        if !hasInlineContent {
+            self.inlineRenderer?.updateAnimatableContent(window: nil, isLite: true)
+            self.inlineRenderer?.clear()
+            self.inlineRenderer = nil
+            self.animatableContentObserver = nil
         }
+        self.update(text)
+        if let context, text != nil {
+            self.isLite = context.isLite(.emoji)
+        }
+        if hasInlineContent, let context, let text {
+            if self.inlineRenderer == nil {
+                self.inlineRenderer = GeneralRowsHooks.shared.makeInlineTextRenderer()
+            }
+            self.inlineRenderer?.update(textView: self, layout: text, context: context, insetEmoji: insetEmoji, emojiOffset: emojiOffset, decreaseAvatar: decreaseAvatar)
+        }
+        self.updateListeners()
+        self.updateAnimatableContent()
     }
 
     public override func viewDidMoveToWindow() {
@@ -44,10 +56,18 @@ public final class InlineTextView: TextView {
     }
 
     @objc private func updateAnimatableContent() {
-        self.inlineRenderer.updateAnimatableContent(window: self.window, isLite: self.isLite)
+        guard let inlineRenderer = inlineRenderer else { return }
+        inlineRenderer.updateAnimatableContent(window: self.window, isLite: self.isLite)
     }
 
     private func updateListeners() {
-        self.animatableContentObserver.update(for: self, target: self, selector: #selector(updateAnimatableContent), options: [.contentBounds, .documentFrame, .ownFrame])
+        guard window != nil, inlineRenderer != nil else {
+            animatableContentObserver = nil
+            return
+        }
+        if animatableContentObserver == nil {
+            animatableContentObserver = AnimatableContentObserver()
+        }
+        self.animatableContentObserver?.update(for: self, target: self, selector: #selector(updateAnimatableContent), options: [.contentBounds, .documentFrame, .ownFrame])
     }
 }

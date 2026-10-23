@@ -68,6 +68,16 @@ private final class HeaderItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return HeaderView.self
     }
+    
+    override var accessibilityLabel: String? {
+        return headerLayout.attributedString.string
+    }
+    
+    override var accessibilityValue: String? {
+        let price = infoLayout.attributedString.string.replacingOccurrences(of: clown, with: "")
+        return [subscription.peer._asPeer().displayTitle, price].joined(separator: ", ")
+    }
+    
     public override var height: CGFloat {
         let height = 10 + 80 + 10 + headerLayout.layoutSize.height + 5 + infoLayout.layoutSize.height + 2
         return height
@@ -106,6 +116,9 @@ private final class HeaderView : GeneralContainableRowView {
         
         control.scaleOnClick = true
         control.layer?.masksToBounds = false
+        control.isAccessibilityDecorative = true
+        badgeView.isAccessibilityDecorative = true
+        dismiss.isAccessibilityDecorative = true
         
     }
 

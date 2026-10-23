@@ -2,12 +2,39 @@ import Cocoa
 import SwiftSignalKit
 import AppKit
 
+final class DisplayLinkGate {
+    private var lock = os_unfair_lock()
+    private var framesUntilDue: Int = 1
+    private var pendingFrames: Int = 0
+    
+    func setFramesUntilDue(_ value: Int) {
+        os_unfair_lock_lock(&self.lock)
+        self.framesUntilDue = max(1, value)
+        os_unfair_lock_unlock(&self.lock)
+    }
+    
+    func tick() -> Int {
+        os_unfair_lock_lock(&self.lock)
+        self.pendingFrames += 1
+        let result: Int
+        if self.pendingFrames >= self.framesUntilDue {
+            result = self.pendingFrames
+            self.pendingFrames = 0
+        } else {
+            result = 0
+        }
+        os_unfair_lock_unlock(&self.lock)
+        return result
+    }
+}
+
 class DisplayLink
 {
    let timer  : CVDisplayLink
    let source : DispatchSourceUserDataAdd
+   let gate = DisplayLinkGate()
    
-   var callback : Optional<() -> ()> = nil
+   var callback : Optional<(Int) -> ()> = nil
    
    var running : Bool { return CVDisplayLinkIsRunning(timer) }
    
@@ -17,41 +44,36 @@ class DisplayLink
        
        var timerRef : CVDisplayLink? = nil
        
-       var successLink = CVDisplayLinkCreateWithCGDisplay(CGMainDisplayID(), &timerRef)
-       
-       if let timer = timerRef
-       {
-           
-           successLink = CVDisplayLinkSetOutputCallback(timer, { (timer: CVDisplayLink, currentTime: UnsafePointer<CVTimeStamp>, outputTime: UnsafePointer<CVTimeStamp>, _ : CVOptionFlags, _ : UnsafeMutablePointer<CVOptionFlags>, sourceUnsafeRaw : UnsafeMutableRawPointer?) -> CVReturn in
-               
-               if let sourceUnsafeRaw = sourceUnsafeRaw {
-                   let sourceUnmanaged = Unmanaged<DispatchSourceUserDataAdd>.fromOpaque(sourceUnsafeRaw)
-                   // Use takeUnretainedValue only if you are sure source is not being deallocated
-                   sourceUnmanaged.takeUnretainedValue().add(data: 1)
-               }
-               return kCVReturnSuccess
-           }, Unmanaged.passUnretained(source).toOpaque())
-
-           
-           guard successLink == kCVReturnSuccess else
-           {
-               NSLog("Failed to create timer with active display")
-               return nil
-           }
-           
-           successLink = CVDisplayLinkSetCurrentCGDisplay(timer, CGMainDisplayID())
-           
-           guard successLink == kCVReturnSuccess else
-           {
-               return nil
-           }
-           
-           self.timer = timer
-       } else {
+       guard CVDisplayLinkCreateWithCGDisplay(CGMainDisplayID(), &timerRef) == kCVReturnSuccess, let timer = timerRef else {
+           NSLog("Failed to create timer with active display")
            return nil
        }
+       guard CVDisplayLinkSetCurrentCGDisplay(timer, CGMainDisplayID()) == kCVReturnSuccess else {
+           return nil
+       }
+       self.timer = timer
+       
+       let successLink = CVDisplayLinkSetOutputCallback(timer, { (timer: CVDisplayLink, currentTime: UnsafePointer<CVTimeStamp>, outputTime: UnsafePointer<CVTimeStamp>, _ : CVOptionFlags, _ : UnsafeMutablePointer<CVOptionFlags>, context : UnsafeMutableRawPointer?) -> CVReturn in
+           if let context = context {
+               let link = Unmanaged<DisplayLink>.fromOpaque(context).takeUnretainedValue()
+               let frames = link.gate.tick()
+               if frames > 0 {
+                   link.source.add(data: UInt(frames))
+               }
+           }
+           return kCVReturnSuccess
+       }, Unmanaged.passUnretained(self).toOpaque())
+       
+       guard successLink == kCVReturnSuccess else {
+           NSLog("Failed to create timer with active display")
+           return nil
+       }
+       
        source.setEventHandler(handler: { [weak self] in
-           self?.callback?()
+           guard let self else {
+               return
+           }
+           self.callback?(max(1, Int(self.source.data)))
        })
    }
     
@@ -159,6 +181,7 @@ public final class SharedDisplayLinkDriver {
     
     private var displayLink: DisplayLink?
     private var requests: [RequestContext] = []
+    private(set) var deliveredEvents: Int = 0
     
     private var isInForeground: Bool = false
     private var isProcessingEvent: Bool = false
@@ -223,14 +246,15 @@ public final class SharedDisplayLinkDriver {
                 displayLink = current
             } else {
                 displayLink = DisplayLink()
-                displayLink?.callback = { [weak displayLink, weak self] in
-                    if let duration = displayLink?.timestamp {
-                        self?.displayLinkEvent(duration: duration)
+                displayLink?.callback = { [weak displayLink, weak self] frames in
+                    if let displayLink = displayLink {
+                        self?.displayLinkEvent(duration: displayLink.timestamp, frames: frames)
                     }
                 }
                 self.displayLink = displayLink
             }
             displayLink?.setDisplay(self.targetDisplay)
+            displayLink?.gate.setFramesUntilDue(1)
             displayLink?.start()
         } else {
             if let displayLink = self.displayLink {
@@ -240,8 +264,10 @@ public final class SharedDisplayLinkDriver {
         }
     }
     
-    private func displayLinkEvent(duration: TimeInterval) {
+    private func displayLinkEvent(duration: TimeInterval, frames: Int) {
         self.isProcessingEvent = true
+        self.deliveredEvents += 1
+        let elapsed = duration * Double(frames)
         
         
         var removeIndices: [Int]?
@@ -255,7 +281,7 @@ public final class SharedDisplayLinkDriver {
                     case let .fps(value):
                         let secondsPerFrame = 1.0 / CGFloat(value)
                         itemDuration = secondsPerFrame
-                        request.lastDuration += duration
+                        request.lastDuration += elapsed
                         if request.lastDuration >= secondsPerFrame * 0.95 {
                             //print("item \(link) accepting cycle: \(request.lastDuration - duration) + \(duration) = \(request.lastDuration) >= \(secondsPerFrame)")
                         } else {
@@ -289,7 +315,30 @@ public final class SharedDisplayLinkDriver {
         if self.isUpdateRequested {
             self.isUpdateRequested = false
             self.update()
+        } else {
+            self.displayLink?.gate.setFramesUntilDue(self.framesUntilNextDueLink(period: duration))
         }
+    }
+    
+    private func framesUntilNextDueLink(period: TimeInterval) -> Int {
+        guard period > 0 else {
+            return 1
+        }
+        var result = Int.max
+        for request in self.requests {
+            guard let link = request.link, link.isValid, !link.isPaused else {
+                continue
+            }
+            switch request.framesPerSecond {
+            case .max:
+                return 1
+            case let .fps(value):
+                let remaining = (1.0 / Double(value)) * 0.95 - Double(request.lastDuration)
+                let frames = Int(ceil(remaining / period - 1e-3))
+                result = min(result, max(1, frames))
+            }
+        }
+        return result == Int.max ? 1 : result
     }
     
     public func add(framesPerSecond: FramesPerSecond = .fps(60), _ update: @escaping (CGFloat) -> Void) -> Link {

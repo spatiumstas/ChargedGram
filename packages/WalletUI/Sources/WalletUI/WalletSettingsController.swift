@@ -405,7 +405,7 @@ public func WalletSettingsController(context: any AccountContextProtocol, enviro
             if balance < fee {
                 abandonWalletFlow()
                 let message = disableBackupErrorMessage(.insufficientBalance(required: fee))
-                environment.verifyAlert(for: targetWindow, header: message.title, information: message.text, ok: strings().walletSettingsControllerInsufficientBalanceTopUp, cancel: strings().walletSettingsControllerNotNow, successHandler: { _ in
+                environment.verifyAlert(for: targetWindow, header: message.title, information: message.text, ok: strings().walletSettingsControllerTopUp, cancel: strings().walletSettingsControllerNotNow, successHandler: { _ in
                     guard case let .wallet(info) = walletContext.stateValue.phase else {
                         return
                     }

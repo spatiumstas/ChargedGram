@@ -266,8 +266,23 @@ public func temporaryMediaPath(_ name: String, _ ext: String) -> String {
 }
 
 public func trimOpusFile(_ path: String, to outputPath: String, start: Double, end: Double) -> Bool {
-    guard end > start, let reader = OggOpusReader(path: path) else {
+    guard start.isFinite, end.isFinite, start >= 0, end > start,
+        let startSample = Int(exactly: (start * Double(opusDecodedSampleRate)).rounded()),
+        let endSample = Int(exactly: (end * Double(opusDecodedSampleRate)).rounded()),
+        endSample > startSample, let reader = OggOpusReader(path: path) else {
         return false
+    }
+    let outputURL = URL(fileURLWithPath: outputPath)
+    do {
+        try Data().write(to: outputURL, options: .withoutOverwriting)
+    } catch {
+        return false
+    }
+    var succeeded = false
+    defer {
+        if !succeeded {
+            try? FileManager.default.removeItem(at: outputURL)
+        }
     }
 
     let dataItem = DataItem(path: outputPath)
@@ -276,8 +291,6 @@ public func trimOpusFile(_ path: String, to outputPath: String, start: Double, e
         return false
     }
 
-    let startSample = Int(start * Double(opusDecodedSampleRate))
-    let endSample = Int(end * Double(opusDecodedSampleRate))
     let readCapacity = opusFrameSamples * 8
 
     let readBuffer = UnsafeMutablePointer<Int16>.allocate(capacity: readCapacity)
@@ -288,17 +301,20 @@ public func trimOpusFile(_ path: String, to outputPath: String, start: Double, e
     }
     frame.initialize(repeating: 0, count: opusFrameSamples)
 
-    func writeFrame(samples: Int) {
-        _ = writer.writeFrame(UnsafeMutableRawPointer(frame).assumingMemoryBound(to: UInt8.self), frameByteCount: UInt(samples * 2))
+    func writeFrame(samples: Int) -> Bool {
+        return writer.writeFrame(UnsafeMutableRawPointer(frame).assumingMemoryBound(to: UInt8.self), frameByteCount: UInt(samples * 2))
     }
 
     var framePos = 0
     var cursor = 0
-    var wroteAny = false
+    var copiedSamples = 0
 
     decoding: while cursor < endSample {
         let decoded = reader.read(UnsafeMutableRawPointer(readBuffer), bufSize: Int32(readCapacity))
-        if decoded <= 0 {
+        if decoded < 0 || decoded > readCapacity {
+            return false
+        }
+        if decoded == 0 {
             break
         }
         for i in 0 ..< Int(decoded) {
@@ -311,9 +327,9 @@ public func trimOpusFile(_ path: String, to outputPath: String, start: Double, e
             }
             frame[framePos] = readBuffer[i]
             framePos += 1
+            copiedSamples += 1
             if framePos == opusFrameSamples {
-                writeFrame(samples: opusFrameSamples)
-                wroteAny = true
+                guard writeFrame(samples: opusFrameSamples) else { return false }
                 framePos = 0
             }
         }
@@ -321,15 +337,15 @@ public func trimOpusFile(_ path: String, to outputPath: String, start: Double, e
     }
 
     if framePos > 0 {
-        writeFrame(samples: framePos)
-        wroteAny = true
+        guard writeFrame(samples: framePos) else { return false }
     }
 
-    guard wroteAny else {
+    guard copiedSamples == endSample - startSample, writer.writeFrame(nil, frameByteCount: 0),
+        let writtenData = try? Data(contentsOf: outputURL), writtenData == dataItem.data() else {
         return false
     }
 
-    _ = writer.writeFrame(nil, frameByteCount: 0)
+    succeeded = true
     return true
 }
 
@@ -603,19 +619,36 @@ final class ManagedAudioRecorderContext : RecoderContextRenderer {
         assert(self.queue.isCurrent())
 
         let duration = self.oggWriter.encodedDuration()
-        guard duration > 0, range.lowerBound > 0 || range.upperBound < duration else {
+        guard self.paused, duration.isFinite, duration > 0, range.lowerBound.isFinite, range.upperBound.isFinite,
+            range.lowerBound >= 0, range.lowerBound < range.upperBound, range.upperBound <= duration else {
+            return false
+        }
+        guard range.lowerBound > 0 || range.upperBound < duration else {
             return true
         }
-        if self.encoderState == nil {
-            self.encoderState = self.oggWriter.pause()
-        }
-
+        let encoderState = self.oggWriter.pause()
+        guard !encoderState.isEmpty else { return false }
+        self.encoderState = encoderState
         let trimmedPath = temporaryMediaPath("voice_trim", "ogg")
+        let sourcePath = temporaryMediaPath("voice_trim_source", "ogg")
         defer {
             try? FileManager.default.removeItem(atPath: trimmedPath)
+            try? FileManager.default.removeItem(atPath: sourcePath)
         }
-
-        guard trimOpusFile(self.dataItem.path, to: trimmedPath, start: range.lowerBound, end: range.upperBound),
+        var trimSource = self.dataItem.path
+        if encoderState["finished"] as? Bool != true {
+            let sourceItem = DataItem(path: sourcePath, initialData: self.dataItem.data())
+            let sourceWriter = TGOggOpusWriter()
+            guard sourceWriter.resume(with: sourceItem, encoderState: encoderState) else { return false }
+            do {
+                try sourceItem.data().write(to: URL(fileURLWithPath: sourcePath), options: .withoutOverwriting)
+            } catch {
+                return false
+            }
+            guard sourceWriter.writeFrame(nil, frameByteCount: 0) else { return false }
+            trimSource = sourcePath
+        }
+        guard trimOpusFile(trimSource, to: trimmedPath, start: range.lowerBound, end: range.upperBound),
             let trimmed = try? Data(contentsOf: URL(fileURLWithPath: trimmedPath)),
             self.replaceStore(with: trimmed) else {
             return false
@@ -628,11 +661,15 @@ final class ManagedAudioRecorderContext : RecoderContextRenderer {
     }
 
     private func replaceStore(with trimmed: Data) -> Bool {
-        try? FileManager.default.removeItem(atPath: self.dataItem.path)
-        let dataItem = DataItem(path: self.dataItem.path)
-        dataItem.appendData(trimmed)
+        guard !trimmed.isEmpty else { return false }
+        let dataItem = DataItem(path: self.dataItem.path, initialData: trimmed)
         let oggWriter = TGOggOpusWriter()
         guard oggWriter.beginAppend(with: dataItem) else {
+            return false
+        }
+        do {
+            try trimmed.write(to: URL(fileURLWithPath: dataItem.path), options: .atomic)
+        } catch {
             return false
         }
         self.dataItem = dataItem

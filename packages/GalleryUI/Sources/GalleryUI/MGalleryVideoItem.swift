@@ -59,8 +59,8 @@ public class MGalleryVideoItem: MGalleryItem {
         
         controller.togglePictureInPictureImpl = { [weak self] enter, control in
             guard let `self` = self else {return}
-            let frame = control.view.window!.convertToScreen(control.view.convert(control.view.bounds, to: nil))
             if enter, let viewer = viewer {
+                let frame = control.view.window!.convertToScreen(control.view.convert(control.view.bounds, to: nil))
                 for item in viewer.pager.items where item !== self {
                     item.releaseResources()
                 }

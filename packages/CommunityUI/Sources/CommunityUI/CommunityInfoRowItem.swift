@@ -93,6 +93,27 @@ public final class CommunityInfoRowItem: GeneralRowItem {
         return CommunityInfoRowView.self
     }
 
+    public override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return subtitleLayout.attributedString.string
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
+    }
+
     deinit {
         disposable.dispose()
     }
@@ -118,6 +139,7 @@ public final class CommunityInfoRowView: GeneralContainableRowView {
         subtitleView.isSelectable = false
 
         chevron.isEventLess = true
+        chevron.isAccessibilityDecorative = true
 
         addSubview(avatar)
         addSubview(titleView)

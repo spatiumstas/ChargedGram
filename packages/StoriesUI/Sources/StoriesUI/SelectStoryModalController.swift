@@ -13,9 +13,11 @@ import InputDataUI
 
 private final class Arguments {
     let context: any AccountContextProtocol
+    let retry: () -> Void
     let toggleSelected:(StoryId)->Void
-    init(context: any AccountContextProtocol, toggleSelected:@escaping(StoryId)->Void) {
+    init(context: any AccountContextProtocol, retry: @escaping () -> Void, toggleSelected:@escaping(StoryId)->Void) {
         self.context = context
+        self.retry = retry
         self.toggleSelected = toggleSelected
     }
 }
@@ -23,24 +25,87 @@ private final class Arguments {
 
 private struct State : Equatable {
     var folderId: Int64
+    var peerId: PeerId
     var listState: PeerStoryListContext.State?
+    var albumState: PeerStoryListContext.State?
     var perRowCount: Int = 3
-    var selected: [EngineStoryItem] = []
-    var unselected: [EngineStoryItem] = []
-    
-    
+    var desiredMembership: [Int32: Bool] = [:]
+    var selectionOrder: [Int32] = []
+    var isSubmitted = false
+    var isClosed = false
+
+    var isReady: Bool {
+        guard folderId > 0, Int32(exactly: folderId) != nil, let listState, let albumState else { return false }
+        return !listState.isCached && !albumState.isCached && albumState.loadMoreToken == nil
+            && listState.peerReference?.id == peerId && albumState.peerReference?.id == peerId
+    }
+
+    func isMember(_ id: Int32) -> Bool {
+        return self.albumState?.items.contains(where: { $0.id.peerId == peerId && $0.id.id == id }) == true
+    }
+
     func selected(_ story: EngineStoryItem) -> Bool {
-        if let folderIds = story.folderIds, folderIds.contains(folderId) {
-            return !unselected.contains {
-                $0.id == story.id
-            }
-        } else {
-            return selected.contains(where: {
-                $0.id == story.id
-            })
+        return self.desiredMembership[story.id] ?? self.isMember(story.id)
+    }
+
+    var selectedCount: Int {
+        var count = max(0, self.albumState?.totalCount ?? 0)
+        for (id, selected) in self.desiredMembership {
+            let member = self.isMember(id)
+            if selected && !member { count += 1 }
+            if !selected && member { count -= 1 }
         }
+        return max(0, count)
+    }
+
+    mutating func toggle(_ storyId: StoryId, limit: Int) -> Bool {
+        guard self.isReady, !self.isSubmitted, !self.isClosed, storyId.peerId == self.peerId,
+              let story = self.listState?.items.first(where: { $0.id == storyId })?.storyItem,
+              story.id == storyId.id, story.id > 0, !story.isPending else { return false }
+        let selected = !self.selected(story)
+        if selected && self.selectedCount >= max(0, limit) { return true }
+        self.desiredMembership[story.id] = selected
+        if !self.selectionOrder.contains(story.id) { self.selectionOrder.append(story.id) }
+        return false
+    }
+
+    private func currentStory(_ id: Int32) -> EngineStoryItem? {
+        return self.listState?.items.first(where: { $0.id.peerId == peerId && $0.id.id == id })?.storyItem
+            ?? self.albumState?.items.first(where: { $0.id.peerId == peerId && $0.id.id == id })?.storyItem
+    }
+
+    var needsSelectionPage: Bool {
+        guard self.isReady, self.listState?.loadMoreToken != nil else { return false }
+        return self.selectionOrder.contains(where: { id in
+            self.desiredMembership[id] != self.isMember(id) && self.currentStory(id) == nil
+        })
+    }
+
+    mutating func reconcileSelection() {
+        guard self.isReady else { return }
+        self.selectionOrder = self.selectionOrder.filter { id in
+            if let story = self.currentStory(id) {
+                return story.id == id && story.id > 0 && !story.isPending
+            }
+            return self.listState?.loadMoreToken != nil
+        }
+        let retainedIds = Set(self.selectionOrder)
+        self.desiredMembership = self.desiredMembership.filter { retainedIds.contains($0.key) }
+    }
+
+    func changes() -> (added: [EngineStoryItem], removed: [EngineStoryItem])? {
+        guard self.isReady, !self.isSubmitted, !self.isClosed else { return nil }
+        var added: [EngineStoryItem] = []
+        var removed: [EngineStoryItem] = []
+        for id in self.selectionOrder {
+            guard let selected = self.desiredMembership[id], selected != self.isMember(id) else { continue }
+            guard let story = self.currentStory(id), story.id == id, story.id > 0, !story.isPending else { return nil }
+            if selected { added.append(story) } else { removed.append(story) }
+        }
+        return (added, removed)
     }
 }
+
 
 private func _id_row(_ i: Int) -> InputDataIdentifier {
     return .init("_id_row_\(i)")
@@ -48,6 +113,12 @@ private func _id_row(_ i: Int) -> InputDataIdentifier {
 
 private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
     
+    guard state.isReady else {
+        if state.listState == nil || state.albumState == nil || state.listState?.isLoading == true || state.albumState?.isLoading == true {
+            return [.loading]
+        }
+        return [.general(sectionId: 0, index: 0, value: .none, error: nil, identifier: InputDataIdentifier("retry"), data: .init(name: strings().loginConnectionErrorTryAgain, color: theme.colors.accent, type: .none, viewType: .singleItem, action: arguments.retry))]
+    }
     var entries:[InputDataEntry] = []
     
     let sectionId:Int32 = 0
@@ -97,11 +168,11 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
    
 }
 
-public func SelectStoryModalController(context: any AccountContextProtocol, folderId: Int64, peerId: PeerId, listContext: PeerStoryListContext?, callback: @escaping([EngineStoryItem], [EngineStoryItem])->Void) -> InputDataModalController {
+public func SelectStoryModalController(context: any AccountContextProtocol, folderId: Int64, peerId: PeerId, listContext: PeerStoryListContext?, albumContext: PeerStoryListContext? = nil, callback: @escaping([EngineStoryItem], [EngineStoryItem])->Void) -> InputDataModalController {
 
     let actionsDisposable = DisposableSet()
 
-    let initialState = State(folderId: folderId)
+    let initialState = State(folderId: folderId, peerId: peerId)
     
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
@@ -111,6 +182,12 @@ public func SelectStoryModalController(context: any AccountContextProtocol, fold
     
     let listContext = listContext ?? PeerStoryListContext(account: context.account, peerId: peerId, isArchived: false, folderId: nil)
     
+    let albumContext = albumContext ?? PeerStoryListContext(account: context.account, peerId: peerId, isArchived: false, folderId: folderId)
+    var albumRequestedTokens = Set<AnyHashable>()
+    var albumWasCached = true
+    var listRequestedTokens = Set<AnyHashable>()
+    var listWasCached = true
+
     var getController:(()->ViewController?)? = nil
     var close:(()->Void)? = nil
     
@@ -120,54 +197,67 @@ public func SelectStoryModalController(context: any AccountContextProtocol, fold
         }
     }
     
-    actionsDisposable.add(listContext.state.startStrict(next: { listState in
+    let loadSelectionPage: () -> Void = { [weak listContext] in
+        let state = stateValue.with { $0 }
+        if !state.isClosed, !state.isSubmitted, state.needsSelectionPage, state.listState?.isLoading == false,
+           let token = state.listState?.loadMoreToken, listRequestedTokens.insert(token).inserted {
+            listContext?.loadMore()
+        }
+    }
+
+    actionsDisposable.add((listContext.state |> deliverOnMainQueue).start(next: { listState in
+        guard !stateValue.with({ $0.isClosed || $0.isSubmitted }) else { return }
+        if listState.isCached && !listWasCached { listRequestedTokens.removeAll() }
+        listWasCached = listState.isCached
         updateState { current in
             var current = current
             current.listState = listState
+            current.reconcileSelection()
             return current
         }
+        loadSelectionPage()
     }))
     
-    let limit = context.appConfiguration.getGeneralValue("stories_album_stories_limit", orElse: 1000)
-
-
-    let arguments = Arguments(context: context, toggleSelected: { storyId in
-        let state = stateValue.with { $0 }
-        
-        guard let story = state.listState?.items.first(where: { $0.id == storyId })?.storyItem else {
-            return
-        }
-        
-        var failedToAdd: Bool = false
+    actionsDisposable.add((albumContext.state |> deliverOnMainQueue).start(next: { [weak albumContext] albumState in
+        guard !stateValue.with({ $0.isClosed || $0.isSubmitted }) else { return }
+        if albumState.isCached && !albumWasCached { albumRequestedTokens.removeAll() }
+        albumWasCached = albumState.isCached
         updateState { current in
             var current = current
-            
-            if let folderIds = story.folderIds, folderIds.contains(folderId) {
-                if let index = current.unselected.map(\.id).firstIndex(of: story.id) {
-                    current.unselected.remove(at: index)
-                } else {
-                    current.unselected.append(story)
-                }
-            } else {
-                if current.selected.map(\.id).contains(story.id) {
-                    current.selected.removeAll(where: { $0.id == story.id })
-                } else {
-                    if limit < current.selected.count {
-                        failedToAdd = true
-                    } else {
-                        current.selected.append(story)
-                    }
-                }
-            }
-            
+            current.albumState = albumState
+            current.reconcileSelection()
             return current
         }
-        if failedToAdd {
-            showModalText(for: window, text: strings().selectStoryLimitReached)
+        if !stateValue.with({ $0.isClosed || $0.isSubmitted || $0.albumState != albumState }), !albumState.isCached, !albumState.isLoading,
+           let token = albumState.loadMoreToken, albumRequestedTokens.insert(token).inserted {
+            albumContext?.loadMore()
         }
+        loadSelectionPage()
+    }))
 
+    let limit = max(0, Int(context.appConfiguration.getGeneralValue("stories_album_stories_limit", orElse: 1000)))
+    let arguments = Arguments(context: context, retry: { [weak listContext, weak albumContext] in
+        let state = stateValue.with { $0 }
+        guard !state.isClosed, !state.isSubmitted else { return }
+        if state.listState?.isCached != false || state.needsSelectionPage, state.listState?.isLoading != true {
+            if let token = state.listState?.loadMoreToken { listRequestedTokens.insert(token) }
+            listContext?.loadMore()
+        }
+        let current = stateValue.with { $0 }
+        if !current.isClosed, !current.isSubmitted, let albumState = current.albumState, !albumState.isLoading, let token = albumState.loadMoreToken {
+            albumRequestedTokens.insert(token)
+            albumContext?.loadMore()
+        }
+    }, toggleSelected: { storyId in
+        var failedToAdd = false
+        updateState { current in
+            var current = current
+            failedToAdd = current.toggle(storyId, limit: limit)
+            return current
+        }
+        if failedToAdd { showModalText(for: window, text: strings().selectStoryLimitReached) }
     })
-    
+
     let signal = statePromise.get() |> deliverOnPrepareQueue |> map { state in
         return InputDataSignalValue(entries: entries(state, arguments: arguments))
     }
@@ -182,14 +272,36 @@ public func SelectStoryModalController(context: any AccountContextProtocol, fold
     }
     
     controller.validateData = { _ in
-        
         let state = stateValue.with { $0 }
-                
-        callback(state.selected, state.unselected)
+        guard !state.isClosed, !state.isSubmitted else { return .fail(.none) }
+        guard let changes = state.changes() else {
+            arguments.retry()
+            return .fail(.none)
+        }
+        guard changes.added.isEmpty || state.selectedCount <= limit else {
+            showModalText(for: window, text: strings().selectStoryLimitReached)
+            return .fail(.none)
+        }
+        updateState { current in
+            var current = current
+            current.isSubmitted = true
+            return current
+        }
+        guard !stateValue.with({ $0.isClosed }) else { return .fail(.none) }
+        callback(changes.added, changes.removed)
         close?()
         return .none
     }
-    
+
+    controller.afterDisappear = { [weak controller] in
+        updateState { current in
+            var current = current
+            current.isClosed = true
+            return current
+        }
+        actionsDisposable.dispose()
+        controller?.contextObject = nil
+    }
     controller.onDeinit = {
         actionsDisposable.dispose()
     }
@@ -209,14 +321,14 @@ public func SelectStoryModalController(context: any AccountContextProtocol, fold
         modalController?.close()
     })
     
-    controller.contextObject = listContext
+    controller.contextObject = (listContext, albumContext)
     
     
     controller.didLoad = { [weak listContext] controller, _ in
         controller.tableView.setScrollHandler { position in
             switch position.direction {
             case .bottom:
-                listContext?.loadMore()
+                if !stateValue.with({ $0.isClosed || $0.isSubmitted }) { listContext?.loadMore() }
             default:
                 break
             }

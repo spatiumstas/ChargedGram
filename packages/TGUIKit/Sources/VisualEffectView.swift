@@ -3,7 +3,7 @@ import AppKit
 
 open class VisualEffect: NSVisualEffectView {
     private let overlay: CALayer = CALayer()
-    private let overlayMask: CALayer = CALayer()
+    private var overlayMask: CALayer?
     override public init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setup()
@@ -27,13 +27,29 @@ open class VisualEffect: NSVisualEffectView {
     /// `bgColor` overlay a full rectangle.
     public var maskContents: CGImage? {
         didSet {
-            self.maskImage = maskContents.flatMap { NSImage(cgImage: $0, size: bounds.size) }
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            overlayMask.frame = bounds
-            overlayMask.contents = maskContents
-            overlay.mask = maskContents == nil ? nil : overlayMask
-            CATransaction.commit()
+            if let contents = maskContents {
+                self.maskImage = NSImage(cgImage: contents, size: bounds.size)
+                let mask = overlayMask ?? CALayer()
+                overlayMask = mask
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                mask.frame = bounds
+                mask.contents = contents
+                overlay.mask = mask
+                CATransaction.commit()
+            } else {
+                if self.maskImage != nil {
+                    self.maskImage = nil
+                }
+                if overlayMask != nil {
+                    CATransaction.begin()
+                    CATransaction.setDisableActions(true)
+                    overlay.mask = nil
+                    overlayMask?.contents = nil
+                    overlayMask = nil
+                    CATransaction.commit()
+                }
+            }
         }
     }
 
@@ -120,7 +136,7 @@ open class VisualEffect: NSVisualEffectView {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             self.overlay.frame = bounds
-            self.overlayMask.frame = bounds
+            self.overlayMask?.frame = bounds
             CATransaction.commit()
         }
     }
@@ -130,7 +146,7 @@ open class VisualEffect: NSVisualEffectView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         self.overlay.frame = bounds
-        self.overlayMask.frame = bounds
+        self.overlayMask?.frame = bounds
         CATransaction.commit()
     }
     

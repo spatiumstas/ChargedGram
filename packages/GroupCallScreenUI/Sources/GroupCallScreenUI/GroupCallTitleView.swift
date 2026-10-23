@@ -130,6 +130,12 @@ public final class GroupCallTitleView : Control {
     }
     
     fileprivate var mode: Mode = .normal
+    private var accessibilityStatus: String?
+
+    public override var accessibilityDefaultLabel: String? {
+        let parts = [titleView.textLayout?.attributedString.string, accessibilityStatus].compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
     
     
     public required init(frame frameRect: NSRect) {
@@ -250,10 +256,12 @@ public final class GroupCallTitleView : Control {
         let windowIsPinned = window?.level == NSWindow.Level.popUpMenu
         
         pinWindow.set(image: !windowIsPinned ?  GroupCallTheme.pin_window : GroupCallTheme.unpin_window, for: .Normal)
+        pinWindow.setAccessibilityLabel(!windowIsPinned ? strings().voiceOverCommonPin : strings().voiceOverCommonUnpin)
         pinWindow.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
 
 
         settings.set(image: GroupCallTheme.smallSettingsIcon, for: .Normal)
+        settings.setAccessibilityLabel(strings().voiceOverCommonSettings)
         settings.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
 
 
@@ -348,6 +356,7 @@ public final class GroupCallTitleView : Control {
         
         self.hidePeers.isHidden = hidePeersButtonHide
         self.hidePeers.set(image: hidePeers ?  GroupCallTheme.unhide_peers : GroupCallTheme.hide_peers, for: .Normal)
+        self.hidePeers.setAccessibilityLabel(hidePeers ? strings().voiceOverCommonShow : strings().voiceOverCommonHide)
         self.hidePeers.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
 
         self.hidePeers.autohighlight = false
@@ -424,6 +433,7 @@ public final class GroupCallTitleView : Control {
             let dynamicResult = DynamicCounterTextView.make(for: status, count: "\(count)", font: .normal(.text), textColor: mode == .transparent ? NSColor.white.withAlphaComponent(0.8) : GroupCallTheme.grayStatusColor, width: frame.width - 140)
 
             self.statusView.update(dynamicResult, animated: animated && oldMode == mode)
+            self.accessibilityStatus = status
 
             self.statusView.change(size: dynamicResult.size, animated: animated)
             self.statusView.change(pos: NSMakePoint(floorToScreenPixels(backingScaleFactor, (frame.width - dynamicResult.size.width) / 2), frame.midY), animated: animated)

@@ -58,6 +58,9 @@ public class MessageActionsPanelView: Control, Notifable {
 
         countContainer.layer?.cornerRadius = 20
         countContainer.layer?.masksToBounds = true
+        countContainer.isAccessibilityDecorative = true
+        deleteButton.setAccessibilityLabel(strings().voiceOverMessageContextDelete)
+        forwardButton.setAccessibilityLabel(strings().voiceOverMessageContextForward)
 
         let container = makeGlassEffectContainer(frame: bounds, flipped: true, spacing: 0)
         container.wantsLayer = true

@@ -34,6 +34,7 @@ public final class GroupCallSecureEmojiView: Control {
                     isNew = false
                 } else {
                     current = ImageView()
+                    current.isAccessibilityDecorative = true
                     addSubview(current)
                     self.stable = current
                     isNew = true
@@ -191,6 +192,7 @@ public final class GroupCallSecureEmojiView: Control {
         let textLayout = TextViewLayout(.initialize(string: titleString, color: .white, font: .normal(.text)), alignment: .center)
         textLayout.measure(width: .greatestFiniteMagnitude)
         self.textView.update(textLayout)
+        self.textView.isAccessibilityDecorative = true
 
 
         background = .clear
@@ -255,6 +257,13 @@ public final class GroupCallSecureEmojiView: Control {
         } else if let view = self.infoTextView {
             performSubviewRemoval(view, animated: animated)
             self.infoTextView = nil
+        }
+        let emojiText = (encryptionKeyEmoji ?? []).joined(separator: " ")
+        if let info = infoTextView?.textLayout?.attributedString.string {
+            infoTextView?.isAccessibilityDecorative = true
+            self.setAccessibilityLabel([emojiText, info, strings().navigationClose].filter { !$0.isEmpty }.joined(separator: ". "))
+        } else {
+            self.setAccessibilityLabel(([titleString] + (encryptionKeyEmoji ?? [])).joined(separator: " "))
         }
         
         if state.showConferenceKey, let infoTextView {

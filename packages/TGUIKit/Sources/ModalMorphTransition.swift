@@ -29,10 +29,9 @@ public final class ModalMorphTransition {
         static let openWidth = Spring(omega: 22.0, damping: 0.74)
         static let openHeight = Spring(omega: 19.0, damping: 0.76)
         static let openFade = Spring(omega: 21.0, damping: 1.0)
-        // Close: a touch more damped, still with a small bounce as it lands on the control.
-        static let closePosition = Spring(omega: 22.0, damping: 0.84)
-        static let closeWidth = Spring(omega: 23.0, damping: 0.8)
-        static let closeHeight = Spring(omega: 21.0, damping: 0.82)
+        static let closePosition = Spring(omega: 22.0, damping: 1.0)
+        static let closeWidth = Spring(omega: 23.0, damping: 1.0)
+        static let closeHeight = Spring(omega: 21.0, damping: 1.0)
         static let closeFade = Spring(omega: 23.5, damping: 1.0)
 
         func remaining(at time: Double) -> CGFloat {
@@ -295,11 +294,14 @@ public final class ModalMorphTransition {
         let channels = (0 ..< targets.count).map {
             Channel(from: values[$0], to: targets[$0], spring: springs[$0], tolerance: ModalMorphTransition.geometryTolerance, initialVelocity: velocities[$0])
         }
+        self.bubbleView.frame = modal
+        self.extraView?.frame = modal
         let size: CGSize
         if let liveView = self.liveContent {
             size = NSMakeSize(max(1, contentSize.width), max(1, contentSize.height))
             liveView.frame = CGRect(origin: .zero, size: size)
             self.liveContentFrame.size = size
+            liveView.layoutSubtreeIfNeeded()
         } else {
             size = NSMakeSize(max(1, modal.width), max(1, modal.height))
         }
@@ -376,7 +378,7 @@ public final class ModalMorphTransition {
                 radii.append(NSNumber(value: Double(radius)))
                 shadowPaths.append(CGPath(roundedRect: boundsRect, cornerWidth: radius, cornerHeight: radius, transform: nil))
             }
-            shadowOpacities.append(NSNumber(value: Double(CGFloat(ModalMorphTransition.shadowOpacity) * ModalMorphTransition.smoothstep(0, 0.2, sizeFraction) * paperAlpha)))
+            shadowOpacities.append(NSNumber(value: Double(CGFloat(ModalMorphTransition.shadowOpacity) * (backgroundColor?.alpha ?? 1) * ModalMorphTransition.smoothstep(0, 0.2, sizeFraction) * paperAlpha)))
             borderWidths.append(NSNumber(value: Double(borderWidth * ModalMorphTransition.smoothstep(0, 0.3, sizeFraction) * paperAlpha)))
             if let backgroundColor {
                 backgroundColors.append(backgroundColor.copy(alpha: backgroundColor.alpha * paperAlpha) ?? backgroundColor)
@@ -387,7 +389,12 @@ public final class ModalMorphTransition {
             let contentAlpha = hasControl ? ModalMorphTransition.smoothstep(0.05, 0.4, sizeFraction) : 1
             contentOpacities.append(NSNumber(value: Double(contentAlpha)))
 
-            let contentScale = max(width / modal.width, height / modal.height)
+            let contentScale: CGFloat
+            if backgroundColor?.alpha == 0 {
+                contentScale = min(width / contentSize.width, height / contentSize.height)
+            } else {
+                contentScale = max(width / modal.width, height / modal.height)
+            }
             let contentOriginX = (width - contentSize.width * contentScale) / 2
             let contentOriginY = (height - contentSize.height * contentScale) / 2
             contentPositions.append(NSValue(point: NSMakePoint(contentOriginX + contentAnchor.x * contentSize.width * contentScale, contentOriginY + contentAnchor.y * contentSize.height * contentScale)))

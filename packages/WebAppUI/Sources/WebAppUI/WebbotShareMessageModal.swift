@@ -51,6 +51,10 @@ private final class HeaderItem : GeneralRowItem {
     override func viewClass() -> AnyClass {
         return HeaderRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return messageItem.accessibilityLabel ?? message.text
+    }
 }
 
 
@@ -130,6 +134,8 @@ public enum WebbotShareMessageStatus {
     case success
     case failed
 }
+
+
 
 public func WebbotShareMessageModal(context: any AccountContextProtocol, bot: EnginePeer, preparedMessage: PreparedInlineMessage, window: Window, callback: @escaping(WebbotShareMessageStatus)->Void) -> InputDataModalController {
 
@@ -214,28 +220,37 @@ public func WebbotShareMessageModal(context: any AccountContextProtocol, bot: En
     let signal = statePromise.get() |> deliverOnPrepareQueue |> map { state in
         return InputDataSignalValue(entries: entries(state, arguments: arguments))
     }
-    let controller = InputDataController(dataSignal: signal, title: strings().webappShareMessageShare)
+    let controller = InputDataController(dataSignal: (signal), title: strings().webappShareMessageShare)
     
     
-    var closedFromShare = false
-    
-    
+    let action = PreparedSharePreviewAction()
+    weak var childPicker: ModalViewController?
+    var closePreview: (() -> Void)?
+    let complete: (WebbotShareMessageStatus) -> Void = { status in
+        callback(status)
+    }
+
     controller.onDeinit = {
         actionsDisposable.dispose()
-        if !closedFromShare {
-            callback(.failed)
-        }
+        if action.cancel() { complete(.failed) }
+        childPicker?.close()
     }
-    
+
     controller.validateData = { [weak window] _ in
-        if let window {
-            showModal(with: BrowserHooks.shared.makeShareChatContextResultModal(context, preparedMessage, { value in
-                closedFromShare = true
-                callback(value ? .success : .failed)
-                closeAllModals(window: window)
-            }), for: window)
+        guard let window else {
+            if action.cancel() { complete(.failed) }
+            closePreview?()
+            return .none
         }
-        
+        guard let attempt = action.begin() else { return .none }
+        let picker = BrowserHooks.shared.makeShareChatContextResultModalObservedResult(context, preparedMessage, completion: { value in
+            guard action.finish(attempt) else { return }
+            if case .accepted = value { complete(.success) } else { complete(.failed) }
+            closePreview?()
+        })
+        guard action.isCurrent(attempt) else { return .none }
+        childPicker = picker
+        showModal(with: picker, for: window)
         return .none
     }
 
@@ -243,7 +258,15 @@ public func WebbotShareMessageModal(context: any AccountContextProtocol, bot: En
         _ = controller?.returnKeyAction()
     }, singleButton: true)
     
-    let modalController = InputDataModalController(controller, modalInteractions: modalInteractions)
+    let modalController = InputDataModalController(controller, modalInteractions: modalInteractions, closeHandler: { close in
+        guard action.beginClose() else { return }
+        if action.cancel() {
+            complete(.failed)
+        }
+        childPicker?.close()
+        close()
+    })
+    closePreview = { [weak modalController] in modalController?.close() }
     
     controller.leftModalHeader = ModalHeaderData(image: theme.icons.modalClose, handler: { [weak modalController] in
         modalController?.close()

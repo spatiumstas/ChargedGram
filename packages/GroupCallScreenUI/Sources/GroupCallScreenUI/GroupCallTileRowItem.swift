@@ -7,6 +7,7 @@ import SwiftSignalKit
 import Postbox
 import TelegramCore
 import GeneralRows
+import Localization
 
 public final class GroupCallTileRowItem : GeneralRowItem {
     fileprivate let takeView: ()->(NSSize, GroupCallTileView)?
@@ -25,6 +26,10 @@ public final class GroupCallTileRowItem : GeneralRowItem {
     
     public override var instantlyResize: Bool {
         return true
+    }
+
+    public override var accessibilityLabel: String? {
+        return strings().voiceOverCommonVideo
     }
     
     public override func viewClass() -> AnyClass {

@@ -12,11 +12,11 @@ public class LinearProgressControl: Control {
 
     public var hasMinumimVisibility: Bool = false
     
-    private var progressView:View!
-    private var fetchingView:View!
-    private var previewView:View!
+    private var progressLayer:SimpleLayer!
+    private var fetchingLayer:SimpleLayer!
+    private var previewLayer:SimpleLayer!
 
-    private var fetchingViewRanges:[View] = []
+    private var fetchingLayers:[SimpleLayer] = []
     
     private var containerView:View!
     
@@ -41,7 +41,7 @@ public class LinearProgressControl: Control {
     }
     public var previewColor: NSColor = .clear {
         didSet {
-            previewView?.backgroundColor = previewColor
+            previewLayer?.backgroundColor = previewColor.cgColor
         }
     }
     
@@ -67,7 +67,7 @@ public class LinearProgressControl: Control {
     private(set) public var scrubblingTempState: CGFloat? {
         didSet {
             needsLayout = true
-            self.progressView.layer?.removeAllAnimations()
+            self.progressLayer.removeAllAnimations()
             self.scrubber?.layer?.removeAllAnimations()
             updatePreviewLayout()
         }
@@ -111,12 +111,12 @@ public class LinearProgressControl: Control {
 
     private func updateCornerRadii() {
         containerView.layer?.cornerRadius = roundCorners ? containerView.frame.height / 2 : 0
-        progressView.layer?.cornerRadius = progressCornerRadius ?? (roundCorners ? progressView.frame.height / 2 : 0)
-        fetchingView.layer?.cornerRadius = roundCorners ? fetchingView.frame.height / 2 : 0
-        previewView.layer?.cornerRadius = 0
+        progressLayer.cornerRadius = progressCornerRadius ?? (roundCorners ? progressLayer.frame.height / 2 : 0)
+        fetchingLayer.cornerRadius = roundCorners ? fetchingLayer.frame.height / 2 : 0
+        previewLayer.cornerRadius = 0
 
-        for view in fetchingViewRanges {
-            view.layer?.cornerRadius = roundCorners ? view.frame.height / 2 : 0
+        for view in fetchingLayers {
+            view.cornerRadius = roundCorners ? view.frame.height / 2 : 0
         }
     }
     
@@ -125,19 +125,69 @@ public class LinearProgressControl: Control {
     }
 
     private func updatePreviewLayout() {
-        guard let previewView = previewView, let containerView = containerView, let previewProgress else {
-            self.previewView?.isHidden = true
+        guard let previewLayer = previewLayer, let containerView = containerView, let previewProgress else {
+            self.previewLayer?.isHidden = true
             return
         }
 
         let clampedPreviewProgress = min(max(previewProgress.isNaN ? 0 : previewProgress, 0), 1)
         let currentProgress = min(max(progress.isNaN ? 0 : progress, 0), 1)
         let previewWidth = floorToScreenPixels(backingScaleFactor, containerView.frame.width * clampedPreviewProgress)
-        previewView.frame = NSMakeRect(0, 0, previewWidth, progressHeight)
-        previewView.isHidden = clampedPreviewProgress <= currentProgress
+        previewLayer.frame = NSMakeRect(0, 0, previewWidth, progressHeight)
+        previewLayer.isHidden = clampedPreviewProgress <= currentProgress
     }
     
     
+    public override func isAccessibilityElement() -> Bool {
+        guard TGUIKitAccessibility.isEnabled, !isAccessibilityDecorative, !isHidden else {
+            return false
+        }
+        return onUserChanged != nil || super.isAccessibilityElement()
+    }
+
+    public override func accessibilityRole() -> NSAccessibility.Role? {
+        guard isAccessibilityElement() else {
+            return super.accessibilityRole()
+        }
+        return onUserChanged != nil ? .slider : .progressIndicator
+    }
+
+    public override var accessibilityDefaultLabel: String? {
+        return localizedString("VoiceOver.Common.PlaybackPosition")
+    }
+
+    public override func accessibilityValue() -> Any? {
+        if let value = super.accessibilityValue() {
+            return value
+        }
+        guard TGUIKitAccessibility.isEnabled else {
+            return nil
+        }
+        return "\(Int((progress * 100).rounded()))%"
+    }
+
+    public override func accessibilityPerformIncrement() -> Bool {
+        return accessibilityAdjust(by: 0.05)
+    }
+
+    public override func accessibilityPerformDecrement() -> Bool {
+        return accessibilityAdjust(by: -0.05)
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        return onUserChanged != nil ? false : super.accessibilityPerformPress()
+    }
+
+    private func accessibilityAdjust(by delta: CGFloat) -> Bool {
+        guard TGUIKitAccessibility.isEnabled, isEnabled, let onUserChanged = onUserChanged else {
+            return false
+        }
+        let value = min(max(_progress + delta, 0), 1)
+        set(progress: value)
+        onUserChanged(Float(value))
+        return true
+    }
+
     public override func mouseDragged(with event: NSEvent) {
         super.mouseDragged(with: event)
         updateHoverValue()
@@ -223,7 +273,7 @@ public class LinearProgressControl: Control {
     
     public override var style: ControlStyle {
         set {
-            self.progressView.layer?.backgroundColor = newValue.foregroundColor.cgColor
+            self.progressLayer.backgroundColor = newValue.foregroundColor.cgColor
             super.style = newValue
         }
         get {
@@ -239,9 +289,9 @@ public class LinearProgressControl: Control {
     
     public var fetchingColor: NSColor = presentation.colors.grayTransparent {
         didSet {
-            self.fetchingView.layer?.backgroundColor = fetchingColor.cgColor
-            for fetchView in fetchingViewRanges {
-                fetchView.backgroundColor = fetchingColor
+            self.fetchingLayer.backgroundColor = fetchingColor.cgColor
+            for fetchView in fetchingLayers {
+                fetchView.backgroundColor = fetchingColor.cgColor
             }
         }
     }
@@ -280,26 +330,30 @@ public class LinearProgressControl: Control {
 
     private static let widthAnimationKey = "trackWidth"
 
-    private func presentationWidth(of view: View) -> CGFloat? {
-        guard let layer = view.layer, layer.animation(forKey: LinearProgressControl.widthAnimationKey) != nil, let presentation = layer.presentation() else {
+    private func presentationWidth(of layer: CALayer) -> CGFloat? {
+        guard layer.animation(forKey: LinearProgressControl.widthAnimationKey) != nil, let presentation = layer.presentation() else {
             return nil
         }
         return presentation.bounds.width
     }
 
-    private func setWidth(_ view: View, _ width: CGFloat, animated: Bool, duration: Double, timingFunction: CAMediaTimingFunctionName) {
-        let from = presentationWidth(of: view) ?? view.frame.width
-        view.setFrameSize(NSMakeSize(width, progressHeight))
-        if animated, abs(from - width) > CGFloat.ulpOfOne, let layer = view.layer {
+    private func setWidth(_ layer: CALayer, _ width: CGFloat, animated: Bool, duration: Double, timingFunction: CAMediaTimingFunctionName) {
+        let from = presentationWidth(of: layer) ?? layer.frame.width
+        layer.frame.size = NSMakeSize(max(0, width), max(0, progressHeight))
+        if animated, abs(from - width) > CGFloat.ulpOfOne {
             let animation = layer.makeAnimation(from: NSNumber(value: Double(from)), to: NSNumber(value: Double(width)), keyPath: "bounds.size.width", timingFunction: timingFunction, duration: duration)
             layer.add(animation, forKey: LinearProgressControl.widthAnimationKey)
         } else {
-            view.layer?.removeAnimation(forKey: LinearProgressControl.widthAnimationKey)
+            layer.removeAnimation(forKey: LinearProgressControl.widthAnimationKey)
         }
     }
 
+    private func centerTrack(_ layer: CALayer) {
+        layer.frame.origin = NSMakePoint(0, round((containerView.frame.height - layer.frame.height) / 2))
+    }
+
     private func isPlaybackAnimationAttached() -> Bool {
-        if progressView.layer?.animation(forKey: LinearProgressControl.widthAnimationKey) == nil {
+        if progressLayer.animation(forKey: LinearProgressControl.widthAnimationKey) == nil {
             return false
         }
         if let scrubber = scrubber, scrubber.layer?.animation(forKey: "position") == nil {
@@ -312,7 +366,7 @@ public class LinearProgressControl: Control {
         let progress:CGFloat = min(progress.isNaN ? 1 : progress, 1)
         self.progress = progress
 
-        progressView.centerY(x: 0)
+        centerTrack(progressLayer)
 
         if animated, scrubblingTempState == nil {
             let updated = AppliedPlaybackAnimation(seekId: seekId, duration: duration, beginTime: beginTime ?? CACurrentMediaTime(), offset: offset, speed: speed, containerWidth: containerView.frame.width, scrubberFrame: scrubber?.frame ?? .zero)
@@ -325,7 +379,7 @@ public class LinearProgressControl: Control {
                 }
             }
 
-            progressView.layer?.add(preparedAnimation(keyPath: "bounds.size.width", from: NSNumber(value: Double(0)), to: NSNumber(value: Double(containerView.frame.width)), duration: duration, beginTime: beginTime, offset: offset, speed: speed), forKey: LinearProgressControl.widthAnimationKey)
+            progressLayer.add(preparedAnimation(keyPath: "bounds.size.width", from: NSNumber(value: Double(0)), to: NSNumber(value: Double(containerView.frame.width)), duration: duration, beginTime: beginTime, offset: offset, speed: speed), forKey: LinearProgressControl.widthAnimationKey)
             if let scrubber = scrubber {
                 scrubber.layer?.add(preparedAnimation(keyPath: "position", from: NSValue(point: NSMakePoint(containerView.frame.minX - scrubber.frame.width / 2, scrubber.frame.minY)), to: NSValue(point: NSMakePoint(containerView.frame.maxX - scrubber.frame.width / 2, scrubber.frame.minY)), duration: duration, beginTime: beginTime, offset: offset, speed: speed), forKey: "position")
             }
@@ -333,7 +387,7 @@ public class LinearProgressControl: Control {
         } else {
             appliedPlaybackAnimation = nil
             scrubber?.layer?.removeAllAnimations()
-            progressView.layer?.removeAllAnimations()
+            progressLayer.removeAllAnimations()
             set(progress: progress)
         }
 
@@ -355,11 +409,11 @@ public class LinearProgressControl: Control {
             scrubber?.layer?.removeAnimation(forKey: "position")
         }
         
-        setWidth(progressView, size.width, animated: animated, duration: duration, timingFunction: timingFunction)
+        setWidth(progressLayer, size.width, animated: animated, duration: duration, timingFunction: timingFunction)
         if let scrubber = scrubber {
             scrubber.change(pos: NSMakePoint(max(0, min(containerView.frame.minX + size.width - scrubber.frame.width / 2, containerView.frame.maxX - scrubber.frame.width)), scrubber.frame.minY), animated: animated, timingFunction: timingFunction)
         }
-        progressView.centerY(x: 0)
+        centerTrack(progressLayer)
         
         updateFetchingRanges(animated)
     }
@@ -368,9 +422,9 @@ public class LinearProgressControl: Control {
         let fetchingProgress:CGFloat = fetchingProgress.isNaN ? 1 : fetchingProgress
         self.fetchingProgress = fetchingProgress
         let size = NSMakeSize(floorToScreenPixels(backingScaleFactor, containerView.frame.width * fetchingProgress), progressHeight)
-        setWidth(fetchingView, size.width, animated: animated, duration: duration, timingFunction: .linear)
+        setWidth(fetchingLayer, size.width, animated: animated, duration: duration, timingFunction: .linear)
         
-        fetchingView.centerY(x: 0)
+        centerTrack(fetchingLayer)
     }
     
     public func set(fetchingProgressRanges: [Range<CGFloat>], animated: Bool = true) {
@@ -381,28 +435,27 @@ public class LinearProgressControl: Control {
     private func updateFetchingRanges(_ animated: Bool) {
         let fetchingProgressRanges = self.fetchingProgressRanges.filter({$0.contains(self.currentValue)})
         
-        if self.fetchingViewRanges.count == fetchingProgressRanges.count {
+        if self.fetchingLayers.count == fetchingProgressRanges.count {
             
-        } else if self.fetchingViewRanges.count > fetchingProgressRanges.count {
-            while self.fetchingViewRanges.count != fetchingProgressRanges.count {
-                self.fetchingViewRanges.removeLast().removeFromSuperview()
+        } else if self.fetchingLayers.count > fetchingProgressRanges.count {
+            while self.fetchingLayers.count != fetchingProgressRanges.count {
+                self.fetchingLayers.removeLast().removeFromSuperlayer()
             }
-        } else if self.fetchingViewRanges.count < fetchingProgressRanges.count {
-            while self.fetchingViewRanges.count != fetchingProgressRanges.count {
-                let view = View(frame: NSMakeRect(0, 0, 0, progressHeight))
-                view.backgroundColor = fetchingColor
-                self.fetchingViewRanges.append(view)
-                containerView.addSubview(self.fetchingViewRanges.last!, positioned: .below, relativeTo: previewView)
+        } else if self.fetchingLayers.count < fetchingProgressRanges.count {
+            while self.fetchingLayers.count != fetchingProgressRanges.count {
+                let layer = makeTrackLayer(color: fetchingColor)
+                self.fetchingLayers.append(layer)
+                containerView.layer?.insertSublayer(layer, below: previewLayer)
             }
         }
         
         for i in 0 ..< fetchingProgressRanges.count {
             let range = fetchingProgressRanges[i]
-            let view = self.fetchingViewRanges[i]
+            let view = self.fetchingLayers[i]
             let width = (range.upperBound - range.lowerBound) * containerView.frame.width
             setWidth(view, width, animated: animated, duration: 0.2, timingFunction: .linear)
-            view.setFrameOrigin(range.lowerBound * containerView.frame.width, floorToScreenPixels(backingScaleFactor, (containerView.frame.height - progressHeight) / 2))
-            view.layer?.cornerRadius = roundCorners ? view.frame.height / 2 : 0
+            view.frame.origin = NSMakePoint(range.lowerBound * containerView.frame.width, floorToScreenPixels(backingScaleFactor, (containerView.frame.height - progressHeight) / 2))
+            view.cornerRadius = roundCorners ? view.frame.height / 2 : 0
         }
     }
 
@@ -431,24 +484,24 @@ public class LinearProgressControl: Control {
 
         if containerView.frame.width != previousContainerWidth {
             appliedPlaybackAnimation = nil
-            progressView.layer?.removeAnimation(forKey: LinearProgressControl.widthAnimationKey)
-            fetchingView.layer?.removeAnimation(forKey: LinearProgressControl.widthAnimationKey)
+            progressLayer.removeAnimation(forKey: LinearProgressControl.widthAnimationKey)
+            fetchingLayer.removeAnimation(forKey: LinearProgressControl.widthAnimationKey)
             scrubber?.layer?.removeAnimation(forKey: "position")
-            for view in fetchingViewRanges {
-                view.layer?.removeAnimation(forKey: LinearProgressControl.widthAnimationKey)
+            for view in fetchingLayers {
+                view.removeAnimation(forKey: LinearProgressControl.widthAnimationKey)
             }
         }
         
         let progressWidth = floorToScreenPixels(backingScaleFactor, max(containerView.frame.width * self.progress, hasMinumimVisibility ? progressHeight : 0))
-        progressView.frame = NSMakeRect(0, 0, progressWidth, progressHeight)
+        progressLayer.frame = NSMakeRect(0, 0, progressWidth, progressHeight)
 
         let fetchingWidth = floorToScreenPixels(backingScaleFactor, containerView.frame.width * fetchingProgress)
-        fetchingView.frame = NSMakeRect(0, 0, fetchingWidth, progressHeight)
+        fetchingLayer.frame = NSMakeRect(0, 0, max(0, fetchingWidth), max(0, progressHeight))
 
         let visibleFetchingRanges = fetchingProgressRanges.filter({ $0.contains(currentValue) })
-        for (index, range) in visibleFetchingRanges.enumerated() where index < fetchingViewRanges.count {
+        for (index, range) in visibleFetchingRanges.enumerated() where index < fetchingLayers.count {
             let width = (range.upperBound - range.lowerBound) * containerView.frame.width
-            fetchingViewRanges[index].frame = NSMakeRect(range.lowerBound * containerView.frame.width, 0, width, progressHeight)
+            fetchingLayers[index].frame = NSMakeRect(range.lowerBound * containerView.frame.width, 0, width, progressHeight)
         }
 
         updatePreviewLayout()
@@ -462,34 +515,34 @@ public class LinearProgressControl: Control {
     }
     
 
-    private func initialize() {
-        
-        containerView = View(frame:NSMakeRect(0, 0, 0, progressHeight))
-        addSubview(containerView)
-
-        
-        fetchingView = View(frame:NSMakeRect(0, 0, 0, progressHeight))
-        fetchingView.backgroundColor = style.foregroundColor
-        containerView.addSubview(fetchingView)
-        
-        previewView = View(frame:NSMakeRect(0, 0, 0, progressHeight))
-        previewView.backgroundColor = previewColor
-        previewView.isHidden = true
-        containerView.addSubview(previewView)
-
-        progressView = View(frame:NSMakeRect(0, 0, 0, progressHeight))
-        progressView.backgroundColor = style.foregroundColor
-        containerView.addSubview(progressView)
-        
-        userInteractionEnabled = false
-        
-        
-        progressView.isEventLess = true
-        previewView.isEventLess = true
-        containerView.isEventLess = true
-        fetchingView.isEventLess = true
+    private func makeTrackLayer(color: NSColor) -> SimpleLayer {
+        let layer = SimpleLayer()
+        layer.anchorPoint = .zero
+        layer.edgeAntialiasingMask = []
+        layer.frame = NSMakeRect(0, 0, 0, progressHeight)
+        layer.backgroundColor = color.cgColor
+        layer.masksToBounds = true
+        layer.isOpaque = true
+        if #available(macOS 10.15, *) {
+            layer.cornerCurve = .continuous
+        }
+        return layer
     }
-    
+
+    private func initialize() {
+        containerView = View(frame: NSMakeRect(0, 0, 0, progressHeight))
+        addSubview(containerView)
+        fetchingLayer = makeTrackLayer(color: style.foregroundColor)
+        containerView.layer?.addSublayer(fetchingLayer)
+        previewLayer = makeTrackLayer(color: previewColor)
+        previewLayer.isHidden = true
+        containerView.layer?.addSublayer(previewLayer)
+        progressLayer = makeTrackLayer(color: style.foregroundColor)
+        containerView.layer?.addSublayer(progressLayer)
+        userInteractionEnabled = false
+        containerView.isEventLess = true
+    }
+
     public var highlightOnHover: Bool = true
     
     private func updateCursor() {

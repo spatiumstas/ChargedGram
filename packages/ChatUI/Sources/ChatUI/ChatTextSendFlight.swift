@@ -183,7 +183,7 @@ final class ChatTextSendFlight {
 
     private func start(source: Source, rowItemView: ChatMessageView, view: ChatControllerView) {
         rowItemView.layoutSubtreeIfNeeded()
-        guard let item = rowItemView.item as? ChatMessageItem, item.isBubbled, item.hasBubble, rowItemView.window === view.window, let text = rowItemView.text, let textView = text.textViews.first, let line = textView.textLayout?.lines.first else {
+        guard let item = rowItemView.item as? ChatMessageItem, item.isBubbled, item.hasBubble, rowItemView.window === view.window, let text = rowItemView.textContentView, let textBaseline = rowItemView.firstTextBaseline(in: view) else {
             return
         }
         let rowView = rowItemView.rowView
@@ -193,7 +193,6 @@ final class ChatTextSendFlight {
         guard !bubbleRect.isEmpty, tableRect.contains(bubbleRect) else {
             return
         }
-        let textBaseline = textView.convert(NSMakePoint(line.frame.minX, line.frame.minY), to: view)
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -304,7 +303,7 @@ final class ChatTextSendFlight {
             layer.add(flightAnimation(keyPath: "opacity", from: 0.0 as NSNumber, to: 1.0 as NSNumber, duration: 0.08, timingFunction: fade, additive: false), forKey: "textFlightAlpha")
         }
 
-        if let layer = rowItemView.rightView.layer {
+        if let layer = rowItemView.rightView.flightLayer {
             flight.layers.append(layer)
             addHorizontal(layer, "position", from: NSValue(point: NSMakePoint(field.width - bubble.width, 0)), to: NSValue(point: .zero), additive: true, key: "textFlightPosition")
             layer.add(flightAnimation(keyPath: "opacity", from: 0.0 as NSNumber, to: 1.0 as NSNumber, duration: 0.25, timingFunction: fade, additive: false), forKey: "textFlightAlpha")

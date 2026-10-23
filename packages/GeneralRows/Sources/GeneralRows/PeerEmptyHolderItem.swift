@@ -1,5 +1,6 @@
 import Cocoa
 import TGUIKit
+import Localization
 #if SHARE
 import TelegramThemeShare
 #else
@@ -15,6 +16,18 @@ open class PeerEmptyHolderItem: GeneralRowItem {
     
     open override func viewClass() -> AnyClass {
         return PeerEmptyHolderView.self
+    }
+
+    open override var accessibilityLabel: String? {
+        return strings().voiceOverCommonLoading
+    }
+
+    open override var accessibilityRole: NSAccessibility.Role? {
+        return .busyIndicator
+    }
+
+    open override var accessibilityIncludesChildren: Bool {
+        return false
     }
 }
 

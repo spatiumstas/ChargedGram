@@ -98,6 +98,14 @@ public final class AddGiftMessagePreviewItem: GeneralRowItem {
         return height
     }
 
+    public override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return headerLayout.attributedString.string
+    }
+
     public override func viewClass() -> AnyClass {
         return AddGiftMessagePreviewView.self
     }
@@ -120,6 +128,8 @@ final class AddGiftMessagePreviewView: TableRowView {
         card.layer?.cornerRadius = 24
         card.layer?.masksToBounds = true
         card.backgroundColor = NSColor.white.withAlphaComponent(0.2)
+        card.isAccessibilityDecorative = true
+        ribbonView.isAccessibilityDecorative = true
         addSubview(card)
 
         card.addSubview(backgroundView)

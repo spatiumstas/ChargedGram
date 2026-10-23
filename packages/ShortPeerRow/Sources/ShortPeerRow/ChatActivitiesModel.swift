@@ -173,6 +173,7 @@ public class ChatActivitiesView : View {
     private let animationView:NSView = NSView(frame: NSMakeRect(0,-4,30,20))
     let indicatorLayer = ChatActivityIndicatorLayer()
     private var isAnimating:Bool = false
+    private var playbackObserver: AnimatableContentObserver?
     
     private var type:ChatActivityAnimation?
     private var theme:ActivitiesTheme?
@@ -184,11 +185,14 @@ public class ChatActivitiesView : View {
         addSubview(textView)
         addSubview(animationView)
         layer?.disableActions()
+        postsFrameChangedNotifications = true
+        postsBoundsChangedNotifications = true
+        updatePlayback()
     }
     
     public override func layout() {
         super.layout()
-        
+        updatePlayback()
     }
     
     public func updateBackground(_ background:NSColor) {
@@ -218,13 +222,17 @@ public class ChatActivitiesView : View {
                 animationView.setFrameOrigin(NSMakePoint(0, -4))
             }
         }
+        updatePlayback()
     }
     
     public func startAnimation(_ type:ChatActivityAnimation, theme:ActivitiesTheme) {
+        guard type != .none else {
+            stopAnimation()
+            return
+        }
         if self.type != type || theme != self.theme {
             self.type = type
             self.theme = theme
-            isAnimating = true
             animationView.setFrameSize(ChatActivityIndicatorLayer.size(for: type))
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -233,22 +241,59 @@ public class ChatActivitiesView : View {
             indicatorLayer.startAnimating()
             CATransaction.commit()
         }
+        isAnimating = true
+        updatePlaybackObserver()
+        updatePlayback()
     }
     
     public override func viewDidMoveToWindow() {
-        if window == nil {
-            self.stopAnimation(false)
-        } else {
-            if isAnimating, let type = type, let theme = theme {
-                startAnimation(type, theme: theme)
-            }
+        super.viewDidMoveToWindow()
+        updatePlaybackObserver()
+        updatePlayback()
+    }
+
+    public override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        updatePlaybackObserver()
+        updatePlayback()
+    }
+
+    public override func viewDidHide() {
+        super.viewDidHide()
+        updatePlayback()
+    }
+
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        updatePlayback()
+    }
+    
+    var isIndicatorPlaying: Bool {
+        return !indicatorLayer.isTimelineFrozen
+    }
+    
+    private func updatePlaybackObserver() {
+        guard isAnimating, window != nil else {
+            playbackObserver = nil
+            return
         }
+        if playbackObserver == nil {
+            playbackObserver = AnimatableContentObserver()
+        }
+        playbackObserver?.update(for: self, target: self, selector: #selector(updatePlayback), options: [.contentBounds, .documentFrame, .ownFrame, .ownBounds])
+    }
+
+    @objc private func updatePlayback() {
+        let playing = isAnimating && WindowKeyObserver.isKey(window) && !isHiddenOrHasHiddenAncestor && !visibleRect.isEmpty
+        indicatorLayer.setTimelineFrozen(!playing)
     }
     
     public func stopAnimation(_ realyStop:Bool = true) {
         if realyStop {
             isAnimating = false
         }
+        updatePlaybackObserver()
+        updatePlayback()
     }
     
     public required init(frame frameRect: NSRect) {
@@ -269,6 +314,10 @@ public class ChatActivitiesModel: Node {
     private let activityView:ChatActivitiesView
     private let disposable:MetaDisposable = MetaDisposable()
     public private(set) var theme: ActivitiesTheme?
+    private var cachedTextLayout: TextViewLayout?
+    private var cachedTextScale: CGFloat = 0
+    private var cachedTextColor: CGColor?
+    private var cachedSelectionColor: CGColor?
     public func update(with activities:(PeerId, [(Peer, PeerInputActivity)]), for width:CGFloat, theme:ActivitiesTheme, layout:@escaping(Bool)->Void) {
         isActive = !activities.1.isEmpty
         self.theme = theme
@@ -280,7 +329,11 @@ public class ChatActivitiesModel: Node {
     }
     
     private func renderedActivities(_ activities:(PeerId, [(Peer, PeerInputActivity)]), for width:CGFloat, theme: ActivitiesTheme) -> Signal <(ChatActivityAnimation, TextViewLayout?), NoError> {
-        return Signal { subscriber in
+        return Signal { [weak self] subscriber in
+            guard let self else {
+                subscriber.putCompletion()
+                return EmptyDisposable
+            }
             
 
             if !activities.1.isEmpty {
@@ -415,17 +468,40 @@ public class ChatActivitiesModel: Node {
                     }
                 }
                 
-                layout = TextViewLayout(text, maximumNumberOfLines: 1)
-                layout.measure(width: width - 30)
+                layout = self.activityTextLayout(text, width: width - 30, color: theme.textColor)
                 subscriber.putNext((animation, layout))
                 subscriber.putCompletion()
             } else {
+                self.cachedTextLayout = nil
+                self.cachedTextColor = nil
+                self.cachedSelectionColor = nil
                 subscriber.putNext((.none, nil))
                 subscriber.putCompletion()
             }
             
             return EmptyDisposable
         } |> deliverOnMainQueue
+    }
+
+    private func activityTextLayout(_ text: NSAttributedString, width: CGFloat, color: NSColor) -> TextViewLayout {
+        let scale = System.backingScale
+        let resolvedColor = color.cgColor
+        let selectionColor = presentation.colors.selectText.cgColor
+        if let layout = cachedTextLayout,
+           layout.constrainedWidth == width,
+           cachedTextScale == scale,
+           cachedTextColor == resolvedColor,
+           cachedSelectionColor == selectionColor,
+           layout.attributedString.isEqual(to: text) {
+            return layout
+        }
+        let layout = TextViewLayout(text, maximumNumberOfLines: 1)
+        layout.measure(width: width)
+        cachedTextLayout = layout
+        cachedTextScale = scale
+        cachedTextColor = resolvedColor
+        cachedSelectionColor = selectionColor
+        return layout
     }
     
     deinit {
@@ -434,6 +510,9 @@ public class ChatActivitiesModel: Node {
     
     public func clean() {
         disposable.set(nil)
+        cachedTextLayout = nil
+        cachedTextColor = nil
+        cachedSelectionColor = nil
         activityView.stopAnimation()
     }
     

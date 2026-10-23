@@ -9,6 +9,9 @@ public class MediaDustView2: View {
     private var currentParams: (size: CGSize, color: NSColor)?
     private var emitter: CAEmitterCell?
     private var emitterLayer: CAEmitterLayer?
+    private lazy var keyObserver = WindowKeyObserver(update: { [weak self] in
+        self?.updatePlayback()
+    })
     private let maskLayer = SimpleShapeLayer()
         
     public required init(frame frameRect: NSRect) {
@@ -65,6 +68,17 @@ public class MediaDustView2: View {
         self.layer?.addSublayer(emitterLayer)
         
         self.updateEmitter()
+        self.updatePlayback()
+    }
+    
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        self.keyObserver.observe(self.window)
+        self.updatePlayback()
+    }
+    
+    private func updatePlayback() {
+        self.emitterLayer?.setTimelineFrozen(!WindowKeyObserver.isKey(self.window))
     }
         
     private func updateEmitter() {

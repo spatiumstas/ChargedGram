@@ -71,6 +71,10 @@ public final class PaymentsCheckoutPreviewRowItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return PaymentsCheckoutPreviewRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return textLayout.attributedString.string
+    }
 }
 
 

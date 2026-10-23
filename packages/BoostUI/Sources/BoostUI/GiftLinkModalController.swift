@@ -186,7 +186,7 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
         entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: InputDataIdentifier("link"), equatable: InputDataEquatable(state.link(arguments.context)), comparable: nil, item: { initialSize, stableId in
             return GeneralBlockTextRowItem(initialSize, stableId: stableId, viewType: .singleItem, text: state.link(arguments.context), font: .normal(.text), insets: NSEdgeInsets(left: 20, right: 20), rightAction: .init(image: theme.icons.fast_copy_link, action: { _ in
                 arguments.copyLink(state.link(arguments.context))
-            }), singleLine: true)
+            }, accessibilityLabel: strings().voiceOverCommonCopy), singleLine: true)
         }))
         index += 1
         

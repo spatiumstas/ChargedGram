@@ -90,6 +90,9 @@ public final class ScopedImageCache {
     public func removeImage(forKey key: Int) {
         lock.lock()
         let removed = removeEntry(key)
+        if entries.isEmpty {
+            stopSweepTimer()
+        }
         lock.unlock()
         _ = removed
     }
@@ -193,6 +196,9 @@ public final class ScopedImageCache {
                 }
             }
         }
+        if entries.isEmpty {
+            stopSweepTimer()
+        }
         lock.unlock()
 
         if orphaned {
@@ -253,6 +259,10 @@ public final class ScopedImageCache {
     }
 
     private func startSweepTimerIfNeeded() {
+        guard !entries.isEmpty else {
+            stopSweepTimer()
+            return
+        }
         guard sweepTimer == nil else {
             return
         }

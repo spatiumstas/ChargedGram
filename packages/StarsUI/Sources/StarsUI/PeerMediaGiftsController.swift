@@ -109,6 +109,10 @@ private final class CollectionRowItem : TableStickItem {
     override var height: CGFloat {
         return 40
     }
+
+    override var accessibilityLabel: String? {
+        return strings().voiceOverCommonFilter
+    }
     
     override func viewClass() -> AnyClass {
         return CollectionFilterRowView.self
@@ -407,7 +411,12 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
                                 }, itemImage: !profile.pinnedToTop ? MenuAnimation.menu_pin.value : MenuAnimation.menu_unpin.value))
                             }
                             
-                            let weared = unique.file?.fileId.id == state.peer?.emojiStatus?.fileId
+                            let weared: Bool
+                            if case let .starGift(id, _, _, _, _, _, _, _, _)? = state.peer?.emojiStatus?.content {
+                                weared = id == unique.id
+                            } else {
+                                weared = false
+                            }
                             
                             items.append(ContextMenuItem(weared ? strings().giftContextTakeOff : strings().giftContextWear, handler: {
                                 arguments.toggleWear(profile)
@@ -795,103 +804,26 @@ public func PeerMediaGiftsController(context: any AccountContextProtocol, peerId
         }
     }, toggleWear: { option in
         let peer = stateValue.with({ $0.peer?._asPeer() })
-        if let peer {
-            context.reactions.setStatus(option.gift.unique!.file!, peer: peer, timestamp: context.timestamp, timeout: nil, fromRect: nil, starGift: option.gift.unique)
+        if let peer, let unique = option.gift.unique, let file = unique.file {
+            context.reactions.setStatus(file, peer: peer, timestamp: context.timestamp, timeout: nil, fromRect: nil, starGift: unique)
         }
     }, transfer: { option in
         let state = stateValue.with { $0 }
-        
-        var additionalItem: SelectPeers_AdditionTopItem?
-        
-        
         let canExportDate: Int32? = option.canExportDate
         let transferStars: Int64? = option.transferStars
-        let reference: StarGiftReference? = option.reference
-        
-        
-        if let canExportDate = canExportDate {
-            additionalItem = .init(title: strings().giftTransferSendViaBlockchain, color: theme.colors.text, icon: TelegramThemeHooks.shared.image(.iconSendViaTon).precomposed(flipVertical: true), callback: {
-                let currentTime = Int32(CFAbsoluteTimeGetCurrent() + kCFAbsoluteTimeIntervalSince1970)
-                
-                if currentTime > canExportDate, let unique = option.gift.unique, let reference {
-                    
-                    let data = ModalAlertData(title: nil, info: strings().giftWithdrawText(unique.title + " #\(unique.number)"), description: nil, ok: strings().giftWithdrawProceed, options: [], mode: .confirm(text: strings().modalCancel, isThird: false), header: .init(id: "header", value: { initialSize, stableId, presentation in
-                        return TransferUniqueGiftHeaderItem(initialSize, stableId: stableId, gift: unique, toPeer: .init(context.myPeer!), context: context)
-                    }), footer: ModalAlertData.Footer.init(id: "footer", value: { initialSize, stableId, presentation, action in
-                        return InputDataTableBasedItem(initialSize, stableId: stableId, viewType: .singleItem, rows: getTransferAttributesRows(gift: unique), context: context)
-                    }))
-                    
-                    showModalAlert(for: window, data: data, completion: { result in
-                        showModal(with: InputPasswordController(context: context, title: strings().giftWithdrawTitle, desc: strings().monetizationWithdrawEnterPasswordText, checker: { value in
-                            return context.engine.payments.requestStarGiftWithdrawalUrl(reference: reference, password: value)
-                            |> deliverOnMainQueue
-                            |> afterNext { url in
-                                LinkHooks.shared.openExternalLink(url, false)
-                            }
-                            |> ignoreValues
-                            |> mapError { error in
-                                switch error {
-                                case .invalidPassword:
-                                    return .wrong
-                                case .limitExceeded:
-                                    return .custom(strings().loginFloodWait)
-                                case .generic:
-                                    return .generic
-                                default:
-                                    return .custom(strings().monetizationWithdrawErrorText)
-                                }
-                            }
-                        }), for: context.window)
-                    })
-                    
-                } else {
-                    let delta = canExportDate - currentTime
-                    let days: Int32 = Int32(ceil(Float(delta) / 86400.0))
-                    alert(for: window, header: strings().giftTransferUnlockPendingTitle, info: strings().giftTransferUnlockPendingText(strings().timerDaysOther(Int(days))))
-                }
-            })
+        guard let reference = option.reference, let unique = option.gift.unique else {
+            return
         }
-        
-        _ = selectModalPeers(window: window, context: context, title: strings().giftTransferTitle, behavior: SelectChatsBehavior(settings: [.excludeBots, .contacts, .remote, .channels], limit: 1, additionTopItem: additionalItem)).start(next: { peerIds in
-            if let peerId = peerIds.first {
-                let peer = context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: peerId)) |> deliverOnMainQueue
-                
-                _ = peer.startStandalone(next: { peer in
-                    if let peer {
-                                                
-                        let info: String
-                        let ok: String
-                        
-                        guard let reference = reference, let unique = option.gift.unique else {
-                            return
-                        }
-                        
-                        if let transferStars = transferStars, let starsState = state.starsState, starsState.balance.value < transferStars {
-                            showModal(with: Star_ListScreen(context: context, source: .buy(suffix: nil, amount: transferStars)), for: window)
-                            return
-                        }
-                        
-                        if let stars = transferStars, stars > 0 {
-                            info = strings().giftTransferConfirmationText("\(unique.title) #\(unique.number)", peer._asPeer().displayTitle, strings().starListItemCountOther(Int(stars)))
-                            ok = strings().giftTransferConfirmationTransfer + " " + strings().starListItemCountOther(Int(stars))
-                        } else {
-                            info = strings().giftTransferConfirmationTextFree("\(unique.title) #\(unique.number)", peer._asPeer().displayTitle)
-                            ok = strings().giftTransferConfirmationTransferFree
-                        }
-                
-                        let data = ModalAlertData(title: nil, info: info, description: nil, ok: ok, options: [], mode: .confirm(text: strings().modalCancel, isThird: false), header: .init(id: "header", value: { initialSize, stableId, presentation in
-                            return TransferUniqueGiftHeaderItem(initialSize, stableId: stableId, gift: unique, toPeer: peer, context: context)
-                        }), footer: ModalAlertData.Footer.init(id: "footer", value: { initialSize, stableId, presentation, action in
-                            return InputDataTableBasedItem(initialSize, stableId: stableId, viewType: .singleItem, rows: getTransferAttributesRows(gift: unique), context: context)
-                        }))
-                        
-                        showModalAlert(for: window, data: data, completion: { result in
-                            _ = takeContext()?.transferStarGift(prepaid: transferStars == nil, reference: reference, peerId: peerId).startStandalone()
-                            _ = showModalSuccess(for: context.window, icon: theme.icons.successModalProgress, delay: 1.5).start()
-                        })
-                    }
-                })
+        showGiftTransfer(context: context, window: window, gift: unique, reference: reference, giftsContext: takeContext() ?? giftsContext, canExportDate: canExportDate, transferStars: transferStars, transfer: { peer, dismiss in
+            if let transferStars, let starsState = state.starsState, starsState.balance.value < transferStars {
+                FeatureNavigationHooks.shared.showStarsPurchaseWithContext(context, window, .stars, nil, transferStars)
+                return
             }
+            dismiss()
+            if let giftsContext = takeContext() {
+                _ = (giftsContext.transferStarGift(prepaid: transferStars == nil, reference: reference, peerId: peer.id)).startStandalone()
+            }
+            _ = (showModalSuccess(for: context.window, icon: theme.icons.successModalProgress, delay: 1.5)).start()
         })
     }, toggleVisibility: { option in
         if let reference = option.reference {

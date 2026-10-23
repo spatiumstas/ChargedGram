@@ -7,6 +7,7 @@ import TelegramTheme
 import TelegramContext
 import GeneralRows
 import AvatarUI
+import TelegramUtils
 
 public final class ChangePeerRowItem: GeneralRowItem {
 
@@ -38,6 +39,14 @@ public final class ChangePeerRowItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return ChangePeerRowItemView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return "\(fromPeer._asPeer().displayTitle) → \(toPeer._asPeer().displayTitle)"
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 private final class ChangePeerRowItemView: GeneralRowView {
@@ -61,6 +70,7 @@ private final class ChangePeerRowItemView: GeneralRowView {
         
         chevron.image = TelegramThemeHooks.shared.image(.iconAffiliateChevron).precomposed(theme.colors.grayIcon)
         chevron.sizeToFit()
+        chevron.isAccessibilityDecorative = true
     }
     
     override var backdorColor: NSColor {

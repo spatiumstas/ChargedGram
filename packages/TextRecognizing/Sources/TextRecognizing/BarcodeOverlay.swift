@@ -37,6 +37,7 @@ final class BarcodeOverlay {
             textView.isSelectable = false
             addSubview(iconView)
             addSubview(textView)
+            iconView.isAccessibilityDecorative = true
 
             if #available(macOS 11.0, *), let icon = NSImage(systemSymbolName: "qrcode", accessibilityDescription: nil)?.withSymbolConfiguration(.init(pointSize: 12, weight: .semibold)) {
                 iconView.image = icon.precomposed(.white)
@@ -71,6 +72,7 @@ final class BarcodeOverlay {
             let layout = TextViewLayout(.initialize(string: text, color: NSColor.white, font: .medium(13)), maximumNumberOfLines: 1, truncationType: .middle)
             layout.measure(width: max(20, maxWidth - 24 - iconWidth))
             textView.update(layout)
+            setAccessibilityLabel(text)
             setFrameSize(NSMakeSize(12 + iconWidth + layout.layoutSize.width + 12, Chip.height))
             needsLayout = true
         }

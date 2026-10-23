@@ -28,10 +28,13 @@ import CodeSyntax
 import MetalEngine
 import TelegramMedia
 import RLottie
+import TLottie
 import KeyboardKey
 import PasscodeCore
 import EntertainmentUI
+#if DEBUG
 import NetworkLab
+#endif
 import CallsUI
 import GalleryUI
 import ChatUI
@@ -41,7 +44,9 @@ import ChatListUI
 import WalletContext
 import CrashRecoveryUI
 import StarsUI
+#if DEBUG
 import PerfLab
+#endif
 import SettingsUI
 
 //#if BETA || DEBUG
@@ -182,6 +187,10 @@ extension RLottieBridge : @retroactive R_LottieBridge {
    
 }
 
+extension TLottieBridge : @retroactive R_LottieBridge {
+
+}
+
 
 class AppDelegate: NSResponder, NSApplicationDelegate, NSUserNotificationCenterDelegate, NSWindowDelegate {
    
@@ -263,6 +272,7 @@ class AppDelegate: NSResponder, NSApplicationDelegate, NSUserNotificationCenterD
     private var rustEngineCrash: CrashedRun?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        TGUIKitAccessibility.isEnabled = FastSettings.accessibilityTreeEffective
         CodeSyntax.initialize()
         
         
@@ -366,6 +376,9 @@ class AppDelegate: NSResponder, NSApplicationDelegate, NSUserNotificationCenterD
         })
         
         makeRLottie = { json, key in
+            if LottieBackend.usesTLottie {
+                return TLottieBridge(json: json)
+            }
             return RLottieBridge(json: json, key: key)
         }
         
@@ -1413,7 +1426,6 @@ class AppDelegate: NSResponder, NSApplicationDelegate, NSUserNotificationCenterD
             self.window.deminiaturize(self)
             if let context = self.contextValue?.context {
                 AppDelegate.eventProcessed = nil
-                
                 let link = inApp(for: url as NSString, context: context, openInfo: { (peerId, isChat, postId, action) in
                     context.bindings.rootNavigation().push(ChatController(context: context, chatLocation: .peer(peerId), focusTarget: .init(messageId: postId), initialAction:action), true)
                 }, applyProxy: { proxy in
@@ -1593,6 +1605,7 @@ class AppDelegate: NSResponder, NSApplicationDelegate, NSUserNotificationCenterD
     
     func applicationDidResignActive(_ notification: Notification) {
         updatePeerPresence()
+
         if viewer != nil, NSScreen.main == viewer?.window.screen {
             viewer?.window.orderOut(nil)
         }
@@ -1611,6 +1624,10 @@ class AppDelegate: NSResponder, NSApplicationDelegate, NSUserNotificationCenterD
         #endif
         
         holdPostboxQueueUntilExit()
+        
+        if let sharedContext = self.sharedApplicationContextValue?.sharedContext, sharedContext.getCrossAccountCallSession() != nil || sharedContext.getCrossAccountGroupCall() != nil {
+            _exit(0)
+        }
     }
     
     private func holdPostboxQueueUntilExit() {
@@ -1619,7 +1636,9 @@ class AppDelegate: NSResponder, NSApplicationDelegate, NSUserNotificationCenterD
             held.signal()
             DispatchSemaphore(value: 0).wait()
         }
-        _ = held.wait(timeout: .now() + 2.0)
+        if held.wait(timeout: .now() + 2.0) == .timedOut {
+            _exit(0)
+        }
     }
     
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -1654,6 +1673,8 @@ class AppDelegate: NSResponder, NSApplicationDelegate, NSUserNotificationCenterD
     @IBAction func preferencesAction(_ sender: Any) {
         
         if let context = contextValue?.context {
+            if NSApp.currentEvent?.type == .keyDown {
+            }
             context.bindings.mainViewController.showPreferences()
         }
         window.makeKeyAndOrderFront(sender)
@@ -1661,6 +1682,8 @@ class AppDelegate: NSResponder, NSApplicationDelegate, NSUserNotificationCenterD
     }
     @IBAction func globalSearch(_ sender: Any) {
         if let context = contextValue?.context {
+            if NSApp.currentEvent?.type == .keyDown {
+            }
             context.bindings.mainViewController.focusSearch(animated: true)
         }
     }

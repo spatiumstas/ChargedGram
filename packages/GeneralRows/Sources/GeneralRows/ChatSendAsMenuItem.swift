@@ -114,6 +114,26 @@ private final class ContextSendAsMenuRowItem : AppMenuRowItem {
     public override func viewClass() -> AnyClass {
         return ContextAccountMenuRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        let title = peer.peer._asPeer().displayTitle
+        return title.isEmpty ? super.accessibilityLabel : title
+    }
+
+    public override var accessibilityValue: String? {
+        var values: [String] = []
+        if selected {
+            values.append(strings().voiceOverCommonSelected)
+        }
+        let status = statusLayout.attributedString.string
+        if !status.isEmpty {
+            values.append(status)
+        }
+        if peer.isPremiumRequired && !context.isPremium {
+            values.append(strings().voiceOverCommonPremium)
+        }
+        return values.isEmpty ? nil : values.joined(separator: ", ")
+    }
 }
 
 private final class ContextAccountMenuRowView : AppMenuRowView {
@@ -158,6 +178,7 @@ private final class ContextAccountMenuRowView : AppMenuRowView {
                 current = view
             } else {
                 current = ImageView()
+                current.isAccessibilityDecorative = true
                 addSubview(current)
                 self.lockView = current
             }

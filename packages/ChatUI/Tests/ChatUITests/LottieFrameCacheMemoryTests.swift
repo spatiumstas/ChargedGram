@@ -87,4 +87,28 @@ final class LottieFrameCacheMemoryTests: XCTestCase {
         XCTAssertEqual(supplyment.readFrame(previous: nil, frame: 1), second, "encoding after finish reallocates its buffers")
         XCTAssertEqual(supplyment.readFrame(previous: nil, frame: 0), first)
     }
+
+    func testSmallAnimationsCacheWithoutKeepingAnEncoderScratch() {
+        let count = 40
+        let before = mallocInUse()
+        var supplyments: [(TRLotFileSupplyment, Int)] = []
+        for i in 0 ..< count {
+            let (supplyment, bufferSize) = makeSupplyment("small-\(i)", side: 20)
+            XCTAssertLessThanOrEqual(bufferSize, TRLotData.transientScratchBufferSize)
+            supplyment.addFrame(nil, (frame(UInt8(i), size: bufferSize), 0))
+            supplyments.append((supplyment, bufferSize))
+        }
+        for (supplyment, _) in supplyments {
+            _ = supplyment.fps
+        }
+        let grown = mallocInUse() - before
+        let scratch = compression_encode_scratch_buffer_size(COMPRESSION_LZFSE)
+        print("lottie frame cache: \(count) small animations caching hold \(grown / 1024) KB, a kept scratch would add \(count * scratch / 1024) KB")
+        XCTAssertLessThan(grown, count * scratch / 4)
+
+        let (supplyment, bufferSize) = supplyments[0]
+        supplyment.markFinished()
+        _ = supplyment.fps
+        XCTAssertEqual(supplyment.readFrame(previous: nil, frame: 0), frame(0, size: bufferSize))
+    }
 }

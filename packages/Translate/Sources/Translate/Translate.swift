@@ -277,14 +277,17 @@ public struct Translate {
         ]
     
     @available(macOS 10.14, *)
-    private static let languageRecognizer = NLLanguageRecognizer()
+    private static let languageRecognizer = Atomic(value: NLLanguageRecognizer())
 
     public static func detectLanguage(for text: String) -> String? {
         let text = String(text.prefix(256))
         if #available(macOS 10.14, *) {
-            languageRecognizer.processString(text)
-            let hypotheses = languageRecognizer.languageHypotheses(withMaximum: 4)
-            languageRecognizer.reset()
+            let hypotheses = languageRecognizer.with { recognizer -> [NLLanguage: Double] in
+                recognizer.processString(text)
+                let hypotheses = recognizer.languageHypotheses(withMaximum: 4)
+                recognizer.reset()
+                return hypotheses
+            }
             
             
             func normalize(_ code: String) -> String {

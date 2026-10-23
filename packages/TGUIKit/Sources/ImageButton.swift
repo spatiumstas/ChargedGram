@@ -19,8 +19,12 @@ public enum ImageButtonAnimationPolicy {
 
 open class ImageButton: Button {
 
-    public private(set) var imageView:ImageView = ImageView()
-    internal let additionBackgroundView: View = View()
+    public private(set) var imageView:ImageView = {
+        let view = ImageView()
+        view.isAccessibilityDecorative = true
+        return view
+    }()
+    internal private(set) var additionBackgroundView: View?
 
     private var additionStateBackground:[ControlState:NSColor] = [:]
     private var cornerRadius:[ControlState : ButtonBackgroundCornerRadius] = [:]
@@ -54,7 +58,10 @@ open class ImageButton: Button {
 
     public var glassForceAppearance: LiquidGlassAppearance {
         get { return _glassView?.forceAppearance ?? .automatic }
-        set { _glassView?.forceAppearance = newValue }
+        set {
+            _glassView?.forceAppearance = newValue
+            _glassView?.updateLocalizationAndTheme(theme: presentation)
+        }
     }
 
     /// The tint the caller asked for. Stored separately from `_glassView.customTint`
@@ -96,6 +103,16 @@ open class ImageButton: Button {
                 _applyEffectiveGlassTint(animated: false, duration: 0.25)
             }
         }
+    }
+
+    open override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let target = super.hitTest(point) else {
+            return nil
+        }
+        if let glass = _glassView, target === glass || target.isDescendant(of: glass) {
+            return self
+        }
+        return target
     }
 
     public func setGlassEffect(size: NSSize? = nil, tintColor: NSColor? = nil, forceAppearance: LiquidGlassAppearance? = nil, interactive: Bool = true) {
@@ -151,14 +168,24 @@ open class ImageButton: Button {
     override func prepare() {
         super.prepare()
         imageView.animates = true
-        additionBackgroundView.isEventLess = true
         self.addSubview(imageView)
     }
 
+    private func makeAdditionBackgroundIfNeeded() -> View {
+        if let view = additionBackgroundView {
+            return view
+        }
+        let view = View()
+        view.isEventLess = true
+        additionBackgroundView = view
+        return view
+    }
+
     private func attachAdditionBackgroundIfNeeded(_ color: NSColor) {
-        guard additionBackgroundView.superview == nil, (color.usingColorSpace(.sRGB)?.alphaComponent ?? 1) > 0 else {
+        guard additionBackgroundView?.superview == nil, (color.usingColorSpace(.sRGB)?.alphaComponent ?? 1) > 0 else {
             return
         }
+        let additionBackgroundView = makeAdditionBackgroundIfNeeded()
         if let first = subviews.first(where: { !($0 is VisualEffect) }) {
             addSubview(additionBackgroundView, positioned: .below, relativeTo: first)
         } else {
@@ -235,7 +262,7 @@ open class ImageButton: Button {
 
         if _glassView != nil {
             self.layer?.backgroundColor = NSColor.clear.cgColor
-            additionBackgroundView.backgroundColor = .clear
+            additionBackgroundView?.backgroundColor = .clear
         }
         
         
@@ -259,13 +286,16 @@ open class ImageButton: Button {
             self.imageView.image = updated
         }
        // if state != previousState {
-            self.imageView.animator().alphaValue = 1
+            if self.imageView.alphaValue != 1 {
+                self.imageView.animator().alphaValue = 1
+            }
             
             if let policy = self.hoverAdditionPolicy[state], previous != state {
                 switch policy {
                 case .none:
                     break
                 case let .enlarge(value):
+                    let additionBackgroundView = makeAdditionBackgroundIfNeeded()
                     let current = additionBackgroundView.layer?.presentation()?.value(forKeyPath: "transform.scale") as? CGFloat ?? 1.0
                     additionBackgroundView.layer?.animateScaleSpring(from: current, to: value, duration: 0.35, removeOnCompletion: false)
                 }
@@ -273,24 +303,29 @@ open class ImageButton: Button {
             
             if let color = self.additionStateBackground[state] ?? self.additionStateBackground[.Normal] {
                 attachAdditionBackgroundIfNeeded(color)
-                additionBackgroundView.backgroundColor = color
+                additionBackgroundView?.backgroundColor = color
             } else {
-                additionBackgroundView.backgroundColor = .clear
+                additionBackgroundView?.backgroundColor = .clear
             }
 
+            if additionBackgroundView == nil, let radius = self.cornerRadius[state], radius != .none {
+                _ = makeAdditionBackgroundIfNeeded()
+            }
             updateLayout()
             
             if let cornerRadius = self.cornerRadius[state] {
                 switch cornerRadius {
                 case .none:
                     self.layer?.cornerRadius = 0
-                    self.additionBackgroundView.layer?.cornerRadius = 0
+                    self.additionBackgroundView?.layer?.cornerRadius = 0
                 case .appSpecific:
                     self.layer?.cornerRadius = .cornerRadius
-                    self.additionBackgroundView.layer?.cornerRadius = .cornerRadius
+                    self.additionBackgroundView?.layer?.cornerRadius = .cornerRadius
                 case .half:
                     self.layer?.cornerRadius = max(frame.width, frame.height) / 2
-                    self.additionBackgroundView.layer?.cornerRadius = max(additionBackgroundView.frame.width, additionBackgroundView.frame.height) / 2
+                    if let additionBackgroundView = additionBackgroundView {
+                        additionBackgroundView.layer?.cornerRadius = max(additionBackgroundView.frame.width, additionBackgroundView.frame.height) / 2
+                    }
                 }
             }
         //}
@@ -376,13 +411,15 @@ open class ImageButton: Button {
             }
         }
 
-        let abSize: NSSize
-        if let multiplier = additionBackgroundMultiplier[controlState] {
-            abSize = NSMakeSize(floorToScreenPixels(backingScaleFactor, size.width * multiplier), floorToScreenPixels(backingScaleFactor, size.height * multiplier))
-        } else {
-            abSize = size
+        if let additionBackgroundView = additionBackgroundView {
+            let abSize: NSSize
+            if let multiplier = additionBackgroundMultiplier[controlState] {
+                abSize = NSMakeSize(floorToScreenPixels(backingScaleFactor, size.width * multiplier), floorToScreenPixels(backingScaleFactor, size.height * multiplier))
+            } else {
+                abSize = size
+            }
+            transition.updateFrame(view: additionBackgroundView, frame: NSRect(origin: NSMakePoint((size.width - abSize.width) / 2, (size.height - abSize.height) / 2), size: abSize))
         }
-        transition.updateFrame(view: additionBackgroundView, frame: NSRect(origin: NSMakePoint((size.width - abSize.width) / 2, (size.height - abSize.height) / 2), size: abSize))
 
         if let glassView = _glassView {
             let gs = _glassSize ?? size

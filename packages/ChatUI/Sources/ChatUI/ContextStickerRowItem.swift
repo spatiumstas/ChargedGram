@@ -43,6 +43,10 @@ public class ContextStickerRowItem: TableRowItem {
     public override func viewClass() -> AnyClass {
         return ContextStickerRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return strings().voiceOverStickers
+    }
     
     public override var height: CGFloat {
         return result.sizes.first!.height
@@ -119,6 +123,7 @@ public class ContextStickerRowView : TableRowView, ModalPreviewRowViewProtocol {
             }
             while subviews.count < item.result.entries.count {
                 let control = Control()
+                control.setAccessibilityLabel(strings().voiceOverCommonSticker)
                 addSubview(control)
                 let content = StickerMediaContentView(frame: .zero)
                 content.backgroundColor = .clear
@@ -151,7 +156,7 @@ public class ContextStickerRowView : TableRowView, ModalPreviewRowViewProtocol {
                 container.layer?.cornerRadius = .cornerRadius
                 switch item.result.entries[i] {
                 case let .sticker(_, file):
-                    
+                    container.setAccessibilityLabel(file.stickerText ?? strings().voiceOverCommonSticker)
                     container.set(handler: { [weak item] control in
                         if let slowMode = item?.chatInteraction.presentation.slowMode, slowMode.hasLocked {
                             showSlowModeTimeoutTooltip(slowMode, for: control)

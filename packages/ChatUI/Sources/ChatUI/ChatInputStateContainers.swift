@@ -16,6 +16,20 @@ import MessageUtils
 import FoundationUtils
 import ChatHistoryModel
 import PremiumUI
+import LocalAnimations
+
+private extension ChatState.AdditionIcon {
+    var accessibilityLabel: String {
+        switch self {
+        case .gigagroup_info:
+            return strings().voiceOverCommonInfo
+        case .monoforum_suggestion:
+            return strings().voiceOverSuggestPost
+        case .channel_gift:
+            return strings().voiceOverCommonGift
+        }
+    }
+}
 
 public class ChatInputStateView: View {
 
@@ -40,6 +54,7 @@ public class ChatInputStateView: View {
 
         containerView.layer?.cornerRadius = 20
         containerView.layer?.masksToBounds = false
+        containerView.isAccessibilityDecorative = true
 
         let glass = LiquidGlassView(frame: NSZeroRect, cornerRadius: 20, hasShadow: true, hasBorder: true)
         glassEffect = glass
@@ -432,6 +447,7 @@ public final class ChatInputActionButtonView: ChatInputStateView {
             btn.animates = false
             btn.scaleOnClick = true
             btn.set(image: data.icon.resolve(activeTheme), for: .Normal)
+            btn.setAccessibilityLabel(data.icon.accessibilityLabel)
             btn.setGlassEffect(size: NSMakeSize(40, 40))
             btn.glassTintColor = chatGlassTint
 
@@ -446,6 +462,7 @@ public final class ChatInputActionButtonView: ChatInputStateView {
             btn.animates = false
             btn.scaleOnClick = true
             btn.set(image: data.icon.resolve(activeTheme), for: .Normal)
+            btn.setAccessibilityLabel(data.icon.accessibilityLabel)
             btn.setGlassEffect(size: NSMakeSize(40, 40))
             btn.glassTintColor = chatGlassTint
 

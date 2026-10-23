@@ -368,30 +368,22 @@ public func stringForDistance(distance: CLLocationDistance) -> String {
 
 
 public func formatBirthdayToString(day: Int, month: Int, year: Int?) -> String? {
-    var dateComponents = DateComponents()
-    dateComponents.year = year
-    dateComponents.month = month
-    dateComponents.day = day
-
-    // Use the current calendar and adjust it according to the system's locale if necessary
-    let calendar = Calendar.current
-
-    guard let date = calendar.date(from: dateComponents) else {
-        return nil
-    }
+    let calendar = Calendar(identifier: .gregorian)
+    let dateYear = year ?? CalendarUtils.yearForNoYear
+    guard let date = calendar.date(from: DateComponents(year: dateYear, month: month, day: day)) else { return nil }
+    let components = calendar.dateComponents([.year, .month, .day], from: date)
+    guard components.year == dateYear, components.month == month, components.day == day else { return nil }
 
     let dateFormatter = DateFormatter()
+    dateFormatter.locale = Locale.current
+    dateFormatter.calendar = calendar
+    dateFormatter.timeZone = TimeZone.current
     if year == nil {
         dateFormatter.dateFormat = "MMM d"
     } else {
         dateFormatter.dateStyle = .medium
         dateFormatter.timeStyle = .none
     }
-
-    // The locale and time zone adjustments are optional and can be tailored to specific needs
-    dateFormatter.locale = Locale.current // Use the current system locale
-    dateFormatter.timeZone = TimeZone.current // Use the current system time zone
-
     return dateFormatter.string(from: date)
 }
 

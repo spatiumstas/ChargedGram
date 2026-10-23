@@ -2,6 +2,7 @@ import Cocoa
 import TGUIKit
 import TelegramCore
 import TelegramTheme
+import Localization
 import TelegramUtils
 import Postbox
 
@@ -20,6 +21,7 @@ public class ChatMessageAccessoryView: Control {
     private var progress: RadialProgressView?
     private var bufferingIndicator: ProgressIndicator?
     private var download: ImageButton?
+    private var downloadLabelIsCancel: Bool = false
 
     private var status: MediaResourceStatus?
     private var isStreamable: Bool = true
@@ -35,6 +37,7 @@ public class ChatMessageAccessoryView: Control {
                 if imageView == nil {
                     imageView = ImageView()
                     imageView?.animates = true
+                    imageView?.isAccessibilityDecorative = true
                     addSubview(imageView!)
                 }
                 imageView?.image = soundOffOnImage
@@ -118,6 +121,7 @@ public class ChatMessageAccessoryView: Control {
         }
         let download = ImageButton(frame: NSMakeRect(0, 0, 24, 24))
         download.autohighlight = false
+        download.setAccessibilityLabel(strings().voiceOverCommonDownload)
         download.set(handler: { [weak self] _ in
             guard let `self` = self, let status = self.status else {return}
             switch status {
@@ -223,6 +227,10 @@ public class ChatMessageAccessoryView: Control {
             case .Remote:
                 progress?.isHidden = true
                 download?.isHidden = false
+                if downloadLabelIsCancel {
+                    downloadLabelIsCancel = false
+                    download?.setAccessibilityLabel(strings().voiceOverCommonDownload)
+                }
             case .Local:
                 progress?.isHidden = true
                 download?.isHidden = true
@@ -234,6 +242,10 @@ public class ChatMessageAccessoryView: Control {
                 self.progress?.isHidden = isCompact
                 download?.isHidden = !isCompact
                 download?.set(image: isCompact ? theme.icons.compactStreamingFetchingCancel : theme.icons.streamingVideoDownload, for: .Normal)
+                if !downloadLabelIsCancel {
+                    downloadLabelIsCancel = true
+                    download?.setAccessibilityLabel(strings().voiceOverCommonCancelDownload)
+                }
             }
             if isCompact {
                 download?.setFrameSize(10, 10)

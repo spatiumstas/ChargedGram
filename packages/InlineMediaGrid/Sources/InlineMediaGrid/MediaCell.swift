@@ -524,6 +524,7 @@ public final class MediaPhotoCell : MediaCell {
             } else {
                 current = ImageView()
                 current.isEventLess = true
+                current.isAccessibilityDecorative = true
                 self.livePhotoBadge = current
                 addSubview(current)
             }

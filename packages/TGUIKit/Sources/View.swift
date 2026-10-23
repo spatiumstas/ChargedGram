@@ -374,7 +374,7 @@ open class View : NSView, CALayerDelegate, AppearanceViewProtocol {
     }
 
     open override func accessibilityParent() -> Any? {
-        return nil
+        return TGUIKitAccessibility.parent(of: self, default: { super.accessibilityParent() })
     }
 
     open override func isAccessibilityElement() -> Bool {

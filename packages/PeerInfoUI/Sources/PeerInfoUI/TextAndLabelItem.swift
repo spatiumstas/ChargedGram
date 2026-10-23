@@ -56,12 +56,14 @@ public class TextAndLabelItem: GeneralRowItem {
     let toggleHide:(()->Void)?
     let _borderColor: NSColor
     let gift: (()->Void)?
+    let qrCode: ((Control)->Void)?
     let launchApp: (()->Void)?
     let canTranslate: Bool
     let context: (any AccountContextProtocol)?
     private let added_contextItems: [ContextMenuItem]
-    public init(_ initialSize:NSSize, stableId:AnyHashable, label:String, copyMenuText: String, labelColor: NSColor = theme.colors.accent, textColor: NSColor = theme.colors.text, backgroundColor: NSColor = theme.colors.background, text:String, context: (any AccountContextProtocol)?, viewType: GeneralViewType = .legacy, detectLinks:Bool = false, onlyInApp: Bool = false, isTextSelectable:Bool = true, callback:@escaping ()->Void = {}, openInfo:((PeerId, Bool, MessageId?, ChatInitialAction?)->Void)? = nil, hashtag:((String)->Void)? = nil, selectFullWord: Bool = false, canCopy: Bool = true, _copyToClipboard:(()->Void)? = nil, textFont: NSFont = .normal(.title), hideText: Bool? = nil, toggleHide: (()->Void)? = nil, accentColor: NSColor = theme.colors.accent, borderColor: NSColor = theme.colors.border, linkInteractions: TextViewInteractions = LinkHooks.shared.globalLinkExecutor(), contextItems:[ContextMenuItem] = [], gift: (()->Void)? = nil, launchApp:(()->Void)? = nil, canTranslate: Bool = false, description: String? = nil, entities: [MessageTextEntity] = [], spoiler: Bool = false) {
+    public init(_ initialSize:NSSize, stableId:AnyHashable, label:String, copyMenuText: String, labelColor: NSColor = theme.colors.accent, textColor: NSColor = theme.colors.text, backgroundColor: NSColor = theme.colors.background, text:String, context: (any AccountContextProtocol)?, viewType: GeneralViewType = .legacy, detectLinks:Bool = false, onlyInApp: Bool = false, isTextSelectable:Bool = true, callback:@escaping ()->Void = {}, openInfo:((PeerId, Bool, MessageId?, ChatInitialAction?)->Void)? = nil, hashtag:((String)->Void)? = nil, selectFullWord: Bool = false, canCopy: Bool = true, _copyToClipboard:(()->Void)? = nil, textFont: NSFont = .normal(.title), hideText: Bool? = nil, toggleHide: (()->Void)? = nil, accentColor: NSColor = theme.colors.accent, borderColor: NSColor = theme.colors.border, linkInteractions: TextViewInteractions = LinkHooks.shared.globalLinkExecutor(), contextItems:[ContextMenuItem] = [], gift: (()->Void)? = nil, launchApp:(()->Void)? = nil, canTranslate: Bool = false, description: String? = nil, entities: [MessageTextEntity] = [], spoiler: Bool = false, qrCode: ((Control)->Void)? = nil) {
         self.callback = callback
+        self.qrCode = qrCode
         self.launchApp = launchApp
         self.accentColor = accentColor
         self.hideText = hideText
@@ -145,9 +147,9 @@ public class TextAndLabelItem: GeneralRowItem {
     var textWidth:CGFloat {
         switch viewType {
         case .legacy:
-            return width - inset.left - inset.right - (_copyToClipboard != nil || gift != nil ? 30 : 0)
+            return width - inset.left - inset.right - (_copyToClipboard != nil || gift != nil ? 30 : 0) - (qrCode != nil ? 30 : 0)
         case let .modern(_, inner):
-            return blockWidth - inner.left - inner.right - (_copyToClipboard != nil || gift != nil ? 30 : 0)
+            return blockWidth - inner.left - inner.right - (_copyToClipboard != nil || gift != nil ? 30 : 0) - (qrCode != nil ? 30 : 0)
         }
     }
     
@@ -263,6 +265,7 @@ class TextAndLabelRowView: GeneralRowView {
     private var shadowView: ShadowView?
 
     private var copyView: ImageButton?
+    private var qrView: ImageButton?
     private var toggleVisibility: ImageButton?
     override func draw(_ layer: CALayer, in ctx: CGContext) {
         
@@ -353,6 +356,10 @@ class TextAndLabelRowView: GeneralRowView {
                 if let copyView {
                     copyView.centerY(x: containerView.frame.width - copyView.frame.width - item.inset.left)
                 }
+                if let qrView {
+                    let right = copyView?.frame.minX ?? (containerView.frame.width - item.inset.left)
+                    qrView.centerY(x: right - qrView.frame.width - 4)
+                }
             case let .modern(_, innerInsets):
                 self.containerView.frame = NSMakeRect(floorToScreenPixels(backingScaleFactor, (frame.width - item.blockWidth) / 2), item.inset.top, item.blockWidth, frame.height - item.inset.bottom - item.inset.top)
 
@@ -368,6 +375,10 @@ class TextAndLabelRowView: GeneralRowView {
                 
                 if let copyView {
                     copyView.centerY(x: containerView.frame.width - copyView.frame.width - innerInsets.right)
+                }
+                if let qrView {
+                    let right = copyView?.frame.minX ?? (containerView.frame.width - innerInsets.right)
+                    qrView.centerY(x: right - qrView.frame.width - 4)
                 }
 
                 if let moreView {
@@ -478,6 +489,27 @@ class TextAndLabelRowView: GeneralRowView {
             } else if let view = self.copyView {
                 view.removeFromSuperview()
                 self.copyView = nil
+            }
+
+            if item.qrCode != nil {
+                let current: ImageButton
+                if let view = self.qrView {
+                    current = view
+                } else {
+                    current = ImageButton()
+                    current.autohighlight = false
+                    current.set(handler: { [weak self] control in
+                        (self?.item as? TextAndLabelItem)?.qrCode?(control)
+                    }, for: .Click)
+                    self.qrView = current
+                    insert(current, above: [labelView, toggleVisibility, shadowView, moreView])
+                }
+                current.set(image: TelegramThemeHooks.shared.image(.iconWalletQR).precomposed(item.accentColor), for: .Normal)
+                current.sizeToFit()
+                current.scaleOnClick = true
+            } else if let view = self.qrView {
+                view.removeFromSuperview()
+                self.qrView = nil
             }
             
             

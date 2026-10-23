@@ -661,9 +661,23 @@ public func AppAppearanceViewController(context: any AccountContextProtocol, foc
         
         let nightSettings = autoNightSettings(accountManager: context.sharedContext.accountManager) |> take(1) |> deliverOnMainQueue
         
+        let targetIsDark: Bool?
+        switch source {
+        case let .local(palette):
+            targetIsDark = palette.isDark
+        case let .cloud(_, cached):
+            targetIsDark = cached?.palette.isDark
+        }
+        
         _ = nightSettings.start(next: { settings in
+            let reportThemeMode = {
+                if let targetIsDark = targetIsDark, settings.systemBased || targetIsDark != theme.colors.isDark {
+                    sendThemeModeChange(dark: targetIsDark)
+                }
+            }
             if settings.systemBased || settings.schedule != nil {
                 verifyAlert_button(for: context.window, header: strings().darkModeConfirmNightModeHeader, information: strings().darkModeConfirmNightModeText, ok: strings().darkModeConfirmNightModeOK, successHandler: { _ in
+                    reportThemeMode()
                     let disableNightMode = context.sharedContext.accountManager.transaction { transaction -> Void in
                         transaction.updateSharedData(ApplicationSharedPreferencesKeys.autoNight, { entry in
                             let settings: AutoNightThemePreferences = entry?.get(AutoNightThemePreferences.self) ?? AutoNightThemePreferences.defaultSettings
@@ -675,6 +689,7 @@ public func AppAppearanceViewController(context: any AccountContextProtocol, foc
                     })
                 })
             } else {
+                reportThemeMode()
                 applyTheme(source)
             }
         })
@@ -889,7 +904,7 @@ public func toggleDarkMode(context: any AccountContextProtocol) {
     _ = nightSettings.start(next: { settings in
         if settings.systemBased || settings.schedule != nil {
             verifyAlert_button(for: context.window, header: strings().darkModeConfirmNightModeHeader, information: strings().darkModeConfirmNightModeText, ok: strings().darkModeConfirmNightModeOK, successHandler: { _ in
-                
+                sendThemeModeChange(dark: !theme.colors.isDark)
                 _ = context.sharedContext.accountManager.transaction { transaction -> Void in
                     transaction.updateSharedData(ApplicationSharedPreferencesKeys.autoNight, { entry in
                         let settings: AutoNightThemePreferences = entry?.get(AutoNightThemePreferences.self) ?? AutoNightThemePreferences.defaultSettings
@@ -902,9 +917,16 @@ public func toggleDarkMode(context: any AccountContextProtocol) {
                 }.start()
             })
         } else {
+            sendThemeModeChange(dark: !theme.colors.isDark)
             _ = updateThemeInteractivetly(accountManager: context.sharedContext.accountManager, f: { settings -> ThemePaletteSettings in
                 return settings.withUpdatedToDefault(dark: !theme.colors.isDark).withUpdatedDefaultIsDark(!theme.colors.isDark)
             }).start()
         }
     })
+}
+
+func sendThemeModeChange(dark: Bool) {
+}
+
+func sendThemeModeSystem() {
 }

@@ -44,6 +44,27 @@ public final class GroupCallRecorderRowItem : GeneralRowItem {
         return true
     }
     
+    public override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        if startedRecordedTime != nil {
+            stop()
+        } else {
+            start()
+        }
+        return true
+    }
+
     public override func viewClass() -> AnyClass {
         return GroupCallRecorderRowView.self
     }

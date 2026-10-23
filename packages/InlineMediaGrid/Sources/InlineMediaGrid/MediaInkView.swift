@@ -54,6 +54,7 @@ public final class MediaInkView : Control {
             
             imageView.image = sensitiveImage
             imageView.sizeToFit()
+            imageView.isAccessibilityDecorative = true
             
             let textLayout = TextViewLayout(.initialize(string: strings().chatSensitiveContent, color: NSColor.white, font: .medium(.text)))
             textLayout.measure(width: .greatestFiniteMagnitude)

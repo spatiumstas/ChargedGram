@@ -21,6 +21,7 @@ func installShareUIHooks() {
     }, makeChatAdditionController: { context, chatLocation, initialAction in
         return ChatAdditionController(context: context.concrete, chatLocation: chatLocation, initialAction: initialAction)
     }, makeEmojies: { context, presentation in
-        return EmojiesController(context.concrete, presentation: presentation)
+        let emojis = EmojiesController(context.concrete, presentation: presentation)
+        return emojis
     }))
 }

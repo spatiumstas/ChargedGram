@@ -71,7 +71,7 @@ class ChatTitleBarView: TitledBarView, InteractionContentViewProtocol {
 
     private var hasPhoto: Bool = false
     
-    private let photoContainer: Control = Control(frame: NSMakeRect(0, 0, 36, 36))
+    private let photoContainer: TitleAvatarControl = TitleAvatarControl(frame: NSMakeRect(0, 0, 36, 36))
     
     
     
@@ -155,6 +155,7 @@ class ChatTitleBarView: TitledBarView, InteractionContentViewProtocol {
                 current = view
             } else {
                 current = ImageView()
+                current.isAccessibilityDecorative = true
                 self.liveStreamView = current
                 photoContainer.addSubview(current)
             }
@@ -216,6 +217,9 @@ class ChatTitleBarView: TitledBarView, InteractionContentViewProtocol {
                 
         searchButton.disableActions()
         callButton.disableActions()
+        searchButton.setAccessibilityLabel(strings().voiceOverCommonSearch)
+        callButton.setAccessibilityLabel(strings().voiceOverCommonCall)
+        closeButton.setAccessibilityLabel(strings().voiceOverCommonBack)
         
                 
         badgeNode = ChatUIHooks.shared.makeChatTitleBadgeNode(chatInteraction.interactionContext, self.chatInteraction.peerId, {
@@ -262,6 +266,10 @@ class ChatTitleBarView: TitledBarView, InteractionContentViewProtocol {
         
         addSubview(photoContainer)
         
+        photoContainer.accessibilityLabelProvider = { [weak self] in
+            return self?.photoAccessibilityLabel
+        }
+        
         photoContainer.set(handler: { [weak self] _ in
             self?.openPhoto()
         }, for: .Click)
@@ -293,6 +301,16 @@ class ChatTitleBarView: TitledBarView, InteractionContentViewProtocol {
         
     }
     
+    private var photoAccessibilityLabel: String? {
+        if hasStories {
+            return strings().voiceOverCommonStories
+        }
+        if chatInteraction.mode == .history, chatInteraction.peerId != chatInteraction.interactionContext.peerId, chatInteraction.presentation.mainPeer?.largeProfileImage != nil {
+            return strings().voiceOverCommonProfilePhoto
+        }
+        return nil
+    }
+
     private func openPhoto() {
         if self.hasStories {
             
@@ -613,9 +631,11 @@ class ChatTitleBarView: TitledBarView, InteractionContentViewProtocol {
                 if peer.isGroup || peer.isSupergroup || peer.isChannel {
                     callButton.set(image: theme.icons.chat_voice_chat, for: .Normal)
                     callButton.set(image: theme.icons.chat_voice_chat_active, for: .Highlight)
+                    callButton.setAccessibilityLabel(strings().peerInfoActionVoiceChat)
                 } else {
                     callButton.set(image: theme.icons.chatCall, for: .Normal)
                     callButton.set(image: theme.icons.chatCallActive, for: .Highlight)
+                    callButton.setAccessibilityLabel(strings().voiceOverCommonCall)
                 }
             } else {
                 titleImage = nil
@@ -792,5 +812,21 @@ class ChatTitleBarView: TitledBarView, InteractionContentViewProtocol {
         self.inputActivities = inputActivities
         
         updateStatus(true, presentation: chatInteraction.presentation)
+    }
+}
+
+
+private final class TitleAvatarControl: Control {
+    var accessibilityLabelProvider: (() -> String?)?
+
+    override var accessibilityDefaultLabel: String? {
+        return accessibilityLabelProvider?()
+    }
+
+    override func isAccessibilityElement() -> Bool {
+        guard super.isAccessibilityElement(), accessibilityDefaultLabel != nil else {
+            return false
+        }
+        return true
     }
 }

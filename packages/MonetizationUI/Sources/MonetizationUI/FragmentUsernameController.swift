@@ -107,6 +107,10 @@ private final class RowItem : GeneralRowItem {
     override func viewClass() -> AnyClass {
         return RowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return headerLayout.attributedString.string
+    }
 }
 
 private final class RowView: GeneralContainableRowView {
@@ -171,6 +175,7 @@ private final class RowView: GeneralContainableRowView {
         
         dismiss.autohighlight = false
         dismiss.scaleOnClick = true
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
         containerView.superview?.addSubview(dismiss)
         
         dismiss.set(handler: { [weak self] _ in

@@ -17,6 +17,7 @@ public class MonoforumHorizontalView : View {
         toggleButton.autohighlight = false
         toggleButton.animates = false
         toggleButton.scaleOnClick = true
+        toggleButton.setAccessibilityLabel(strings().voiceOverChatSwitchTopicsView)
         addSubview(toggleButton)
         addSubview(segmentView)
         layout()

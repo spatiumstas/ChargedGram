@@ -63,6 +63,7 @@ let package = Package(
             name: "InstantPageUITests",
             dependencies: [
                 "InstantPageUI",
+                .product(name: "MessageTextUtils", package: "MessageTextUtils", condition: nil),
                 .product(name: "TelegramCore", package: "TelegramCore", condition: nil),
                 .product(name: "Postbox", package: "Postbox", condition: nil),
                 .product(name: "InAppSettings", package: "InAppSettings", condition: nil),

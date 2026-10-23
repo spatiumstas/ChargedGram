@@ -217,6 +217,9 @@ public enum PaymentsShippingInfoFocus {
 public func PaymentsShippingInfoController(context: (any AccountContextProtocol), invoice: BotPaymentInvoice, source: BotPaymentInvoiceSource, formInfo: BotPaymentRequestedInfo, focus: PaymentsShippingInfoFocus?, formInfoUpdated: @escaping (BotPaymentRequestedInfo, BotPaymentValidatedFormInfo) -> Void) -> InputDataModalController {
 
     let actionsDisposable = DisposableSet()
+    let requestState = PaymentFormRequestState()
+    let requestDisposable = MetaDisposable()
+    actionsDisposable.add(requestDisposable)
     var close:(()->Void)? = nil
     
     var getController:(()->ViewController?)? = nil
@@ -232,7 +235,13 @@ public func PaymentsShippingInfoController(context: (any AccountContextProtocol)
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
     let updateState: ((State) -> State) -> Void = { f in
-        statePromise.set(stateValue.modify (f))
+        statePromise.set(stateValue.modify { current in
+            let updated = f(current)
+            if current.formInfo != updated.formInfo || current.saveInfo != updated.saveInfo {
+                requestState.invalidate()
+            }
+            return updated
+        })
     }
 
     let arguments = Arguments(context: context, toggleSaveInfo: {
@@ -253,11 +262,18 @@ public func PaymentsShippingInfoController(context: (any AccountContextProtocol)
         return controller
     }
     
+    controller.willDisappear = { _ in
+        requestState.suspend()
+        requestDisposable.set(nil)
+    }
+
     controller.onDeinit = {
+        requestState.suspend()
         actionsDisposable.dispose()
     }
     
     controller.didAppear = { controller in
+        requestState.resume()
         DispatchQueue.main.async {
             if let focus = focus {
                 let id: InputDataIdentifier
@@ -287,11 +303,16 @@ public func PaymentsShippingInfoController(context: (any AccountContextProtocol)
         let formInfo = state.formInfo
         
         return .fail(.doSomething(next: { f in
-            _ = showModalProgress(signal: context.engine.payments.validateBotPaymentForm(saveInfo: state.saveInfo, source: source, formInfo: formInfo), for: window).start(next: { result in
-                
+            guard let controller = getController?(), stateValue.with({ $0.formInfo == formInfo && $0.saveInfo == state.saveInfo }), let requestId = requestState.begin() else { return }
+            let operation = MetaDisposable()
+            requestDisposable.set(operation)
+            let validation = showModalProgress(signal: context.engine.payments.validateBotPaymentForm(saveInfo: state.saveInfo, source: source, formInfo: formInfo), for: window) |> deliverOnMainQueue
+            operation.set((validation).start(next: { result in
+                guard getController?() != nil, requestState.take(requestId) else { return }
                 formInfoUpdated(formInfo, result)
                 close?()
             }, error: { error in
+                guard getController?() != nil, requestState.take(requestId) else { return }
                 let text: String
                 var id: InputDataIdentifier? = nil
                 switch error {
@@ -322,7 +343,9 @@ public func PaymentsShippingInfoController(context: (any AccountContextProtocol)
                 if let id = id {
                     f(.fail(.fields([id: .shake])))
                 }
-            })
+            }, completed: {
+                _ = requestState.take(requestId)
+            }))
         }))
         
     }

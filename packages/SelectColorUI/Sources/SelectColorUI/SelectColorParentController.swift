@@ -73,6 +73,7 @@ public final class SelectColorParentController : SectionViewController {
     
     fileprivate let profileData = SelectColorControllerCollectData()
     fileprivate let nameData = SelectColorControllerCollectData()
+    private let saveAction = SelectColorSaveAction()
     
     public init(_ context: any AccountContextProtocol, peer: Peer, callback: SelectColorCallback? = nil) {
         self.peer = peer
@@ -87,6 +88,24 @@ public final class SelectColorParentController : SectionViewController {
         items.append(SectionControllerItem(title: { "" }, controller: profileController))
         items.append(SectionControllerItem(title: { "" }, controller: nameController))
         super.init(sections: items, selected: 0, hasBar: true)
+        for controller in [self.profileController, self.nameController] {
+            let willAppear = controller.willAppear
+            controller.willAppear = { [weak self] controller in
+                self?.saveAction.setActive(true)
+                willAppear?(controller)
+            }
+            let didAppear = controller.didAppear
+            controller.didAppear = { [weak self] controller in
+                self?.saveAction.setActive(true)
+                didAppear?(controller)
+            }
+            let willDisappear = controller.willDisappear
+            controller.willDisappear = { [weak self] controller in
+                self?.saveAction.setActive(false)
+                willDisappear?(controller)
+            }
+        }
+
 
     }
     
@@ -124,6 +143,8 @@ public final class SelectColorParentController : SectionViewController {
     }
     
     private func collectAndInvoke() {
+        guard self.saveAction.isActive, !self.saveAction.isPending, self.isLoaded(), let window = self.view.window as? Window else { return }
+        guard self.peer.id == self.context.peerId, self.peer is TelegramUser else { return }
         let profileData = self.profileData.getData()
         let nameData = self.nameData.getData()
         
@@ -141,20 +162,17 @@ public final class SelectColorParentController : SectionViewController {
             let profileColor = profileData.selected_profile
             let profileBackgroundEmojiId = profileData.backgroundEmojiId_profile
             
-            var signals:[Signal<Never, NoError>] = []
-            
-            if profileData.emojiStatus != profileData.peer.emojiStatus {
-                if let emojiStatusGift = profileData.emojiStatusGift {
-                    signals.append(context.engine.accountData.setStarGiftStatus(starGift: emojiStatusGift, expirationDate: nil))
-                } else if let emojiStatus = profileData.emojiStatus {
-                    signals.append(context.engine.peers.updatePeerEmojiStatus(peerId: peer.id, fileId: emojiStatus.fileId, expirationDate: emojiStatus.expirationDate) |> ignoreValues |> `catch` { _ in return Signal<Never, NoError>.complete() })
-                }
-            }
-            
-            signals.append(context.engine.accountData.updateNameColorAndEmoji(nameColor: nameColor.getUpdate(backgroundEmojiId), profileColor: profileColor?.nameColor, profileBackgroundEmojiId: profileBackgroundEmojiId) |> ignoreValues |> `catch` { _ in return .complete() })
-            
-            _ = combineLatest(signals).startStandalone()
-            self.executeReturn()
+            var signals:[Signal<Never, SelectColorSaveError>] = []
+            signals.append(SelectColorStatusUpdate.request(context: context, peer: profileData.peer, status: profileData.emojiStatus, gift: profileData.emojiStatusGift))
+            signals.append(context.engine.accountData.updateNameColorAndEmoji(nameColor: nameColor.getUpdate(backgroundEmojiId), profileColor: profileColor?.nameColor, profileBackgroundEmojiId: profileBackgroundEmojiId) |> ignoreValues |> mapError { _ in SelectColorSaveError.generic })
+            self.saveAction.perform(signal: combineLatest(signals) |> ignoreValues, window: window, canPresent: { [weak self, weak window] in
+                guard let self, let window else { return false }
+                return self.isLoaded() && self.view.window === window
+            }, failed: { [weak window] in
+                if let window { showModalText(for: window, text: strings().unknownError) }
+            }, completed: { [weak self] in
+                self?.executeReturn()
+            })
         }
         
     }

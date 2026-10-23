@@ -84,6 +84,10 @@ final class SecretKeyView : Control, CallViewUpdater {
         
     }
     
+    override var accessibilityDefaultLabel: String? {
+        return secretKey
+    }
+
     deinit {
         disposable.dispose()
     }

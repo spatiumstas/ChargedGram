@@ -8,6 +8,7 @@ import InAppSettings
 import TelegramContext
 import TelegramTheme
 import TelegramUtils
+import Localization
 
 private final class InstantViewArguments {
     let context: any AccountContextProtocol
@@ -160,6 +161,11 @@ private class HeaderView : View {
         _ = actions.sizeToFit()
         _ = safari.sizeToFit()
         _ = back.sizeToFit()
+
+        share.setAccessibilityLabel(strings().voiceOverCommonShare)
+        actions.setAccessibilityLabel(strings().voiceOverCommonOptions)
+        safari.setAccessibilityLabel(strings().voiceOverCommonOpenInSafari)
+        back.setAccessibilityLabel(strings().voiceOverCommonBack)
     }
     
     required init?(coder: NSCoder) {

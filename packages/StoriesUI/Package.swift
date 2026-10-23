@@ -17,6 +17,7 @@ let deps: [(String, String)] = [
     ("AlertsUI", "../AlertsUI"),
     ("AvatarUI", "../AvatarUI"),
     ("LocalAnimations", "../LocalAnimations"),
+
     ("LocationUI", "../LocationUI"),
     ("ObjcUtils", "../ObjcUtils"),
     ("ChatUI", "../ChatUI"),

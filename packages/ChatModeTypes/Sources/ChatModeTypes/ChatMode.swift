@@ -42,7 +42,7 @@ public enum ChatCustomContentsKind: Equatable {
             return "#\(hashtag)"
         }
     }
-    
+
     public var hashtag: String? {
         switch self {
         case let .searchHashtag(hashtag, _):

@@ -22,6 +22,7 @@ temp/
 core-xprojects/wallet-engine/build
 packages/WalletEngine/wallet_engineFFI.xcframework
 core-xprojects/mtproto-engine/build
+core-xprojects/tlottie/build
 
 # SwiftPM build output and Xcode-generated package metadata
 .build/
@@ -29,3 +30,5 @@ core-xprojects/mtproto-engine/build
 .vscode/
 packages/ApiCredentials/Sources/ApiCredentials/ForkCredentials.generated.swift
 configurations/Fork.generated.xcconfig
+.ci-build-logs/
+*.profraw

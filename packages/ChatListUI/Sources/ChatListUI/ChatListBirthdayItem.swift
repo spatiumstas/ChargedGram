@@ -48,6 +48,37 @@ public final class ChatListAddBirthdayItem : GeneralRowItem {
     public override var height: CGFloat {
         return 5 + 8 + title.layoutSize.height + 3 + info.layoutSize.height + 8
     }
+
+    public override var accessibilityLabel: String? {
+        return title.attributedString.string
+    }
+    
+    public override var accessibilityValue: String? {
+        return info.attributedString.string
+    }
+    
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+    
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+    
+    public override func accessibilityPerformPress() -> Bool {
+        guard let view = view as? ChatListAddBirthdayView else {
+            return false
+        }
+        view.overlay.send(event: .Click)
+        return true
+    }
+    
+    public override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        return [NSAccessibilityCustomAction(name: strings().voiceOverCommonClose, handler: { [weak self] in
+            self?.dismiss()
+            return true
+        })]
+    }
 }
 
 public final class ChatListBirthdayItem : GeneralRowItem {
@@ -113,6 +144,37 @@ public final class ChatListBirthdayItem : GeneralRowItem {
     public override var height: CGFloat {
         return 5 + 8 + title.layoutSize.height + 3 + info.layoutSize.height + 8
     }
+
+    public override var accessibilityLabel: String? {
+        return title.attributedString.string
+    }
+    
+    public override var accessibilityValue: String? {
+        return info.attributedString.string
+    }
+    
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+    
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+    
+    public override func accessibilityPerformPress() -> Bool {
+        guard let view = view as? ChatListBirthdayView else {
+            return false
+        }
+        view.overlay.send(event: .Click)
+        return true
+    }
+    
+    public override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        return [NSAccessibilityCustomAction(name: strings().voiceOverCommonClose, handler: { [weak self] in
+            self?.dismiss()
+            return true
+        })]
+    }
 }
 
 private final class ChatListBirthdayView : TableRowView {
@@ -126,7 +188,7 @@ private final class ChatListBirthdayView : TableRowView {
 
     private let titleView = TextView()
     private let infoView = TextView()
-    private let overlay = Control()
+    fileprivate let overlay = Control()
     private let dismiss = ImageButton()
     required init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -136,6 +198,8 @@ private final class ChatListBirthdayView : TableRowView {
             container.layer?.cornerCurve = .continuous
         }
         container.layer?.borderWidth = 1
+
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
 
         addSubview(container)
         container.addSubview(titleView)
@@ -200,6 +264,7 @@ private final class ChatListBirthdayView : TableRowView {
         
         self.titleView.update(item.title)
         self.infoView.update(item.info)
+        overlay.setAccessibilityLabel(item.title.attributedString.string)
         
         dismiss.set(image: TelegramThemeHooks.shared.image(.iconVoiceChatTooltipClose).precomposed(theme.colors.grayIcon), for: .Normal)
         dismiss.autohighlight = false
@@ -281,7 +346,7 @@ private final class ChatListAddBirthdayView : TableRowView {
     private let container = View()
     private let titleView = TextView()
     private let infoView = TextView()
-    private let overlay = Control()
+    fileprivate let overlay = Control()
     private let dismiss = ImageButton()
     required init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -291,6 +356,8 @@ private final class ChatListAddBirthdayView : TableRowView {
             container.layer?.cornerCurve = .continuous
         }
         container.layer?.borderWidth = 1
+
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
 
         addSubview(container)
         container.addSubview(titleView)
@@ -354,6 +421,7 @@ private final class ChatListAddBirthdayView : TableRowView {
 
         self.titleView.update(item.title)
         self.infoView.update(item.info)
+        overlay.setAccessibilityLabel(item.title.attributedString.string)
 
         dismiss.set(image: TelegramThemeHooks.shared.image(.iconVoiceChatTooltipClose).precomposed(theme.colors.grayIcon), for: .Normal)
         dismiss.autohighlight = false

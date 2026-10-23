@@ -99,6 +99,27 @@ private final class LinkRowItem : GeneralRowItem {
         }, itemMode: .destruct, itemImage: MenuAnimation.menu_clear_history.value)])
     }
     
+    override var accessibilityLabel: String? {
+        return nameLayout.attributedString.string
+    }
+
+    override var accessibilityValue: String? {
+        return textLayout.attributedString.string + ", " + clicksLayout.attributedString.string
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        open(link)
+        return true
+    }
+
     override func viewClass() -> AnyClass {
         return LinkRowView.self
     }
@@ -115,6 +136,7 @@ private final class LinkRowView: GeneralContainableRowView {
         addSubview(textView)
         addSubview(icon)
         addSubview(clicksView)
+        icon.isAccessibilityDecorative = true
         
         nameView.userInteractionEnabled = false
         nameView.isSelectable = false

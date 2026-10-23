@@ -26,6 +26,7 @@ let deps: [(String, String)] = [
     ("ChatModeTypes", "../ChatModeTypes"),
     ("GraphCore", "../../submodules/telegram-ios/submodules/GraphCore"),
     ("InlineStickerLayer", "../InlineStickerLayer"),
+
 ]
 
 let package = Package(

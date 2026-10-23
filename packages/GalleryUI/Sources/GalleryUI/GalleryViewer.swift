@@ -243,6 +243,7 @@ public class GalleryViewer: NSResponder {
     private let backgroundView: GalleryBackgroundView = GalleryBackgroundView()
     private let ready = Promise<Bool>()
     private var didSetReady = false
+    private var presentationGeneration = 0
     
     private let disposable = MetaDisposable()
     private let readyDispose = MetaDisposable()
@@ -932,6 +933,7 @@ public class GalleryViewer: NSResponder {
             guard let `self` = self, entries.count > 0 else {return}
             
             let current = entries[selectedIndex]
+            self.updateCaptureExclusion()
             if let location = current.location {
                 let total = location.count
                 _ = reversed ? total - location.index : location.index
@@ -1444,76 +1446,79 @@ public class GalleryViewer: NSResponder {
 
             if !(item is MGalleryExternalVideoItem), !isProtected {
                 let isPhoto = item is MGalleryPhotoItem || item is MGalleryPeerPhotoItem
-                operationDisposable.set((item.realStatus |> take(1) |> deliverOnMainQueue).start(next: { [weak self] status in
-                    guard let `self` = self else {return}
+                let path = item.realStatus |> take(1) |> deliverOnMainQueue |> mapToSignal { [weak self] status -> Signal<String, NoError> in
+                    guard let self else {
+                        return .complete()
+                    }
                     switch status {
                     case .Local:
-                        self.operationDisposable.set((item.path.get() |> take(1) |> deliverOnMainQueue).start(next: { [weak self] path in
-                            if let strongSelf = self {
-                                if fast {
-                                   
-                                    let text: String
-                                    if item is MGalleryVideoItem {
-                                         text = strings().galleryViewFastSaveVideo1
-                                    } else if item is MGalleryGIFItem {
-                                        text = strings().galleryViewFastSaveGif1
-                                    } else {
-                                        text = strings().galleryViewFastSaveImage1
-                                    }
-                                    
-                                    let dateFormatter = makeNewDateFormatter()
-                                    dateFormatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
-                                   
-                                    
-                                    let file: TelegramMediaFile?
-                                    if let item = item as? MGalleryVideoItem {
-                                        file = item.media
-                                    } else if let item = item as? MGalleryGIFItem {
-                                        file = item.media
-                                    } else if let photo = item as? MGalleryPhotoItem {
-                                        file = photo.entry.file ?? TelegramMediaFile(fileId: MediaId(namespace: 0, id: arc4random64()), partialReference: nil, resource: photo.media.representations.last!.resource, previewRepresentations: [], videoThumbnails: [], immediateThumbnailData: nil, mimeType: "image/jpeg", size: nil, attributes: [.FileName(fileName: "photo_\(dateFormatter.string(from: Date())).jpeg")], alternativeRepresentations: [])
-                                    } else if let photo = item as? MGalleryPeerPhotoItem {
-                                        file = TelegramMediaFile(fileId: MediaId(namespace: 0, id: arc4random64()), partialReference: nil, resource: photo.media.representations.last!.resource, previewRepresentations: [], videoThumbnails: [], immediateThumbnailData: nil, mimeType: "image/jpeg", size: nil, attributes: [.FileName(fileName: "photo_\(dateFormatter.string(from: Date())).jpeg")], alternativeRepresentations: [])
-                                    } else {
-                                        file = nil
-                                    }
-                                    
-                                    let context = strongSelf.context
-                                    let attributedText = parseMarkdownIntoAttributedString(text, attributes: MarkdownAttributes(body: MarkdownAttributeSet(font: .bold(15), textColor: .white), bold: MarkdownAttributeSet(font: .bold(15), textColor: .white), link: MarkdownAttributeSet(font: .bold(15), textColor: .link), linkAttribute: { contents in
-                                        return GeneralRowsHooks.shared.linkAttribute(contents, { _ in })
-                                    })).mutableCopy() as! NSMutableAttributedString
-                                    
-                                    let layout = TextViewLayout(attributedText, alignment: .center, lineSpacing: 5.0, alwaysStaticItems: true)
-                                    layout.interactions = TextViewInteractions(processURL: { [weak strongSelf] url  in
-                                         if let file = file {
-                                            showInFinder(file, account: context.account)
-                                            strongSelf?.close(false)
-                                        }
-                                    })
-                                    layout.measure(width: 160)
-                                    
-                                    if let file = file {
-                                        
-                                        _ = (copyToDownloads(file, postbox: context.account.postbox, saveAnyway: true) |> map { _ in } |> deliverOnMainQueue |> take(1) |> then (showSaveModal(for: strongSelf.window, context: context, animation: LocalAnimatedSticker.success_saved, shouldBlur: false, text: layout, delay: 3.0))).start()
-                                    } else {
-                                        savePanel(file: path.nsstring.deletingPathExtension, ext: path.nsstring.pathExtension, for: strongSelf.window)
-                                    }
-                                } else {
-                                    savePanel(file: path.nsstring.deletingPathExtension, ext: path.nsstring.pathExtension, for: strongSelf.window)
-                                }
-                            }
-                        }))
+                        return item.path.get() |> take(1)
                     default:
                         alert(for: self.window, info: isPhoto ? strings().galleryWaitDownloadPhoto : strings().galleryWaitDownloadVideo)
+                        return .complete()
                     }
-                    
+                }
+                operationDisposable.set((path |> deliverOnMainQueue).start(next: { [weak self] path in
+                    if let strongSelf = self {
+                        if fast {
+
+                            let text: String
+                            if item is MGalleryVideoItem {
+                                 text = strings().galleryViewFastSaveVideo1
+                            } else if item is MGalleryGIFItem {
+                                text = strings().galleryViewFastSaveGif1
+                            } else {
+                                text = strings().galleryViewFastSaveImage1
+                            }
+
+                            let dateFormatter = makeNewDateFormatter()
+                            dateFormatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
+
+
+                            let file: TelegramMediaFile?
+                            if let item = item as? MGalleryVideoItem {
+                                file = item.media
+                            } else if let item = item as? MGalleryGIFItem {
+                                file = item.media
+                            } else if let photo = item as? MGalleryPhotoItem {
+                                file = photo.entry.file ?? TelegramMediaFile(fileId: MediaId(namespace: 0, id: arc4random64()), partialReference: nil, resource: photo.media.representations.last!.resource, previewRepresentations: [], videoThumbnails: [], immediateThumbnailData: nil, mimeType: "image/jpeg", size: nil, attributes: [.FileName(fileName: "photo_\(dateFormatter.string(from: Date())).jpeg")], alternativeRepresentations: [])
+                            } else if let photo = item as? MGalleryPeerPhotoItem {
+                                file = TelegramMediaFile(fileId: MediaId(namespace: 0, id: arc4random64()), partialReference: nil, resource: photo.media.representations.last!.resource, previewRepresentations: [], videoThumbnails: [], immediateThumbnailData: nil, mimeType: "image/jpeg", size: nil, attributes: [.FileName(fileName: "photo_\(dateFormatter.string(from: Date())).jpeg")], alternativeRepresentations: [])
+                            } else {
+                                file = nil
+                            }
+
+                            let context = strongSelf.context
+                            let attributedText = parseMarkdownIntoAttributedString(text, attributes: MarkdownAttributes(body: MarkdownAttributeSet(font: .bold(15), textColor: .white), bold: MarkdownAttributeSet(font: .bold(15), textColor: .white), link: MarkdownAttributeSet(font: .bold(15), textColor: .link), linkAttribute: { contents in
+                                return GeneralRowsHooks.shared.linkAttribute(contents, { _ in })
+                            })).mutableCopy() as! NSMutableAttributedString
+
+                            let layout = TextViewLayout(attributedText, alignment: .center, lineSpacing: 5.0, alwaysStaticItems: true)
+                            layout.interactions = TextViewInteractions(processURL: { [weak strongSelf] url  in
+                                 if let file = file {
+                                    showInFinder(file, account: context.account)
+                                    strongSelf?.close(false)
+                                }
+                            })
+                            layout.measure(width: 160)
+
+                            if let file = file {
+
+                                _ = (copyToDownloads(file, postbox: context.account.postbox, saveAnyway: true) |> map { _ in } |> deliverOnMainQueue |> take(1) |> then (showSaveModal(for: strongSelf.window, context: context, animation: LocalAnimatedSticker.success_saved, shouldBlur: false, text: layout, delay: 3.0))).start()
+                            } else {
+                                savePanel(file: path.nsstring.deletingPathExtension, ext: path.nsstring.pathExtension, for: strongSelf.window)
+                            }
+                        } else {
+                            savePanel(file: path.nsstring.deletingPathExtension, ext: path.nsstring.pathExtension, for: strongSelf.window)
+                        }
+                    }
                 }))
-                
+
             }
-            
+
         }
     }
-    
+
     public func showMessage() -> Void {
         close()
         if let message = self.pager.selectedItem?.entry.message {
@@ -1535,6 +1540,8 @@ public class GalleryViewer: NSResponder {
     }
     
     public func share(_ control: Control) -> Void {
+        guard viewer === self else { return }
+        let generation = presentationGeneration
         let messages = pager.thumbsControl.items.compactMap { $0.entry.message }
         if let message = self.pager.selectedItem?.entry.message {
             if message.groupInfo != nil, !messages.isEmpty {
@@ -1553,8 +1560,8 @@ public class GalleryViewer: NSResponder {
                 }
                 
                 items.append(ContextMenuItem(thisTitle, handler: { [weak self] in
-                    guard let `self` = self else {return}
-                    GalleryHooks.shared.showShare(self.context, message, nil, self.window)
+                    guard let self, viewer === self, self.presentationGeneration == generation else { return }
+                    GalleryHooks.shared.showShareObserved(self.context, message, nil, self.window)
                 }, itemImage: MenuAnimation.menu_share.value))
                 
                 let allTitle: String
@@ -1569,8 +1576,8 @@ public class GalleryViewer: NSResponder {
                 }
                 
                 items.append(ContextMenuItem(allTitle, handler: { [weak self] in
-                    guard let `self` = self else {return}
-                    GalleryHooks.shared.showShare(self.context, message, messages, self.window)
+                    guard let self, viewer === self, self.presentationGeneration == generation else { return }
+                    GalleryHooks.shared.showShareObserved(self.context, message, messages, self.window)
                 }, itemImage: MenuAnimation.menu_share.value))
                 
                 let menu = ContextMenu(presentation: .current(darkPalette), betterInside: true)
@@ -1581,7 +1588,7 @@ public class GalleryViewer: NSResponder {
                     AppMenu.show(menu: menu, event: event, for: control)
                 }
             } else {
-                GalleryHooks.shared.showShare(self.context, message, nil, self.window)
+                GalleryHooks.shared.showShareObserved(self.context, message, nil, self.window)
             }
         }
     }
@@ -1619,6 +1626,7 @@ public class GalleryViewer: NSResponder {
     
     
     fileprivate func show(_ animated: Bool = true, _ ignoreStableId:AnyHashable? = nil) -> Void {
+        presentationGeneration += 1
         viewer = self
         NotificationCenter.default.removeObserver(self)
         NotificationCenter.default.addObserver(self, selector: #selector(windowDidBecomeKey), name: NSWindow.didBecomeKeyNotification, object: window)
@@ -1651,8 +1659,10 @@ public class GalleryViewer: NSResponder {
                         if let ignore = ignoreStableId?.base as? Int, ignore == innerIndex {
                             return nil
                         }
-                        let view = strongSelf?.delegate?.contentInteractionView(for: firstStableId, animateIn: false)
-                        return view?.subviews[innerIndex]
+                        guard let view = strongSelf?.delegate?.contentInteractionView(for: firstStableId, animateIn: false), view.subviews.indices.contains(innerIndex) else {
+                            return nil
+                        }
+                        return view.subviews[innerIndex]
                     }
                     if ignoreStableId != stableId {
                         return strongSelf?.delegate?.contentInteractionView(for: stableId, animateIn: false)
@@ -1682,21 +1692,26 @@ public class GalleryViewer: NSResponder {
         didSetReady = false
         NotificationCenter.default.removeObserver(self)
         if animated {
+            let presentationGeneration = self.presentationGeneration
             backgroundView._change(opacity: 0, animated: true)
             controls.animateOut()
             self.pager.animateOut(to: { [weak self] stableId in
                 if let firstStableId = self?.firstStableId, let innerIndex = stableId.base as? Int {
-                    let view = self?.delegate?.contentInteractionView(for: firstStableId, animateIn: false)
-                    return view?.subviews[innerIndex]
+                    guard let view = self?.delegate?.contentInteractionView(for: firstStableId, animateIn: false), view.subviews.indices.contains(innerIndex) else {
+                        return nil
+                    }
+                    return view.subviews[innerIndex]
                 }
                 return self?.delegate?.contentInteractionView(for: stableId, animateIn: true)
             }, completion: { [weak self] interactive, stableId in
-               
-                if let stableId = stableId {
-                    self?.delegate?.interactionControllerDidFinishAnimation(interactive: interactive, for: stableId)
+                guard let self, self.presentationGeneration == presentationGeneration, viewer === self else {
+                    return
                 }
-                self?.removeCaptureExclusion()
-                self?.window.orderOut(nil)
+                if let stableId = stableId {
+                    self.delegate?.interactionControllerDidFinishAnimation(interactive: interactive, for: stableId)
+                }
+                self.removeCaptureExclusion()
+                self.window.orderOut(nil)
                 viewer = nil
                 playPipIfNeeded()
             }, addAccesoryOnCopiedView: { [weak self] stableId, view in
@@ -1709,8 +1724,10 @@ public class GalleryViewer: NSResponder {
         } else {
             window.orderOut(nil)
             self.removeCaptureExclusion()
-            viewer = nil
-            playPipIfNeeded()
+            if viewer === self {
+                viewer = nil
+                playPipIfNeeded()
+            }
         }
         
     }
@@ -1731,6 +1748,8 @@ public class GalleryViewer: NSResponder {
     }
 
     private func updateCaptureExclusion() {
+        if viewer === self {
+        }
         let isProtected = pager.selectedItem?.entry.isProtected == true
             || pager.selectedItem?.entry.message?.isCopyProtected(cachedData: cachedPeerData) == true
         if isProtected {
@@ -1757,6 +1776,7 @@ public class GalleryViewer: NSResponder {
 public func closeGalleryViewer(_ animated: Bool) {
     viewer?.close(animated)
 }
+
 
 public func showChatGallery(context: any AccountContextProtocol, message:Message, _ delegate:InteractionContentViewProtocol? = nil, _ contentInteractions:(any GalleryContentInteractions)? = nil, type: GalleryAppearType = .history, reversed: Bool = false, chatMode: ChatMode?, chatLocation: ChatLocation?, contextHolder: Atomic<ChatLocationContextHolder?> = Atomic(value: nil), cachedPeerData: CachedPeerData? = nil) {
     if viewer == nil {

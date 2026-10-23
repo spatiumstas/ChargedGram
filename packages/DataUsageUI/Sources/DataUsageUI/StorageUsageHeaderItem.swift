@@ -52,6 +52,18 @@ public final class StorageUsageHeaderItem : GeneralRowItem {
         return 10 + self.headerLayout.layoutSize.height + 5 + self.textLayout.layoutSize.height + (progress > 0 ? 10 : 0)
     }
     
+    public override var accessibilityLabel: String? {
+        return headerLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return textLayout.attributedString.string
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
     public override func viewClass() -> AnyClass {
         return StorageUsageHeaderItemView.self
     }

@@ -48,6 +48,15 @@ private final class SelectBotRequestEmptyItem: GeneralRowItem {
     override func viewClass() -> AnyClass {
         return SelectBotRequestEmptyView.self
     }
+
+    override var accessibilityLabel: String? {
+        return title.attributedString.string
+    }
+
+    override var accessibilityValue: String? {
+        let text = requirements.attributedString.string
+        return text.isEmpty ? nil : text
+    }
 }
 
 private final class SelectBotRequestEmptyView: GeneralRowView {
@@ -122,6 +131,8 @@ private final class SelectBotRequestEmptyView: GeneralRowView {
         requirements.isSelectable = false
         titleView.userInteractionEnabled = false
         titleView.isSelectable = false
+        titleView.isAccessibilityDecorative = true
+        requirements.isAccessibilityDecorative = true
 
         
     }
@@ -149,6 +160,7 @@ private final class SelectBotRequestEmptyView: GeneralRowView {
         
         let size = button.update(animated: animated, text: item.button)
         button.isHidden = item.button.isEmpty
+        button.setAccessibilityLabel(item.button)
         button.setFrameSize(size)
         button.removeAllHandlers()
         button.set(handler: { [weak item] _ in
@@ -472,7 +484,15 @@ public func selectSpecificPeer(context: any AccountContextProtocol, peerType: Re
         let botPeerId = messageId.peerId
         _ = (context.account.postbox.loadedPeerWithId(botPeerId) |> deliverOnMainQueue).start(next: { peer in
             let managerUsername = peer.username ?? peer.displayTitle
-            showModal(with: SelectPeersHooks.shared.makeCreateBotModalController(context, managerUsername, createBot.suggestedUsername ?? "", createBot.suggestedName), for: context.window)
+            showModal(with: SelectPeersHooks.shared.makeCreateBotModalController(context, managerUsername, createBot.suggestedUsername ?? "", createBot.suggestedName, { createdBotId in
+                guard let createdBotId else {
+                    return
+                }
+                let signal = context.engine.peers.sendBotRequestedPeer(messageId: messageId, buttonId: buttonId, requestedPeerIds: [createdBotId])
+                _ = showModalProgress(signal: signal, for: context.window).start(error: { _ in
+                    showModalText(for: context.window, text: strings().unknownError)
+                })
+            }), for: context.window)
         })
         return
     }
@@ -574,8 +594,19 @@ public func selectSpecificPeerForWebView(context: any AccountContextProtocol, pe
     if case let .createBot(createBot) = peerType {
         _ = (context.account.postbox.loadedPeerWithId(botPeerId) |> deliverOnMainQueue).start(next: { peer in
             let managerUsername = peer.username ?? peer.displayTitle
-            showModal(with: SelectPeersHooks.shared.makeCreateBotModalController(context, managerUsername, createBot.suggestedUsername ?? "", createBot.suggestedName), for: window)
-            completion(true)
+            showModal(with: SelectPeersHooks.shared.makeCreateBotModalController(context, managerUsername, createBot.suggestedUsername ?? "", createBot.suggestedName, { createdBotId in
+                guard let createdBotId else {
+                    completion(false)
+                    return
+                }
+                let signal = context.engine.peers.sendBotRequestedPeer(peerId: botPeerId, requestId: requestId, buttonId: buttonId, requestedPeerIds: [createdBotId])
+                _ = showModalProgress(signal: signal, for: window).start(next: {
+                    completion(true)
+                }, error: { _ in
+                    showModalText(for: window, text: strings().unknownError)
+                    completion(false)
+                })
+            }), for: window)
         })
         return
     }

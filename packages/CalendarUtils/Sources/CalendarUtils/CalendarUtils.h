@@ -4,6 +4,9 @@
 
 @interface CalendarUtils : NSObject
 
+@property (class, nonatomic, readonly) NSInteger yearForNoYear;
++ (BOOL) isYearHidden:(NSInteger)year;
+
 + (BOOL) isSameDate:(NSDate*)d1 date:(NSDate*)d2 checkDay:(BOOL)checkDay;
 + (NSString*) dd:(NSDate*)d;
 + (NSInteger) colForDay:(NSInteger)day;

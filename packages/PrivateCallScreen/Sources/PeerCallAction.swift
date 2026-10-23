@@ -272,6 +272,40 @@ final class PeerCallActionView : Control {
     var size: NSSize {
         return backgroundView.frame.size
     }
+
+    var accessibilityDeclines: Bool = false
+
+    override var accessibilityDefaultLabel: String? {
+        guard let state = self.state else {
+            return nil
+        }
+        switch state.stableId {
+        case .mute:
+            return state.active ? strings().voiceOverCommonUnmute : strings().voiceOverCommonMute
+        case .video:
+            return strings().voiceOverCommonCamera
+        case .screencast:
+            return strings().voiceOverCommonShareScreen
+        case .accept:
+            return strings().voiceOverCommonAccept
+        case .end:
+            return accessibilityDeclines ? strings().voiceOverCommonDecline : strings().voiceOverCommonEndCall
+        case .redial:
+            return state.stableId.title
+        }
+    }
+
+    override func accessibilityValue() -> Any? {
+        guard let state = self.state else {
+            return nil
+        }
+        switch state.stableId {
+        case .video, .screencast:
+            return state.active ? strings().voiceOverCommonOn : strings().voiceOverCommonOff
+        default:
+            return nil
+        }
+    }
     
     func update(_ data: PeerCallAction, animated: Bool) {
         
@@ -288,6 +322,7 @@ final class PeerCallActionView : Control {
                 current.isSelectable = false
                 current.userInteractionEnabled = false
                 current.isEventLess = true
+                current.isAccessibilityDecorative = true
                 addSubview(current)
             }
             if current.textLayout?.attributedString.string != text {

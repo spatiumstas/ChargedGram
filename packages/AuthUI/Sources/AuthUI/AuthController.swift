@@ -125,6 +125,8 @@ public final class AuthView : Control {
         proxyButton.scaleOnClick = true
         proxyButton.setGlassEffect()
 
+        back.setAccessibilityLabel(strings().voiceOverCommonClose)
+        proxyButton.setAccessibilityLabel(strings().proxySettingsTitle)
         back.autohighlight = false
         back.scaleOnClick = true
         back.setGlassEffect()
@@ -1164,7 +1166,10 @@ public class AuthController : GenericViewController<AuthView> {
                 })
             case .signUp:
                 controller = signup_c
-                signup_c.update(state.locked, error: state.signError, takeNext: { firstName, lastName, photo in
+                signup_c.update(state.locked, error: state.signError, takeNext: { [weak self] firstName, lastName, photo in
+                    guard let self else {
+                        return
+                    }
                     
                     let photoData: Data?
                     if let photo = photo {
@@ -1203,7 +1208,18 @@ public class AuthController : GenericViewController<AuthView> {
                     
                 })
             case .payment:
-                fatalError("not supported")
+                let account = self.account
+                _ = (account.postbox.transaction { transaction -> Bool in
+                    guard let state = transaction.getState() as? UnauthorizedAccountState, case .payment = state.contents else {
+                        return false
+                    }
+                    transaction.setState(UnauthorizedAccountState(isTestingEnvironment: account.testingEnvironment, masterDatacenterId: account.masterDatacenterId, contents: .empty))
+                    return true
+                } |> deliverOnMainQueue).start(next: { [weak self] didReset in
+                    if didReset, let window = self?.window {
+                        alert(for: window, header: strings().authControllerSmsFeeHeader, info: strings().authControllerSmsFeeInfo)
+                    }
+                })
             }
         }
         

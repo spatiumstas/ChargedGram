@@ -9,14 +9,17 @@ private let fadeOutTime: TimeInterval = 0.7
 public class SpinningProgressView: View {
 
     
-    public var color: NSColor = presentation.colors.text
+    public var color: NSColor = presentation.colors.text {
+        didSet { finColorsNeedUpdate = true }
+    }
     public var currentValue: CGFloat = 0.0
     public var maxValue: CGFloat = 0.0
     
     
     private var currentPosition: Int
     private var finColors: [NSColor] = Array<NSColor>(repeating: presentation.colors.text, count: numberOfFins)
-    private var isAnimating:Bool
+    private var finColorsNeedUpdate = true
+    private(set) var isAnimating:Bool
     private var animationTimer: SwiftSignalKit.Timer? = nil
     private var isFadingOut: Bool
     private var fadeOutStartTime: Date = Date()
@@ -53,10 +56,12 @@ public class SpinningProgressView: View {
     }
     
     public func stopAnimation() {
+        guard isAnimating, !isFadingOut else { return }
         isFadingOut = true
         fadeOutStartTime = Date()
     }
     public func startAnimation() {
+        guard !isAnimating || isFadingOut else { return }
         self.actuallyStartAnimation()
     }
 
@@ -77,6 +82,7 @@ public class SpinningProgressView: View {
         isFadingOut = false
         
         currentPosition = 0
+        finColorsNeedUpdate = true
         
         animationTimer = SwiftSignalKit.Timer(timeout: 0.04, repeat: true, completion: { [weak self] in
             self?.updateTimer()
@@ -91,9 +97,15 @@ public class SpinningProgressView: View {
         
         let minAlpha = alphaWhenStopped
         
-        for i in 0 ..< numberOfFins {
-            let newAlpha = max(alphaValue(forPosition: numberOfFins - i), minAlpha)
-            self.finColors[i] = color.withAlphaComponent(newAlpha)
+        if isFadingOut || finColorsNeedUpdate {
+            for i in 0 ..< numberOfFins {
+                let newAlpha = max(alphaValue(forPosition: numberOfFins - i), minAlpha)
+                self.finColors[i] = color.withAlphaComponent(newAlpha)
+            }
+            finColorsNeedUpdate = false
+        } else {
+            let last = finColors.removeLast()
+            finColors.insert(last, at: 0)
         }
         
         if isFadingOut {
@@ -105,7 +117,7 @@ public class SpinningProgressView: View {
         self.needsDisplay = true
 
         if !isFadingOut {
-            self.currentPosition = currentPosition + 1 % numberOfFins
+            self.currentPosition = (currentPosition + 1) % numberOfFins
         }
     }
     

@@ -684,6 +684,7 @@ open class SelectivePrivacySettingsController<Context: AccountContextProtocol>: 
 
 
 
+
     open override func viewDidLoad() {
         super.viewDidLoad()
         
@@ -991,8 +992,8 @@ open class SelectivePrivacySettingsController<Context: AccountContextProtocol>: 
                         for (key, _) in updatedPeerIds {
                             disableFor.removeValue(forKey: key)
                         }
-                        current.enableForPremium = updatedPeerIds.contains (where: { $0.key.namespace._internalGetInt32Value() == ChatListFilterPeerCategories.Namespace })
-                        current.enableForBots = updatedPeerIds.contains (where: { $0.key.namespace._internalGetInt32Value() == ChatListFilterPeerCategories.Namespace })
+                        current.enableForPremium = updatedPeerIds[TelegramFilterCategory(category: .premiumUsers).id] != nil
+                        current.enableForBots = updatedPeerIds[TelegramFilterCategory(category: .miniApps).id] != nil
 
                         current.enableFor = updatedPeerIds.filter({ $0.key.namespace._internalGetInt32Value() != ChatListFilterPeerCategories.Namespace })
                         current.disableFor = disableFor
@@ -1250,6 +1251,7 @@ open class SelectivePrivacySettingsController<Context: AccountContextProtocol>: 
                 }))
                 
                 updated(settings, callSettings, phoneDiscoveryEnabled, gSettings)
+
 
             }
         }

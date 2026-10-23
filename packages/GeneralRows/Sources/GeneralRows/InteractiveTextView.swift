@@ -16,7 +16,7 @@ public final class InteractiveTextView : Control {
     public var isLite: Bool = false
     private var decreaseAvatar: CGFloat = 0
 
-    private let inlineRenderer: InlineTextRenderer = GeneralRowsHooks.shared.makeInlineTextRenderer()
+    private var inlineRenderer: InlineTextRenderer?
 
     private var visualEffect: VisualEffect? = nil
 
@@ -52,18 +52,30 @@ public final class InteractiveTextView : Control {
     }
 
     public func set(text: TextViewLayout?, context: (any AccountContextProtocol)?, insetEmoji: CGFloat = 0, decreaseAvatar: CGFloat = 0, emojiOffset: NSPoint = .init()) {
+        let hasInlineContent = context != nil && text?.embeddedItems.isEmpty == false
+        if !hasInlineContent {
+            self.inlineRenderer?.updateAnimatableContent(window: nil, isLite: true)
+            self.inlineRenderer?.clear()
+            self.inlineRenderer = nil
+            self.animatableContentObserver = nil
+        }
         self.decreaseAvatar = decreaseAvatar
         self.textView.update(text)
         self.context = context
         if let text {
             self.setFrameSize(text.layoutSize)
         }
-        if let context, let text {
+        if let context, text != nil {
             self.isLite = context.isLite(.emoji)
-            self.inlineRenderer.update(textView: self.textView, layout: text, context: context, insetEmoji: insetEmoji, emojiOffset: emojiOffset, decreaseAvatar: decreaseAvatar)
-        } else {
-            self.inlineRenderer.clear()
         }
+        if hasInlineContent, let context, let text {
+            if self.inlineRenderer == nil {
+                self.inlineRenderer = GeneralRowsHooks.shared.makeInlineTextRenderer()
+            }
+            self.inlineRenderer?.update(textView: self.textView, layout: text, context: context, insetEmoji: insetEmoji, emojiOffset: emojiOffset, decreaseAvatar: decreaseAvatar)
+        }
+        self.updateListeners()
+        self.updateAnimatableContent()
     }
 
     public func resize(_ width: CGFloat) {
@@ -87,16 +99,25 @@ public final class InteractiveTextView : Control {
         super.layout()
         self.textView.center()
         visualEffect?.frame = bounds
+        self.updateAnimatableContent()
     }
 
     @objc func updateAnimatableContent() -> Void {
-        self.inlineRenderer.updateAnimatableContent(window: window, isLite: isLite)
+        guard let inlineRenderer = inlineRenderer else { return }
+        inlineRenderer.updateAnimatableContent(window: window, isLite: isLite)
     }
 
-    private let animatableContentObserver = AnimatableContentObserver()
+    private var animatableContentObserver: AnimatableContentObserver?
 
     private func updateListeners() {
-        animatableContentObserver.update(for: self, target: self, selector: #selector(updateAnimatableContent), options: [.contentBounds, .documentFrame, .ownFrame])
+        guard window != nil, inlineRenderer != nil else {
+            animatableContentObserver = nil
+            return
+        }
+        if animatableContentObserver == nil {
+            animatableContentObserver = AnimatableContentObserver()
+        }
+        animatableContentObserver?.update(for: self, target: self, selector: #selector(updateAnimatableContent), options: [.contentBounds, .documentFrame, .ownFrame])
     }
 
     private func updateBackgroundBlur() {

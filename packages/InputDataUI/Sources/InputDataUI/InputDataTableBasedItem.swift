@@ -121,6 +121,17 @@ public final class InputDataTableBasedItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return InputDataTableBasedItemView.self
     }
+
+    public override var accessibilityLabel: String? {
+        let lines: [String] = rows.compactMap { row in
+            let right = row.right.name.attributedString.string
+            if let left = row.left?.attributedString.string, !left.isEmpty {
+                return right.isEmpty ? left : "\(left): \(right)"
+            }
+            return right.isEmpty ? nil : right
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: ", ")
+    }
 }
 
 

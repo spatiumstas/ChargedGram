@@ -205,9 +205,9 @@ func walletPendingTransferClockHandAngles(time: Double) -> (minute: CGFloat, hou
     return (CGFloat(time * 4.2), CGFloat(time * 4.2 / 12.0 - .pi / 2.0))
 }
 
-func walletPendingTransferAmountTransform(expansion: CGFloat, width: CGFloat, verticalOffset: CGFloat) -> (scale: CGFloat, translation: CGPoint) {
+func walletPendingTransferAmountTransform(expansion: CGFloat, width: CGFloat, verticalOffset: CGFloat, isCollectible: Bool = false) -> (scale: CGFloat, translation: CGPoint) {
     let scale = 1.0 + 0.33 * expansion
-    return (scale, CGPoint(x: -23.0 * expansion - (scale - 1.0) * width * 0.5, y: verticalOffset * expansion))
+    return (scale, CGPoint(x: (isCollectible ? -19.0 : -23.0) * expansion - (scale - 1.0) * width * 0.5, y: verticalOffset * expansion))
 }
 
 @available(macOS 10.15, *)
@@ -242,6 +242,8 @@ public typealias WalletSendTransferAnimation = (String, WalletSendTransferAnimat
 @available(macOS 10.15, *)
 final class WalletPendingTransferAnimation: Equatable {
     let id: String
+    private let isCollectible: Bool
+    private let giftIcon = ImageView()
     var isPending = true
     var onFinished: (() -> Void)?
     private(set) var finished = false
@@ -271,8 +273,11 @@ final class WalletPendingTransferAnimation: Equatable {
         return self.flightSource != nil
     }
 
-    init(id: String) {
+    init(id: String, isCollectible: Bool = false) {
         self.id = id
+        self.isCollectible = isCollectible
+        self.giftIcon.isEventLess = true
+        self.giftIcon.isAccessibilityDecorative = true
         self.underlay.mask = self.underlayMask
         self.surface.cornerRadius = 22.0
         self.surface.shadowColor = NSColor.black.cgColor
@@ -395,8 +400,13 @@ final class WalletPendingTransferAnimation: Equatable {
         container.insertSublayer(self.surface, above: self.underlay)
         container.addSublayer(self.sheen)
         container.addSublayer(self.particles)
+        if self.isCollectible {
+            self.giftIcon.image = NSImage(named: "Wallet_TransactionCollectibleLarge")?.precomposed(theme.colors.grayText)
+            self.giftIcon.sizeToFit()
+            row.containerView.addSubview(self.giftIcon)
+        }
         #if arch(arm64)
-        if self.diamond == nil && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        if !self.isCollectible && self.diamond == nil && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             let diamond = InteractiveDiamondView(frame: NSMakeRect(0, 0, 150, 150))
             diamond.update(size: NSMakeSize(150, 150), diamondWidth: 34.0, isVisible: false, lightBackground: !theme.colors.isDark)
             diamond.prepareForWalletTransfer()
@@ -430,6 +440,7 @@ final class WalletPendingTransferAnimation: Equatable {
         self.surface.removeFromSuperlayer()
         self.sheen.removeFromSuperlayer()
         self.particles.removeFromSuperlayer()
+        self.giftIcon.removeFromSuperview()
         #if arch(arm64)
         if !self.isFlying {
             self.diamond?.removeFromSuperview()
@@ -517,10 +528,16 @@ final class WalletPendingTransferAnimation: Equatable {
         self.updateSheen(bounds: container.bounds, elapsed: motion.elapsed, opacity: motion.showsSheen ? 1.0 : 0.0)
         row.borderView.opacity = Float(1.0 - motion.clockAlpha)
         #if arch(arm64)
-        row.applyTransferPresentation(expansion: motion.expansion, iconAlpha: motion.iconAlpha, iconScale: motion.iconScale, clockAlpha: motion.clockAlpha, time: motion.clockTime)
+        let animatesIcon = true
+        #else
+        let animatesIcon = self.isCollectible
+        #endif
+        row.applyTransferPresentation(expansion: animatesIcon ? motion.expansion : 0, iconAlpha: animatesIcon ? motion.iconAlpha : 1, iconScale: animatesIcon ? motion.iconScale : 1, clockAlpha: motion.clockAlpha, time: motion.clockTime)
         let icon = row.transferIconFrame
-        let pending = NSMakePoint(container.bounds.width - row.transferRightInset - 18.5, container.bounds.height * 0.5)
+        let amount = row.transferAmountFrame
+        let pending = self.isCollectible ? NSMakePoint(amount.maxX + 2 + giftIcon.frame.width / 2, amount.midY) : NSMakePoint(container.bounds.width - row.transferRightInset - 18.5, container.bounds.height * 0.5)
         let slot = motion.slot(normal: NSMakePoint(icon.midX, icon.midY), pending: pending)
+        #if arch(arm64)
         if let source = self.flightSource, let flightStart = self.flightStart, let overlay = self.flightOverlay, let diamond = self.diamond {
             let t = WalletPendingTransferFlight.progress(now: now, start: flightStart)
             let origin = overlay.convert(source.center, from: nil)
@@ -551,10 +568,25 @@ final class WalletPendingTransferAnimation: Equatable {
             diamond.updateWalletTransfer(width: motion.diamondWidth(iconWidth: icon.width), rotationSpeed: 6.5, completion: motion.finish != nil, isDark: theme.colors.isDark)
             diamond.isRenderingEnabled = !reduced && diamond.alphaValue > 0.0
         }
-        self.updateStars(bounds: container.bounds, time: motion.starTime, origin: pending)
-        #else
-        row.applyTransferPresentation(expansion: 0.0, iconAlpha: 1.0, iconScale: 1.0, clockAlpha: motion.clockAlpha, time: motion.clockTime)
         #endif
+        if self.isCollectible {
+            let scale: CGFloat
+            if let finish = motion.finish {
+                let pop = CGFloat(sin(.pi * min(1, finish / 0.26))) * 0.3
+                let shrink = CGFloat(max(0, min(1, (finish - 0.18) / 0.16)))
+                scale = (1 + pop) * (1 - shrink) + icon.width / max(1, giftIcon.frame.width) * shrink
+            } else {
+                scale = reduced ? 1 : 1 + 0.08 * CGFloat(sin(2 * .pi * motion.elapsed / 1.1))
+            }
+            giftIcon.setFrameOrigin(NSMakePoint(slot.x - giftIcon.frame.width / 2, slot.y - giftIcon.frame.height / 2))
+            if let layer = giftIcon.layer {
+                layer.transform = walletAmountCenteredTransform(CATransform3DMakeScale(max(0.001, scale), max(0.001, scale), 1), layer: layer)
+            }
+            giftIcon.alphaValue = reduced ? 0 : motion.finish.map { CGFloat(max(0, min(1, 1 - ($0 - 0.35) / 0.1))) } ?? 1
+        }
+        if animatesIcon {
+            self.updateStars(bounds: container.bounds, time: motion.starTime, origin: pending)
+        }
         CATransaction.commit()
         if motion.finished {
             self.finish()

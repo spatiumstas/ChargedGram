@@ -446,6 +446,10 @@ open class GeneralRowItem: TableRowItem {
         }
     }
     
+    open override var accessibilityIsSpacer: Bool {
+        return Swift.type(of: self) == GeneralRowItem.self
+    }
+
     open override func viewClass() -> AnyClass {
         if containable {
             return GeneralContainableRowView.self

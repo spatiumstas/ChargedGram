@@ -38,6 +38,18 @@ private final class LimitedRowItem : GeneralRowItem {
         self.availability = availability
         super.init(initialSize, height: 30 + 48, stableId: stableId)
     }
+
+    public override var accessibilityLabel: String? {
+        return strings().giftingStarGiftLimited
+    }
+
+    public override var accessibilityValue: String? {
+        return strings().starTransactionAvailabilityOf(Int(availability.remains), Int(availability.total).prettyNumber)
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
     
     public override func viewClass() -> AnyClass {
         return LimitedRowView.self
@@ -294,6 +306,19 @@ public final class AuctionLimitRowItem : GeneralRowItem {
     public init(_ initialSize: NSSize, stableId: AnyHashable, availability: StarGift.Gift.Availability) {
         self.availability = availability
         super.init(initialSize, height: 30, stableId: stableId)
+    }
+
+    public override var accessibilityLabel: String? {
+        return strings().starAuctionSendPreviewLeftOther(Int(availability.remains))
+    }
+
+    public override var accessibilityValue: String? {
+        let sold = Int(availability.total - availability.remains)
+        return sold > 0 ? strings().starAuctionSendPreviewSoldOther(sold) : nil
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
     }
     
     public override func viewClass() -> AnyClass {
@@ -619,6 +644,21 @@ private final class PreviewRowItem : GeneralRowItem {
         return true
     }
     
+    public override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        var parts: [String] = [headerLayout.attributedString.string, infoLayout.attributedString.string.replacingOccurrences(of: "\u{FFFC}", with: "")]
+        if case let .starGift(option) = source, let availability = option.native.generic?.availability {
+            parts.append(strings().starTransactionAvailabilityOf(1, Int(availability.total).prettyNumber))
+        }
+        if let authorLayout {
+            parts.append(authorLayout.attributedString.string)
+        }
+        return parts.filter { !$0.isEmpty }.joined(separator: ", ")
+    }
+
     public override func viewClass() -> AnyClass {
         return PreviewRowView.self
     }
@@ -828,6 +868,7 @@ private final class PreviewRowView : GeneralContainableRowView {
                         current = view
                     } else {
                         current = ImageView()
+                        current.isAccessibilityDecorative = true
                         addSubview(current)
                         self.imageView = current
                     }

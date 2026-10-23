@@ -140,7 +140,9 @@ private func inactiveEntries(state: InactiveChannelsState, arguments: InactiveCh
     return entries
 }
 
+
 public func InactiveChannelsController(context: any AccountContextProtocol, source: InactiveSource) -> InputDataModalController {
+    let closed = Atomic(value: false)
     let initialState = InactiveChannelsState(channels: nil)
     let statePromise = ValuePromise<InactiveChannelsState>(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
@@ -151,13 +153,15 @@ public func InactiveChannelsController(context: any AccountContextProtocol, sour
     
     let disposable = MetaDisposable()
     
-    disposable.set((context.engine.peers.inactiveChannelList() |> delay(0.5, queue: .mainQueue())).start(next: { channels in
+    disposable.set((context.engine.peers.inactiveChannelList() |> delay(0.5, queue: .mainQueue()) |> deliverOnMainQueue).start(next: { channels in
+        guard !closed.with({ $0 }) else { return }
         updateState {
             $0.withUpdatedChannels(channels)
         }
     }))
     
     let arguments = InactiveChannelsArguments(context: context, select: SelectPeerInteraction(), premium: {
+        guard !closed.with({ $0 }) else { return }
         prem(with: PremiumBoardingController(context: context, source: .double_limits(.channels)), for: context.window)
     })
     
@@ -170,15 +174,15 @@ public func InactiveChannelsController(context: any AccountContextProtocol, sour
     var close: (()->Void)? = nil
     
     let modalInteractions = ModalInteractions(acceptTitle: strings().inactiveChannelsOK, accept: {
+        guard !closed.swap(true) else { return }
+        let selected = arguments.select.presentation.selected
+        let peers = arguments.select.presentation.peers.map { $0.value }
         close?()
-        
-        if !arguments.select.presentation.selected.isEmpty {
-            let removeSignal = combineLatest(arguments.select.presentation.selected.map { context.engine.peers.removePeerChat(peerId: $0, reportChatSpam: false)}) |> ignoreValues
-            let peers = arguments.select.presentation.peers.map { $0.value }
-            
+
+        if !selected.isEmpty {
+            let removeSignal = combineLatest(selected.map { context.engine.peers.removePeerChat(peerId: $0, reportChatSpam: false)}) |> ignoreValues
             let signal = context.engine.peers.ensurePeersAreLocallyAvailable(peers: peers.map(EnginePeer.init)) |> then(removeSignal)
-            
-            _ = showModalProgress(signal: signal, for: context.window).start()
+            _ = (showModalProgress(signal: signal, for: context.window)).start()
         }
         
     }, singleButton: true)
@@ -211,12 +215,19 @@ public func InactiveChannelsController(context: any AccountContextProtocol, sour
         return .none
     }
     controller.onDeinit = {
+        _ = closed.swap(true)
         disposable.dispose()
     }
     
-    let modalController = InputDataModalController(controller, modalInteractions: modalInteractions, closeHandler: { f in f() }, size: NSMakeSize(400, 300))
+    let modalController = InputDataModalController(controller, modalInteractions: modalInteractions, closeHandler: { f in
+        _ = closed.swap(true)
+        disposable.dispose()
+        f()
+    }, size: NSMakeSize(400, 300))
     
     close = { [weak modalController] in
+        _ = closed.swap(true)
+        disposable.dispose()
         modalController?.close()
     }
     
@@ -245,6 +256,7 @@ public enum InactiveSource {
         return strings().inactiveChannelsBlockHeader
     }
 }
+
 
 public func showInactiveChannels(context: any AccountContextProtocol, source: InactiveSource) {
     showModal(with: InactiveChannelsController(context: context, source: source), for: context.window)

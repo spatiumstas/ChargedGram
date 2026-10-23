@@ -133,7 +133,7 @@ public func insertSupportedFileMockMessage(context: any AccountContextProtocol, 
             ),
             .paragraph(.plain("Above this text is the resolved file."))
         ],
-        media: [mediaId: file],
+        media: [mediaId: EngineMedia(file)],
         isComplete: true,
         rtl: false,
         url: "",

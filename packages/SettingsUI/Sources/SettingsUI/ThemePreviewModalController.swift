@@ -50,6 +50,9 @@ private final class ThemeChatPreviewRowItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return ThemeChatPreviewRowView.self
     }
+    public override var accessibilityLabel: String? {
+        return strings().voiceOverCommonTheme
+    }
 }
 
 private final class ThemeChatPreviewRowView: TableRowView {
@@ -78,11 +81,13 @@ private final class ThemeChatPreviewRowView: TableRowView {
         dismissButton.set(image: theme.icons.glass_close, for: .Normal)
         dismissButton.setGlassEffect()
         dismissButton.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
+        dismissButton.setAccessibilityLabel(strings().voiceOverCommonClose)
         addSubview(dismissButton)
 
         shareButton.set(image: TelegramThemeHooks.shared.image(.iconShareStickerPack).precomposed(theme.colors.text), for: .Normal)
         shareButton.setGlassEffect()
         shareButton.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
+        shareButton.setAccessibilityLabel(strings().voiceOverCommonShare)
         addSubview(shareButton)
 
         tableView.addScroll(listener: TableScrollListener(dispatchWhenVisibleRangeUpdated: false, { [weak self] _ in

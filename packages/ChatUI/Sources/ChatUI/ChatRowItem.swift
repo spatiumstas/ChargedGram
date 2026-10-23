@@ -32,6 +32,7 @@ public struct ChatFloatingPhoto {
     public var items:[ChatRowItem]
     public var photoView: NSView?
     public var isAnchor: Bool
+    var node: ChatFloatingAvatarNode? = nil
     public init(point: NSPoint, items: [ChatRowItem], photoView: NSView?, isAnchor: Bool) {
         self.point = point
         self.items = items
@@ -61,6 +62,10 @@ public final class ChatHistoryBottomRowItem: GeneralRowItem {
 
     public override var height: CGFloat {
         return ChatHistoryBottomRowItem.height(for: inputOverlayHeight.with { $0 })
+    }
+
+    public override var accessibilityIsSpacer: Bool {
+        return true
     }
 }
 
@@ -130,8 +135,6 @@ public class ChatRowItem: TableRowItem {
         return entry.additionalData.monoforumState
     }
     
-    private var updateCountDownTimer: SwiftSignalKit.Timer?
-    public var updateTooltip:((String)->Void)? = nil
     public var firstMessage: Message? {
         return messages.first
     }
@@ -160,7 +163,6 @@ public class ChatRowItem: TableRowItem {
     public private(set) var messageEffect: AvailableMessageEffects.MessageEffect?
    
     public private(set) var fullDate:String?
-    public private(set) var originalFullDate:String?
     public private(set) var nameHide: String?
     
     public var nameColor: NSColor {
@@ -227,6 +229,22 @@ public class ChatRowItem: TableRowItem {
     public private(set) var adminBadgeColor: NSColor?
     public private(set) var adminBadgeCanEdit: Bool = false
     public private(set) var adminBadgeAuthorId: PeerId?
+
+    #if DEBUG
+    typealias DebugAdminBadgeState = (badge: TextViewLayout?, isRank: Bool, rankType: AdminBadgeType, color: NSColor?, canEdit: Bool, authorId: PeerId?)
+
+    var debugAdminBadgeState: DebugAdminBadgeState {
+        get { (adminBadge, adminBadgeIsRank, adminBadgeRankType, adminBadgeColor, adminBadgeCanEdit, adminBadgeAuthorId) }
+        set {
+            adminBadge = newValue.badge
+            adminBadgeIsRank = newValue.isRank
+            adminBadgeRankType = newValue.rankType
+            adminBadgeColor = newValue.color
+            adminBadgeCanEdit = newValue.canEdit
+            adminBadgeAuthorId = newValue.authorId
+        }
+    }
+    #endif
     
     public private(set) var boostBadge:TextViewLayout?
     public private(set) var guestChatBadge: TextViewLayout?
@@ -941,7 +959,7 @@ public class ChatRowItem: TableRowItem {
     internal var _isBigEmoji: Bool?
     public func share() {
         if let message = message {
-            showModal(with: ChatHistoryUIHooks.shared.makeShareMessageModal(context, message), for: context.window)
+            showModal(with: ChatHistoryUIHooks.shared.makeShareMessagesModalObserved(context, message), for: context.window)
         }
     }
     
@@ -1767,7 +1785,7 @@ public class ChatRowItem: TableRowItem {
             let chatInteraction = self.chatInteraction
             if let reactions = reactions, !reactions.reactions.isEmpty, let available = context.reactions.available {
                 let layout = ChatReactionsLayout(context: chatInteraction.interactionContext, message: message, available: available, peerAllowed: chatInteraction.presentation.allowedReactions, savedMessageTags: entry.additionalData.savedMessageTags, engine: chatInteraction.interactionContext.reactions, theme: presentation, renderType: renderType, currentTag: currentTag, isIncoming: isIncoming, isOutOfBounds: isBubbleFullFilled && (self.captionLayouts.isEmpty || invertMedia) && (commentsBubbleData == nil || !invertMedia), hasWallpaper: presentation.hasWallpaper, stateOverlayTextColor: isStateOverlayLayout ? stateOverlayTextColor : (!hasBubble ? presentation.colors.grayText : presentation.chat.grayText(isIncoming, entry.renderType == .bubble)), openInfo: { peerId in
-                    ChatHistoryUIHooks.shared.pushReactionPeerInfo(context.bindings.rootNavigation(), context, peerId, message.id)
+                    ChatHistoryUIHooks.shared.pushReactionPeerInfoObserved(context.bindings.rootNavigation(), context, peerId, message.id)
                 }, runEffect: { [weak chatInteraction] value in
                     chatInteraction?.runReactionEffect(value, message.id)
                 }, tagAction: { [weak chatInteraction] reaction in
@@ -2563,8 +2581,8 @@ public class ChatRowItem: TableRowItem {
         super.init(initialSize)
         
         hiddenFwdTooltip = { [weak self] in
-            guard let view = self?.view as? ChatRowView, let forwardName = view.forwardName else { return }
-            tooltip(for: forwardName, text: strings().chatTooltipHiddenForwardName, autoCorner: false)
+            guard let view = self?.view as? ChatRowView else { return }
+            view.showHiddenForwardTooltip()
         }
         
         let editedAttribute = messages.compactMap({
@@ -2756,35 +2774,21 @@ public class ChatRowItem: TableRowItem {
 
             if message.adAttribute == nil, chatInteraction.mode.customChatContents == nil {
                 self.fullDate = fullDate
-                self.originalFullDate = fullDate
             }
         }
     }
 
-    public func runTimerIfNeeded() {
-        let context = self.chatInteraction.interactionContext
-        if let attr = message?.autoremoveAttribute, let begin = attr.countdownBeginTime, let fullDate = originalFullDate {
-            if self.updateCountDownTimer == nil {
-                self.updateCountDownTimer = SwiftSignalKit.Timer(timeout: 1.0, repeat: true, completion: { [weak self] in
-                    let left = Int(begin + attr.timeout - context.timestamp)
-                    if left >= 0 {
-                        let leftText = "\n\n" + strings().chatContextMenuAutoDelete(smartTimeleftText(left))
-                        self?.fullDate = fullDate + leftText
-                        self?.updateTooltip?(fullDate + leftText)
-                    } else {
-                        self?.updateCountDownTimer = nil
-                    }
-                }, queue: .mainQueue())
-                self.updateCountDownTimer?.start()
-            }
-        } else {
-            updateCountDownTimer = nil
+    func tooltipCountdownText() -> String? {
+        guard let attr = message?.autoremoveAttribute, let begin = attr.countdownBeginTime, let fullDate else {
+            return nil
         }
+        let left = Int(begin) + Int(attr.timeout) - Int(chatInteraction.interactionContext.timestamp)
+        guard left >= 0 else {
+            return nil
+        }
+        return fullDate + "\n\n" + strings().chatContextMenuAutoDelete(smartTimeleftText(left))
     }
-    public func cancelTimer() {
-        self.updateCountDownTimer = nil
-    }
-    
+
     public init(_ initialSize:NSSize, _ chatInteraction:ChatInteraction, _ entry: ChatHistoryEntry, theme: TelegramPresentationTheme) {
         self.entry = entry
         self.context = chatInteraction.interactionContext
@@ -2965,8 +2969,13 @@ public class ChatRowItem: TableRowItem {
 //        }
         
         let cachedContentOffset = contentOffset
-        channelViews?.measure(width: hasBubble ? 60 : max(150,width - cachedContentOffset.x - 44 - 150))
-        replyCount?.measure(width: hasBubble ? 60 : max(150,width - cachedContentOffset.x - 44 - 150))
+        let metadataWidth = hasBubble ? 60 : max(150, width - cachedContentOffset.x - 44 - 150)
+        if let channelViews = channelViews, channelViews.constrainedWidth != metadataWidth || channelViews.layoutSize == .zero {
+            channelViews.measure(width: metadataWidth)
+        }
+        if let replyCount = replyCount, replyCount.constrainedWidth != metadataWidth || replyCount.layoutSize == .zero {
+            replyCount.measure(width: metadataWidth)
+        }
 
 
         self.rightFrames = isIncomingTypingDraft ? nil : ChatRightView.Frames(self, size: NSMakeSize(.greatestFiniteMagnitude, rightHeight))
@@ -3049,7 +3058,10 @@ public class ChatRowItem: TableRowItem {
             if isBubbled && !hasBubble {
                 w = width - _contentSize.width - 85 - (monoforumState == .vertical ? 80 : 0)
             }
-            forwardNameLayout.measure(width: min(w, 250))
+            let forwardWidth = min(w, 250)
+            if forwardNameLayout.constrainedWidth != forwardWidth || forwardNameLayout.layoutSize == .zero {
+                forwardNameLayout.measure(width: forwardWidth)
+            }
         }
         
         if (forwardType == .FullHeader || forwardType == .ShortHeader) && (entry.renderType == .bubble || message?.forwardInfo?.psaType == nil), renderType == .list {
@@ -3064,8 +3076,13 @@ public class ChatRowItem: TableRowItem {
                 text = strings().messagesForwardHeader
             }
             
-            forwardHeader = .init(.initialize(string: text, color: color, font: .normal(.text)), maximumNumberOfLines: 1)
-            forwardHeader?.measure(width: .greatestFiniteMagnitude)
+            let attributedText = NSAttributedString.initialize(string: text, color: color, font: .normal(.text))
+            if forwardHeader?.attributedString.isEqual(to: attributedText) != true {
+                forwardHeader = .init(attributedText, maximumNumberOfLines: 1)
+            }
+            if let forwardHeader = forwardHeader, forwardHeader.constrainedWidth != .greatestFiniteMagnitude || forwardHeader.layoutSize == .zero {
+                forwardHeader.measure(width: .greatestFiniteMagnitude)
+            }
         } else {
             forwardHeader = nil
         }
@@ -3101,7 +3118,10 @@ public class ChatRowItem: TableRowItem {
             if let boostBadge = boostBadge {
                 adminWidth += boostBadge.layoutSize.width
             }
-            authorText.measure(width: replyModel.size.width - 10 - adminWidth)
+            let authorWidth = replyModel.size.width - 10 - adminWidth
+            if authorText.constrainedWidth != authorWidth || authorText.layoutSize == .zero {
+                authorText.measure(width: authorWidth)
+            }
             
             replyModel.topOffset = authorText.layoutSize.height + 6
             replyModel.measureSize(replyModel.width, sizeToFit: replyModel.sizeToFit)
@@ -3118,13 +3138,21 @@ public class ChatRowItem: TableRowItem {
                 supplyOffset += cachedRightSize.width
             }
             
-            authorText?.measure(width: widthForContent - adminWidth - supplyOffset)
+            let authorWidth = widthForContent - adminWidth - supplyOffset
+            if let authorText = authorText, authorText.constrainedWidth != authorWidth || authorText.layoutSize == .zero {
+                authorText.measure(width: authorWidth)
+            }
 
         }
 
-        if let guestChatBadge = guestChatBadge, guestChatBadge.layoutSize.width > widthForContent {
-            guestChatBadge.measure(width: widthForContent - 10)
-            guestChatBadge.generateAutoBlock(backgroundColor: theme.colors.greenUI.withAlphaComponent(0.15), minusHeight: 0, yInset: 1)
+        if let guestChatBadge = guestChatBadge {
+            let availableWidth = max(1, widthForContent - 10)
+            let hasLayout = guestChatBadge.hasBlock && guestChatBadge.layoutSize != .zero
+            let fits = guestChatBadge.isPerfectSized && guestChatBadge.layoutSize.width <= widthForContent
+            if !hasLayout || (!fits && guestChatBadge.constrainedWidth != availableWidth) {
+                guestChatBadge.measure(width: availableWidth)
+                guestChatBadge.generateAutoBlock(backgroundColor: theme.colors.greenUI.withAlphaComponent(0.15), minusHeight: 0, yInset: 1)
+            }
         }
         
          if hasBubble && !isBubbleFullFilled {
@@ -3241,6 +3269,15 @@ public class ChatRowItem: TableRowItem {
         return 0
     }
     
+    public func statusLayer(_ cached: PremiumStatusLayer?, animated: Bool) -> PremiumStatusLayer? {
+        if let peer = peer, let attr = authorText?.attributedString, !attr.string.isEmpty, hasStatus {
+            if let color = attr.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor {
+                return PremiumStatusLayer.layer(peer, account: context.account, inlinePacksContext: context.inlinePacksContext, left: false, isSelected: false, color: color, cached: cached, animated: animated)
+            }
+        }
+        return nil
+    }
+
     public func status(_ cached: PremiumStatusControl?, animated: Bool) -> PremiumStatusControl? {
         if let peer = peer, let attr = authorText?.attributedString, !attr.string.isEmpty, hasStatus {
             if let color = attr.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor {
@@ -3454,7 +3491,7 @@ public class ChatRowItem: TableRowItem {
     
     public func openForwardInfo() {
         if let author = message?.forwardInfo?.author {
-            chatInteraction.openInfo(author.id, false, nil, nil)
+            chatInteraction.openInfoFromMessage(author.id, false, nil, nil, message: message)
         }
     }
     
@@ -3474,9 +3511,9 @@ public class ChatRowItem: TableRowItem {
                     context.engine.messages.ensureMessagesAreLocallyAvailable(messages: [.init(message)])
                 }
                 if peer.id == self.message?.id.peerId, messageId == nil {
-                    chatInteraction.openInfo(peer.id, false, nil, nil)
+                    chatInteraction.openInfoFromMessage(peer.id, false, nil, nil, message: message)
                 } else {
-                    chatInteraction.openInfo(peer.id, !(peer is TelegramUser) || messageId != nil, messageId, nil)
+                    chatInteraction.openInfoFromMessage(peer.id, !(peer is TelegramUser) || messageId != nil, messageId, nil, message: message)
                 }
             }
         }
@@ -3562,19 +3599,151 @@ public class ChatRowItem: TableRowItem {
     
     public func adminBadgeInteraction(_ view: NSView) {
         let context = self.context
+
         if adminBadgeCanEdit, let authorId = adminBadgeAuthorId, let channel = chatInteraction.peer as? TelegramChannel {
             let peerId = channel.id
             let fetchParticipant = context.peerChannelMemberCategoriesContextsManager.fetchParticipant(peerId: peerId, participantId: authorId)
-            _ = showModalProgress(signal: fetchParticipant, for: context.window).start(next: { [weak self, weak view] rendered in
+            _ = (showModalProgress(signal: fetchParticipant, for: context.window)).start(next: { [weak self, weak view] rendered in
                 guard let self, let rendered = rendered else { return }
-                showModal(with: ChatHistoryUIHooks.shared.makeChannelParticipantController(self.context, peerId, rendered), for: self.context.window, morphSource: { [weak view] in view })
+                showModal(with: ChatHistoryUIHooks.shared.makeChannelParticipantControllerObserved(self.context, peerId, rendered), for: self.context.window, morphSource: { [weak view] in view })
             })
         } else {
             let tag = adminBadge?.attributedString.string.trimmingCharacters(in: .whitespaces) ?? ""
             let authorName = message?.author?.compactDisplayTitle ?? ""
             let groupName = chatInteraction.peer?.compactDisplayTitle ?? ""
-            ChatNavigationHooks.shared.showUserTagInfo(context, tag, authorName, groupName, adminBadgeRankType, context.window)
+            ChatNavigationHooks.shared.showUserTagInfoObserved(context, tag, authorName, groupName, adminBadgeRankType, context.window)
         }
+    }
+
+    public var accessibilityModel: ChatMessageAccessibility? {
+        return accessibilityModel(details: true)
+    }
+
+    private var accessibilityAnnouncesAuthor: Bool {
+        let chatPeer = self.peer ?? message.flatMap { $0.peers[$0.id.peerId] }
+        if chatPeer is TelegramGroup {
+            return true
+        }
+        if let channel = chatPeer as? TelegramChannel, case .group = channel.info {
+            return true
+        }
+        return false
+    }
+
+    private var accessibilitySelected: Bool? {
+        guard let message = message, let selection = chatInteraction.presentation.selectionState else {
+            return nil
+        }
+        return selection.selectedIds.contains(message.id)
+    }
+
+    private func accessibilityModel(details: Bool) -> ChatMessageAccessibility? {
+        guard let message = message else {
+            return nil
+        }
+        let accountPeerId = context.peerId
+        let incoming = message.effectivelyIncoming(accountPeerId)
+        let kind = accessibilityKind
+        let announceAuthor = accessibilityAnnouncesAuthor
+        var reply: ChatMessageAccessibility.Reply?
+        if let attribute = message.replyAttribute, let replied = message.associatedMessages[attribute.messageId] {
+            var text = ""
+            if details {
+                let repliedKind = ChatMessageAccessibility.kind(for: replied)
+                if case let .text(value) = repliedKind {
+                    text = value
+                } else {
+                    text = ChatMessageAccessibility(kind: repliedKind, isIncoming: true, authorName: nil, announceAuthor: false, caption: nil, date: "", status: .none).label
+                }
+            }
+            reply = .init(authorName: replied.author?.displayTitle, isIncoming: replied.effectivelyIncoming(accountPeerId), text: text)
+        }
+        var forward: ChatMessageAccessibility.Forward?
+        if let info = message.forwardInfo {
+            if info.author?.id == accountPeerId {
+                forward = .you
+            } else if let name = info.author?.displayTitle ?? info.authorSignature {
+                forward = .from(name)
+            }
+        }
+        guard details else {
+            return ChatMessageAccessibility(kind: kind, isIncoming: incoming, authorName: message.author?.displayTitle, announceAuthor: announceAuthor, caption: nil, date: "", status: .none, reply: reply, forward: forward, pluralRecipients: announceAuthor)
+        }
+        let status: ChatMessageAccessibility.Status
+        if incoming {
+            status = .none
+        } else if isFailed {
+            status = .failed
+        } else if isUnsent {
+            status = .sending
+        } else {
+            let consumed = message.attributes.compactMap { $0 as? ConsumableContentMessageAttribute }.first?.consumed
+            status = .sent(read: isRead, played: ChatMessageAccessibility.isConsumable(kind) ? (consumed ?? false) : nil)
+        }
+        let date = ChatMessageAccessibility.dateFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(message.timestamp)))
+        return ChatMessageAccessibility(kind: kind, isIncoming: incoming, authorName: message.author?.displayTitle, announceAuthor: announceAuthor, caption: ChatMessageAccessibility.caption(for: message, kind: kind), date: date, status: status, reply: reply, forward: forward, isSelected: accessibilitySelected, pluralRecipients: announceAuthor)
+    }
+
+    open var accessibilityKind: ChatMessageAccessibility.Kind {
+        guard let message = message else {
+            return .text("")
+        }
+        return ChatMessageAccessibility.kind(for: message)
+    }
+
+    open override var accessibilityHasContent: Bool {
+        return message != nil
+    }
+
+    open override var accessibilityLabel: String? {
+        return accessibilityModel(details: false)?.label
+    }
+
+    open override var accessibilityValue: String? {
+        return accessibilityModel(details: true)?.value
+    }
+
+    open override var accessibilityHelp: String? {
+        guard message != nil else {
+            return nil
+        }
+        return ChatMessageAccessibility(kind: accessibilityKind, isIncoming: true, authorName: nil, announceAuthor: false, caption: nil, date: "", status: .none, isSelected: accessibilitySelected).help
+    }
+
+    open override func accessibilityPerformPress() -> Bool {
+        guard chatInteraction.presentation.selectionState != nil, isSelectable else {
+            return false
+        }
+        let ids = messages.map { $0.id }
+        guard !ids.isEmpty else {
+            return false
+        }
+        chatInteraction.withToggledSelectedMessage({ current in
+            let select = !ids.allSatisfy { current.isSelectedMessageId($0) }
+            return ids.reduce(current, { current, id in
+                if current.isSelectedMessageId(id) != select {
+                    return current.withToggledSelectedMessage(id)
+                }
+                return current
+            })
+        })
+        return true
+    }
+
+    open override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        guard message != nil, chatInteraction.presentation.selectionState == nil else {
+            return nil
+        }
+        var actions: [NSAccessibilityCustomAction] = []
+        if chatInteraction.presentation.canReplyInRestrictedMode {
+            actions.append(NSAccessibilityCustomAction(name: strings().voiceOverMessageContextReply, handler: { [weak self] in
+                return self?.replyAction() ?? false
+            }))
+        }
+        actions.append(NSAccessibilityCustomAction(name: strings().voiceOverMessageContextOpenMessageMenu, handler: { [weak self] in
+            return self?.view?.accessibilityPerformShowMenu() ?? false
+        }))
+        return actions
     }
 
     public func replyAction() -> Bool {
@@ -3671,6 +3840,9 @@ public class ChatRowItem: TableRowItem {
                 return .single(nil)
             }
             let peerId = self.chatInteraction.peerId
+            let openSavedTagsPremium: () -> Void = {
+                prem(with: PremiumBoardingController(context: context, source: .saved_tags, openFeatures: true), for: context.window)
+            }
             
             let builtin = context.reactions.stateValue
             let peerAllowed: Signal<PeerAllowedReactions?, NoError> = getCachedDataView(peerId: peerId, postbox: context.account.postbox)
@@ -3774,7 +3946,7 @@ public class ChatRowItem: TableRowItem {
             let signal = combineLatest(queue: .mainQueue(), builtin, peerAllowed, reactions, maximumReactionsLimit, starsAllowed)
             |> take(1)
 
-            return signal |> map { builtin, peerAllowed, reactions, maximumReactionsLimit, starsAllowed in
+            return (signal) |> map { builtin, peerAllowed, reactions, maximumReactionsLimit, starsAllowed in
                 let enabled = builtin?.enabled ?? []
 
                 var available:[ContextReaction] = []
@@ -3920,7 +4092,7 @@ public class ChatRowItem: TableRowItem {
                     let link = theme.colors.link.withAlphaComponent(0.8)
                     let attributed = parseMarkdownIntoAttributedString(aboveText, attributes: .init(body: .init(font: .normal(.text), textColor: color), bold: .init(font: .medium(.text), textColor: color), link: .init(font: .normal(.text), textColor: link), linkAttribute: { link in
                         return (NSAttributedString.Key.link.rawValue, LinkHooks.shared.callbackLink("", { _ in
-                            prem(with: PremiumBoardingController(context: context, source: .saved_tags, openFeatures: true), for: context.window)
+                            openSavedTagsPremium()
                         }))
                     })).detectBold(with: .medium(.text))
                     aboveLayout = TextViewLayout(attributed, maximumNumberOfLines: 2, alignment: .center)
@@ -3986,7 +4158,7 @@ public class ChatRowItem: TableRowItem {
                             }
 
                             if isTags, !context.isPremium {
-                                prem(with: PremiumBoardingController(context: context, source: .saved_tags, openFeatures: true), for: context.window)
+                                openSavedTagsPremium()
                             } else {
                                 if case .custom = value, !context.isPremium && parsedFile.isPremiumEmoji, !contains {
                                     showModalText(for: context.window, text: strings().customReactionPremiumAlert, callback: { _ in
@@ -4010,7 +4182,7 @@ public class ChatRowItem: TableRowItem {
                 
                 let view = ContextAddReactionsListView(frame: rect, context: context, list: available, add: { value, checkPrem, fromRect in
                     if isTags, !context.isPremium {
-                        prem(with: PremiumBoardingController(context: context, source: .saved_tags, openFeatures: true), for: context.window)
+                        openSavedTagsPremium()
                     } else {
                         if value == .stars {
                             context.reactions.sendStarsReaction(message.id, count: 1, fromRect: fromRect)

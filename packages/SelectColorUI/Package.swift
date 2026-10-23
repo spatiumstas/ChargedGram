@@ -3,6 +3,7 @@
 import PackageDescription
 
 let deps: [(String, String)] = [
+
     ("TGUIKit", "../TGUIKit"),
     ("InAppSettings", "../InAppSettings"),
     ("ColorPalette", "../ColorPalette"),

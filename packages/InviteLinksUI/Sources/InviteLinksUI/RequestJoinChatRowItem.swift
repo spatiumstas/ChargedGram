@@ -59,6 +59,30 @@ final class RequestJoinChatRowItem : GeneralRowItem {
         
         super.init(initialSize, stableId: stableId, viewType: viewType)
     }
+
+    override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    override var accessibilityValue: String? {
+        var parts: [String] = []
+        if flags.isScam {
+            parts.append(strings().markScam)
+        } else if flags.isFake {
+            parts.append(strings().markFake)
+        } else if flags.isVerified {
+            parts.append(strings().voiceOverCommonVerified)
+        }
+        parts.append(statusLayout.attributedString.string)
+        if let about = aboutLayout {
+            parts.append(about.attributedString.string)
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
     
     override var height: CGFloat {
         let top = self.viewType.innerInset.top
@@ -153,6 +177,7 @@ private final class RequestJoinChatRowView : GeneralContainableRowView {
                 current = view
             } else {
                 current = ImageView()
+                current.isAccessibilityDecorative = true
                 self.statusImage = current
                 addSubview(current)
             }

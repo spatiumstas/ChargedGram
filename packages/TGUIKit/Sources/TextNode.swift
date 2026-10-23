@@ -34,16 +34,17 @@ public final class TextNodeLayout: NSObject {
     fileprivate let attributedString: NSAttributedString?
     fileprivate let maximumNumberOfLines: Int
     fileprivate let truncationType: CTLineTruncationType
-    fileprivate let backgroundColor: NSColor?
+    fileprivate let lineSpacing: CGFloat
     fileprivate let constrainedSize: NSSize
     fileprivate let cutout: TextNodeCutout?
     fileprivate let alignment:NSTextAlignment
+    fileprivate let renderedSelected: Bool
     public let isPerfectSized: Bool
     public let size: NSSize
     fileprivate let lines: [TextNodeLine]
     public var selected:Bool = false
     
-    fileprivate init(attributedString: NSAttributedString?, maximumNumberOfLines: Int, truncationType: CTLineTruncationType, constrainedSize: NSSize, cutout: TextNodeCutout?, size: NSSize, lines: [TextNodeLine], backgroundColor: NSColor?, alignment:NSTextAlignment = .left, isPerfectSized: Bool) {
+    fileprivate init(attributedString: NSAttributedString?, maximumNumberOfLines: Int, truncationType: CTLineTruncationType, constrainedSize: NSSize, cutout: TextNodeCutout?, size: NSSize, lines: [TextNodeLine], lineSpacing: CGFloat, selected: Bool, alignment:NSTextAlignment = .left, isPerfectSized: Bool) {
         self.attributedString = attributedString
         self.maximumNumberOfLines = maximumNumberOfLines
         self.truncationType = truncationType
@@ -51,7 +52,9 @@ public final class TextNodeLayout: NSObject {
         self.cutout = cutout
         self.size = size
         self.lines = lines
-        self.backgroundColor = backgroundColor
+        self.lineSpacing = lineSpacing
+        self.renderedSelected = selected
+        self.selected = selected
         self.alignment = alignment
         self.isPerfectSized = isPerfectSized
     }
@@ -94,7 +97,8 @@ public class TextNode: NSObject {
     
     private class func getlayout(attributedString: NSAttributedString?, maximumNumberOfLines: Int, truncationType: CTLineTruncationType, backgroundColor: NSColor?, constrainedSize: NSSize, cutout: TextNodeCutout?, selected:Bool, alignment:NSTextAlignment, lineSpacing: CGFloat? = nil) -> TextNodeLayout {
         
-        var attr = attributedString
+        let source = attributedString?.copy() as? NSAttributedString
+        var attr = source
         let isPerfectSized = false
         if let a = attr {
             if (selected && a.length > 0) {
@@ -136,12 +140,15 @@ public class TextNode: NSObject {
            
             
             var maybeTypesetter: CTTypesetter?
-            maybeTypesetter = CTTypesetterCreateWithAttributedString(attributedString as CFAttributedString)
-            if maybeTypesetter == nil {
-                return TextNodeLayout(attributedString: attributedString, maximumNumberOfLines: maximumNumberOfLines, truncationType: truncationType, constrainedSize: constrainedSize, cutout: cutout, size: NSSize(), lines: [], backgroundColor: backgroundColor, alignment:alignment, isPerfectSized: true)
+            let useDirectLine = maximumNumberOfLines == 1 && attributedString.length > 0 && constrainedSize.width > 0 && constrainedSize.width.isFinite && (constrainedSize.width - (cutout?.size.width ?? 0)).isFinite
+            if !useDirectLine {
+                maybeTypesetter = CTTypesetterCreateWithAttributedString(attributedString as CFAttributedString)
+            }
+            if !useDirectLine && maybeTypesetter == nil {
+                return TextNodeLayout(attributedString: source, maximumNumberOfLines: maximumNumberOfLines, truncationType: truncationType, constrainedSize: constrainedSize, cutout: cutout, size: NSSize(), lines: [], lineSpacing: lineSpacing ?? 0, selected: selected, alignment:alignment, isPerfectSized: true)
             }
             
-            let typesetter = maybeTypesetter!
+            let typesetter = maybeTypesetter
             
             var lastLineCharacterIndex: CFIndex = 0
             var layoutSize = NSSize()
@@ -179,9 +186,15 @@ public class TextNode: NSObject {
                     }
                 }
                 
-                let lineCharacterCount = CTTypesetterSuggestLineBreak(typesetter, lastLineCharacterIndex, Double(lineConstrainedWidth))
+                let isLastAllowedLine = maximumNumberOfLines > 0 && lines.count == maximumNumberOfLines - 1
+                let lineCharacterCount: CFIndex
+                if isLastAllowedLine && lastLineCharacterIndex < attributedString.length && lineConstrainedWidth > 0 && lineConstrainedWidth.isFinite {
+                    lineCharacterCount = 1
+                } else {
+                    lineCharacterCount = CTTypesetterSuggestLineBreak(typesetter!, lastLineCharacterIndex, Double(lineConstrainedWidth))
+                }
                 
-                if maximumNumberOfLines != 0 && lines.count == maximumNumberOfLines - 1 && lineCharacterCount > 0 {
+                if isLastAllowedLine && lineCharacterCount > 0 {
                     if first {
                         first = false
                     } else {
@@ -189,11 +202,14 @@ public class TextNode: NSObject {
                     }
                     
                     let coreTextLine: CTLine
+                    let lineWidth: CGFloat
                     
-                    let originalLine = CTTypesetterCreateLineWithOffset(typesetter, CFRange(location: lastLineCharacterIndex, length: attributedString.length - lastLineCharacterIndex), 0.0)
+                    let originalLine = useDirectLine ? CTLineCreateWithAttributedString(attributedString as CFAttributedString) : CTTypesetterCreateLineWithOffset(typesetter!, CFRange(location: lastLineCharacterIndex, length: attributedString.length - lastLineCharacterIndex), 0.0)
                     
-                    if CTLineGetTypographicBounds(originalLine, nil, nil, nil) - CTLineGetTrailingWhitespaceWidth(originalLine) < Double(constrainedSize.width) {
+                    let originalLineWidth = CTLineGetTypographicBounds(originalLine, nil, nil, nil) - CTLineGetTrailingWhitespaceWidth(originalLine)
+                    if originalLineWidth < Double(constrainedSize.width) {
                         coreTextLine = originalLine
+                        lineWidth = ceil(CGFloat(originalLineWidth))
                     } else {
                         var truncationTokenAttributes: [NSAttributedString.Key : Any] = [:]
                         truncationTokenAttributes[NSAttributedString.Key(kCTFontAttributeName as String)] = font
@@ -203,10 +219,9 @@ public class TextNode: NSObject {
                         let truncationToken = CTLineCreateWithAttributedString(truncatedTokenString)
                         
                         coreTextLine = CTLineCreateTruncatedLine(originalLine, Double(constrainedSize.width), truncationType, truncationToken) ?? truncationToken
-                        
+                        lineWidth = ceil(CGFloat(CTLineGetTypographicBounds(coreTextLine, nil, nil, nil) - CTLineGetTrailingWhitespaceWidth(coreTextLine)))
                     }
-                    
-                    let lineWidth = ceil(CGFloat(CTLineGetTypographicBounds(coreTextLine, nil, nil, nil) - CTLineGetTrailingWhitespaceWidth(coreTextLine)))
+
                     let lineFrame = CGRect(x: lineCutoutOffset, y: lineOriginY, width: lineWidth, height: fontLineHeight)
                     layoutSize.height += fontLineHeight + fontLineSpacing
                     layoutSize.width = max(layoutSize.width, lineWidth + lineAdditionalWidth)
@@ -222,7 +237,7 @@ public class TextNode: NSObject {
                             layoutSize.height += fontLineSpacing
                         }
                         
-                        let coreTextLine = CTTypesetterCreateLineWithOffset(typesetter, CFRangeMake(lastLineCharacterIndex, lineCharacterCount), 100.0)
+                        let coreTextLine = CTTypesetterCreateLineWithOffset(typesetter!, CFRangeMake(lastLineCharacterIndex, lineCharacterCount), 100.0)
                         lastLineCharacterIndex += lineCharacterCount
                         
                         let lineWidth = ceil(CGFloat(CTLineGetTypographicBounds(coreTextLine, nil, nil, nil) - CTLineGetTrailingWhitespaceWidth(coreTextLine)))
@@ -242,9 +257,9 @@ public class TextNode: NSObject {
                 }
             }
             
-            return TextNodeLayout(attributedString: attributedString, maximumNumberOfLines: maximumNumberOfLines, truncationType: truncationType, constrainedSize: constrainedSize, cutout: cutout, size: NSSize(width: ceil(layoutSize.width), height: ceil(layoutSize.height)), lines: lines, backgroundColor: backgroundColor, alignment:alignment, isPerfectSized: isPerfectSized)
+            return TextNodeLayout(attributedString: source, maximumNumberOfLines: maximumNumberOfLines, truncationType: truncationType, constrainedSize: constrainedSize, cutout: cutout, size: NSSize(width: ceil(layoutSize.width), height: ceil(layoutSize.height)), lines: lines, lineSpacing: lineSpacing ?? 0, selected: selected, alignment:alignment, isPerfectSized: isPerfectSized)
         } else {
-            return TextNodeLayout(attributedString: attributedString, maximumNumberOfLines: maximumNumberOfLines, truncationType: truncationType, constrainedSize: constrainedSize, cutout: cutout, size: NSSize(), lines: [], backgroundColor: backgroundColor, alignment:alignment, isPerfectSized: isPerfectSized)
+            return TextNodeLayout(attributedString: source, maximumNumberOfLines: maximumNumberOfLines, truncationType: truncationType, constrainedSize: constrainedSize, cutout: cutout, size: NSSize(), lines: [], lineSpacing: lineSpacing ?? 0, selected: selected, alignment:alignment, isPerfectSized: isPerfectSized)
         }
     }
     
@@ -311,14 +326,8 @@ public class TextNode: NSObject {
                 context.textPosition = CGPoint(x: penOffset + dirtyRect.minX + line.frame.minX, y: line.frame.minY + dirtyRect.minY)
                 
                
-                 let glyphRuns = CTLineGetGlyphRuns(line.line) as NSArray
-                 if glyphRuns.count != 0 {
-                     for run in glyphRuns {
-                         let run = run as! CTRun
-                         let glyphCount = CTRunGetGlyphCount(run)
-                         CTRunDraw(run, context, CFRangeMake(0, glyphCount))
-                     }
-                 }
+                var drawnGlyphCount = 0
+                drawTextLineRuns(line.line, in: context, drawnGlyphCount: &drawnGlyphCount)
                                 
             }
             
@@ -337,7 +346,7 @@ public class TextNode: NSObject {
         
         let layout: TextNodeLayout
         
-        if let existingLayout = existingLayout, existingLayout.constrainedSize == constrainedSize && existingLayout.maximumNumberOfLines == maximumNumberOfLines && existingLayout.truncationType == truncationType && existingLayout.cutout == cutout && existingLayout.selected == selected && existingLayout.alignment == alignment {
+        if let existingLayout = existingLayout, existingLayout.constrainedSize == constrainedSize && existingLayout.maximumNumberOfLines == maximumNumberOfLines && existingLayout.truncationType == truncationType && existingLayout.cutout == cutout && existingLayout.selected == selected && existingLayout.renderedSelected == selected && existingLayout.alignment == alignment && existingLayout.lineSpacing == (lineSpacing ?? 0) {
             let stringMatch: Bool
             if let existingString = existingLayout.attributedString, let string = attributedString {
                 stringMatch = existingString.isEqual(to: string)

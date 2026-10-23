@@ -327,6 +327,14 @@ public final class CommunityRequestRowItem: GeneralRowItem {
         super.init(initialSize, stableId: stableId, viewType: viewType, action: openChat)
     }
 
+    public override var accessibilityLabel: String? {
+        return line2Layout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return [line1Layout.attributedString.string, line3Layout?.attributedString.string].compactMap { $0 }.joined(separator: ", ")
+    }
+
     public override func makeSize(_ width: CGFloat, oldWidth: CGFloat = 0) -> Bool {
         let result = super.makeSize(width, oldWidth: oldWidth)
         let avatarW: CGFloat = 40

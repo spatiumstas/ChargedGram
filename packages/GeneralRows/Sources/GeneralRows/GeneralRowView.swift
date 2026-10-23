@@ -113,6 +113,18 @@ open class GeneralContainableRowView : TableRowView {
 
 open class GeneralRowContainerView : Control, MorphCornerProviding {
 
+    open override func isAccessibilityElement() -> Bool {
+        var current = superview
+        while let view = current {
+            if let row = view as? TableRowView {
+                return row.isAccessibilityElement() ? false : super.isAccessibilityElement()
+            }
+            current = view.superview
+        }
+        return super.isAccessibilityElement()
+    }
+
+
     open var cornerRadius: CGFloat = 20
     // The visible rounding is drawn by `maskLayer`, not `layer.cornerRadius`, so report it for the morph.
     public var morphCornerRadius: CGFloat { return cornerRadius }

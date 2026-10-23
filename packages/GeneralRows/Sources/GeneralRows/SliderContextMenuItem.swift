@@ -6,6 +6,7 @@ import Postbox
 import SwiftSignalKit
 import Cocoa
 import LocalAnimations
+import Localization
 
 
 
@@ -67,6 +68,50 @@ private final class SliderContextMenuRowItem : AppMenuBasicItem {
     
     override var height: CGFloat {
         return 28
+    }
+
+    override var accessibilityLabel: String? {
+        return strings().voiceOverCommonVolume
+    }
+
+    override var accessibilityValue: String? {
+        let value = (view as? SliderContextMenuRowView)?.volumeControl.value ?? volume
+        return "\(Int((value * 100).rounded()))%"
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .slider
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        return [
+            NSAccessibilityCustomAction(name: strings().voiceOverCommonUp, handler: { [weak self] in
+                return self?.adjustVolume(1) ?? false
+            }),
+            NSAccessibilityCustomAction(name: strings().voiceOverCommonDown, handler: { [weak self] in
+                return self?.adjustVolume(-1) ?? false
+            })
+        ]
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        return false
+    }
+
+    private func adjustVolume(_ direction: CGFloat) -> Bool {
+        guard let view = view as? SliderContextMenuRowView else {
+            return false
+        }
+        let step = (maxValue - minValue) / 20
+        let value = min(maxValue, max(minValue, view.volumeControl.value + step * direction))
+        view.volumeControl.value = value
+        didUpdateValue?(value, true)
+        view.updateValue(value)
+        return true
     }
 }
 
@@ -146,7 +191,7 @@ private final class SliderContextMenuRowView : AppMenuBasicItemView {
         needsLayout = true
     }
     
-    private func updateValue(_ value: CGFloat) {
+    fileprivate func updateValue(_ value: CGFloat) {
         self.drawable?.change(opacity: value > 0 ? 1 : 0)
         self.drawable_muted?.change(opacity: value > 0 ? 0 : 1)
     }

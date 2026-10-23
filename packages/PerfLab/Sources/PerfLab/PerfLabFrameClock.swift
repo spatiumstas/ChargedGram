@@ -1,3 +1,4 @@
+#if DEBUG
 import AppKit
 import QuartzCore
 
@@ -75,3 +76,4 @@ public final class PerfLabFrameClock: NSObject {
         self.onFrame?(timestamp)
     }
 }
+#endif

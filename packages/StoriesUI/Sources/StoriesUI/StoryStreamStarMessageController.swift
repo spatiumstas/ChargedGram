@@ -77,6 +77,10 @@ private final class HeaderItem : GeneralRowItem {
     override func viewClass() -> AnyClass {
         return HeaderView.self
     }
+
+    override var accessibilityLabel: String? {
+        return "\(state.amount.realValue) " + strings().voiceOverCommonStars
+    }
     
     override var height: CGFloat {
         return 110 + 15 + infoLayout.layoutSize.height + 15 + 60

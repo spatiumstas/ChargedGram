@@ -246,6 +246,7 @@ public final class GroupCallMainVideoContainerView: Control {
                 }
             }
             currentPinView.set(image: !self.isPinned ? GroupCallTheme.pin_video : GroupCallTheme.unpin_video, for: .Normal)
+            currentPinView.setAccessibilityLabel(!self.isPinned ? strings().voiceOverCommonPin : strings().voiceOverCommonUnpin)
             currentPinView.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
 
 
@@ -276,6 +277,7 @@ public final class GroupCallMainVideoContainerView: Control {
                 currentBackView.scaleOnClick = true
                 currentBackView.setGlassEffect(forceAppearance: .forceDark)
                 currentBackView.set(image: GroupCallTheme.video_back, for: .Normal)
+                currentBackView.setAccessibilityLabel(strings().voiceOverCommonBack)
                 currentBackView.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
                 currentBackView.frame = NSMakeRect(10, 10, 36, 36)
                 currentBackView.layer?.opacity = self.mouseInside() && pinIsVisible ? 1 : 0
@@ -334,6 +336,7 @@ public final class GroupCallMainVideoContainerView: Control {
             self.nameView.update(nameLayout)
             
             self.statusView.image = participant.state?.muteState == nil ? GroupCallTheme.videoBox_unmuted : GroupCallTheme.videoBox_muted
+            self.statusView.setAccessibilityLabel(participant.state?.muteState != nil ? strings().voiceOverCommonMuted : participant.isSpeaking ? strings().voiceChatStatusSpeaking : nil)
             self.statusView.sizeToFit()
         }
         self.currentPeer = peer
@@ -402,6 +405,7 @@ public final class GroupCallMainVideoContainerView: Control {
                         self.pausedImageView?.removeFromSuperview()
                         self.pausedTextView = TextView()
                         self.pausedImageView = ImageView()
+                        self.pausedImageView?.isAccessibilityDecorative = true
                         self.pausedImageView?.image = GroupCallTheme.video_paused
                         self.pausedImageView?.sizeToFit()
                         let layout = TextViewLayout(.initialize(string: peer.mode == .video ? strings().voiceChatVideoPaused : strings().voiceChatScreencastPaused, color: GroupCallTheme.customTheme.textColor, font: .medium(.text)))

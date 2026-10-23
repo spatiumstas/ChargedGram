@@ -3,6 +3,7 @@ import TGUIKit
 import TelegramTheme
 import TelegramContext
 import GeneralRows
+import CurrencyFormat
 
 @available(macOS 10.15, *)
 public final class WalletCardRowItem: GeneralRowItem {
@@ -36,6 +37,32 @@ public final class WalletCardRowItem: GeneralRowItem {
 
     public override func viewClass() -> AnyClass {
         return WalletCardRowView.self
+    }
+
+    public override var accessibilityLabel: String? {
+        return walletTonAccessibilityText(formatTonAmountText(balance, maxDecimalPositions: 9))
+    }
+
+    public override var accessibilityValue: String? {
+        let parts = [fiatText, name].compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
+    public override var accessibilityHelp: String? {
+        return address.isEmpty ? nil : address
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        receiveAction(nil)
+        return true
     }
 }
 

@@ -27,6 +27,11 @@ public class MediaAnimatedStickerView: ChatMediaContentView {
     private let playThrottleDisposable = MetaDisposable()
     private let playerView: LottiePlayerView = LottiePlayerView(frame: NSMakeRect(0, 0, 240, 240))
     private var placeholderView: StickerShimmerEffectView?
+    private let firstFrameReadyValue = ValuePromise(false, ignoreRepeated: true)
+
+    public var firstFrameReady: Signal<Bool, NoError> {
+        return firstFrameReadyValue.get()
+    }
 
     public var playOnHover: Bool? = nil
     
@@ -311,6 +316,7 @@ public class MediaAnimatedStickerView: ChatMediaContentView {
         }
         
         if updated {
+            firstFrameReadyValue.set(false)
             self.loadResourceDisposable.set((data |> map { resourceData -> Data? in
                 if resourceData.complete, let data = try? Data(contentsOf: URL(fileURLWithPath: resourceData.path), options: [.mappedIfSafe]) {
                     if file.isWebm {
@@ -366,6 +372,9 @@ public class MediaAnimatedStickerView: ChatMediaContentView {
                                
             if params?.noThumb == false || params == nil {
                 self.thumbView.setSignal(signal: cachedMedia(media: file, arguments: arguments, scale: backingScaleFactor), clearInstantly: updated)
+                if self.thumbView.image != nil {
+                    self.firstFrameReadyValue.set(true)
+                }
                 
                 let hasPlaceholder = (parent == nil || file.immediateThumbnailData != nil) && self.thumbView.image == nil && (params == nil || params!.shimmer)
                 if updated {
@@ -392,6 +401,7 @@ public class MediaAnimatedStickerView: ChatMediaContentView {
                 self.thumbView.imageUpdated = { [weak self] value in
                     if value != nil {
                         self?.removePlaceholder(animated: animated)
+                        self?.firstFrameReadyValue.set(true)
                     }
                 }
                 
@@ -436,6 +446,7 @@ public class MediaAnimatedStickerView: ChatMediaContentView {
                     self.addSubview(self.playerView)
                     self.thumbView.removeFromSuperview()
                     self.removePlaceholder(animated: false)
+                    self.firstFrameReadyValue.set(true)
                 case .stoped:
                     if let parameters = params, parameters.hidePlayer == false {
                         break

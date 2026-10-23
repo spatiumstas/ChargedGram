@@ -43,6 +43,21 @@ public final class GeneralOptionsRowItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return RowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        let lines: [String] = options.map { option in
+            [option.header.attributedString.string, option.text.attributedString.string].filter { !$0.isEmpty }.joined(separator: ", ")
+        }.filter { !$0.isEmpty }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .staticText
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 private final class RowView: GeneralContainableRowView {

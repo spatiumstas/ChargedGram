@@ -16,14 +16,16 @@ open class ImageView: NSView {
     
     open var image:CGImage? {
         didSet {
-            let wasImage = self.layer?.contents != nil
-            self.layer?.contents = image
             if animates {
+                let wasImage = self.layer?.contents != nil
+                self.layer?.contents = image
                 if !wasImage {
                     self.layer?.animateAlpha(from: 0, to: 1, duration: 0.2)
                 } else {
                     animate()
                 }
+            } else if image != nil || self.layer?.contents != nil {
+                self.layer?.contents = image
             }
         }
     }
@@ -95,6 +97,19 @@ open class ImageView: NSView {
     }
     
     
+    public var isAccessibilityDecorative: Bool = false
+
+    open override func isAccessibilityElement() -> Bool {
+        guard TGUIKitAccessibility.isEnabled, !isHidden, !isAccessibilityDecorative, let label = super.accessibilityLabel() else {
+            return false
+        }
+        return !label.isEmpty
+    }
+
+    open override func accessibilityRole() -> NSAccessibility.Role? {
+        return isAccessibilityElement() ? .image : super.accessibilityRole()
+    }
+
     required public init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }

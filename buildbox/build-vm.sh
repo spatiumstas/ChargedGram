@@ -1,6 +1,5 @@
 #!/bin/sh
 set -e
-set -x
 
 export PATH="$PATH:$HOME/.fastlane/bin"
 

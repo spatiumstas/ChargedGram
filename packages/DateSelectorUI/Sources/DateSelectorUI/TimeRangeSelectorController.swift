@@ -48,6 +48,14 @@ private final class TimeRangeSelectorItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return TimeRangeSelectorView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return "\(fromString), \(toString)"
+    }
+
+    public override var accessibilityValue: String? {
+        return String(format: "%02d:%02d – %02d:%02d", Int(from.hours), Int(from.minutes), Int(to.hours), Int(to.minutes))
+    }
 }
 
 private final class TimeRangeSelectorView : GeneralContainableRowView {

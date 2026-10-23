@@ -176,6 +176,29 @@ public class PeerPhotosMonthItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return PeerPhotosMonthView.self
     }
+
+    private func accessibilityName(for message: Message) -> String {
+        if let file = message.anyMedia as? TelegramMediaFile, file.isVideo {
+            return strings().voiceOverCommonVideo
+        }
+        return strings().voiceOverCommonPhoto
+    }
+
+    public override var accessibilityLabel: String? {
+        return items.map { accessibilityName(for: $0) }.joined(separator: ", ")
+    }
+
+    public override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        return items.enumerated().map { index, message in
+            NSAccessibilityCustomAction(name: "\(accessibilityName(for: message)) \(index + 1)", handler: { [weak self] in
+                guard let self = self else {
+                    return false
+                }
+                self.gallery(message, self.galleryType)
+                return true
+            })
+        }
+    }
     
     public override func menuItems(in location: NSPoint) -> Signal<[ContextMenuItem], NoError> {
         var items:[ContextMenuItem] = []

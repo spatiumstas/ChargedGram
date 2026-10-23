@@ -5,7 +5,7 @@ leftovers=""
 for pid in $(pgrep -x xcodebuild || true); do
     cwd=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')
     case "$cwd" in
-        "$HOME"/build-*)
+        "${TELEGRAM_BUILD_ROOT:-$HOME}"/build-*)
             echo "Stopping xcodebuild $pid left running in $cwd by an earlier job"
             kill "$pid" || true
             leftovers="$leftovers $pid"

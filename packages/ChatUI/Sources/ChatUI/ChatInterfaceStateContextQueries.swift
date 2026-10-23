@@ -44,6 +44,26 @@ public func contextQueryResultStateForChatInterfacePresentationState(_ chatPrese
     
 }
 
+private func recentEmojiSuggestions(emojis: [String], recentAnimated: [MediaId], animated: [TelegramMediaFile.Accessor]) -> (emojis: [String], animated: [TelegramMediaFile]) {
+    guard !recentAnimated.isEmpty, !animated.isEmpty else {
+        return (emojis, [])
+    }
+
+    var replacedEmoji: [String] = []
+    var selected: [TelegramMediaFile] = []
+    selected.reserveCapacity(recentAnimated.count)
+    for id in recentAnimated {
+        let accessor = animated.first(where: { $0.fileId == id })
+        if let file = accessor?._parse() {
+            selected.append(file)
+            if let text = file.customEmojiText {
+                replacedEmoji.append(text.fixed)
+            }
+        }
+    }
+    return (replacedEmoji.isEmpty ? emojis : emojis.filter { !replacedEmoji.contains($0.fixed) }, selected)
+}
+
 private func makeInlineResult(_ inputQuery: ChatPresentationInputQuery, chatPresentationInterfaceState: ChatPresentationInterfaceState, currentQuery: ChatPresentationInputQuery?,  context: any AccountContextProtocol)  -> (ChatPresentationInputQuery?, Signal<(ChatPresentationInputQueryResult?) -> ChatPresentationInputQueryResult?, NoError>)?  {
     switch inputQuery {
     case .none:
@@ -121,9 +141,9 @@ private func makeInlineResult(_ inputQuery: ChatPresentationInputQuery, chatPres
             let animated = combineLatest(queue: resourcesQueue, context.account.postbox.itemCollectionsView(orderedItemListCollectionIds: [], namespaces: [Namespaces.ItemCollection.CloudEmojiPacks], aroundIndex: nil, count: 200) |> map {
                 $0.entries.compactMap({ $0.item as? StickerPackItem}).map { $0.file }
             }, context.account.viewTracker.featuredEmojiPacks()) |> map {
-                Array($0 + $1.reduce([], { current, value in
-                    return current + value.topItems.map { $0.file }
-                }).prefix(400))
+                Array($0 + $1.lazy.flatMap { pack in
+                    pack.topItems.lazy.map { $0.file }
+                }.prefix(400))
             }
 
             
@@ -132,22 +152,8 @@ private func makeInlineResult(_ inputQuery: ChatPresentationInputQuery, chatPres
             } else {
                 return (inputQuery, combineLatest(recentUsedEmoji(postbox: context.account.postbox), animated) |> map { emojis, animated -> (ChatPresentationInputQueryResult?) -> ChatPresentationInputQueryResult? in
                     
-                    var toRemove: [String] = []
-                    var selected: [TelegramMediaFile] = []
-                    for sort in emojis.animated {
-                        let file = animated.filter({ $0.fileId == sort}).first
-                        if let file = file?._parse() {
-                            selected.append(file)
-                            if let text = file.customEmojiText {
-                                toRemove.append(text.fixed)
-                            }
-                        }
-                    }
-                    let emojies = emojis.emojies.filter { value in
-                        return !toRemove.contains(value.fixed)
-                    }
-                    
-                    return { _ in return .emoji(emojies, selected, firstWord) }
+                    let suggestions = recentEmojiSuggestions(emojis: emojis.emojies, recentAnimated: emojis.animated, animated: animated)
+                    return { _ in return .emoji(suggestions.emojis, suggestions.animated, firstWord) }
                 })
             }
         }
@@ -249,6 +255,7 @@ private func makeInlineResult(_ inputQuery: ChatPresentationInputQuery, chatPres
     case let .command(query):
         let normalizedQuery = query.lowercased()
 
+
         if let peer = chatPresentationInterfaceState.peer {
             if peer.isUser, !peer.isBot {
                 
@@ -291,7 +298,7 @@ private func makeInlineResult(_ inputQuery: ChatPresentationInputQuery, chatPres
                             }
                             return false
                         }
-                        let sortedCommands = filteredCommands
+                        let sortedCommands = filteredCommands.map { ChatInputCommand(peer: $0.peer, command: $0.command) }
                         return { _ in return .commands(sortedCommands) }
                 }
                 
@@ -510,9 +517,9 @@ public func chatContextQueryForSearchMention(chatLocations: [ChatLocation], _ in
             let animated = combineLatest(queue: resourcesQueue, context.account.postbox.itemCollectionsView(orderedItemListCollectionIds: [], namespaces: [Namespaces.ItemCollection.CloudEmojiPacks], aroundIndex: nil, count: 200) |> map {
                 $0.entries.compactMap({ $0.item as? StickerPackItem}).map { $0.file }
             }, context.account.viewTracker.featuredEmojiPacks()) |> map {
-                Array($0 + $1.reduce([], { current, value in
-                    return current + value.topItems.map { $0.file }
-                }).prefix(400))
+                Array($0 + $1.lazy.flatMap { pack in
+                    pack.topItems.lazy.map { $0.file }
+                }.prefix(400))
             }
 
             
@@ -521,22 +528,8 @@ public func chatContextQueryForSearchMention(chatLocations: [ChatLocation], _ in
             } else {
                 return (inputQuery, combineLatest(recentUsedEmoji(postbox: context.account.postbox), animated) |> map { emojis, animated -> (ChatPresentationInputQueryResult?) -> ChatPresentationInputQueryResult? in
                     
-                    var toRemove: [String] = []
-                    var selected: [TelegramMediaFile] = []
-                    for sort in emojis.animated {
-                        let file = animated.filter({ $0.fileId == sort}).first
-                        if let file = file?._parse() {
-                            selected.append(file)
-                            if let text = file.customEmojiText {
-                                toRemove.append(text.fixed)
-                            }
-                        }
-                    }
-                    let emojies = emojis.emojies.filter { value in
-                        return !toRemove.contains(value.fixed)
-                    }
-                    
-                    return { _ in return .emoji(emojies, selected, firstWord) }
+                    let suggestions = recentEmojiSuggestions(emojis: emojis.emojies, recentAnimated: emojis.animated, animated: animated)
+                    return { _ in return .emoji(suggestions.emojis, suggestions.animated, firstWord) }
                 })
             }
         }

@@ -60,6 +60,10 @@ public final class Affiliate_HeaderItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return Affiliate_HeaderItemView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
 }
 
 private final class Affiliate_HeaderItemView : TableRowView {
@@ -174,6 +178,10 @@ public final class Affiliate_PromoItem : GeneralRowItem {
     
     public override func viewClass() -> AnyClass {
         return Affiliate_PromoItemView.self
+    }
+
+    public override var accessibilityLabel: String? {
+        return options.map { $0.header.attributedString.string }.joined(separator: ", ")
     }
 }
 

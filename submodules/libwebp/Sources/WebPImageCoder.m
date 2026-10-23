@@ -59,6 +59,9 @@ BOOL WebPCGColorSpaceIsDeviceGray(CGColorSpaceRef space) {
 ////////////////////////////////////////////////////////////////////////////////
 #pragma mark - Decoder
 
+static const uint32_t WebPMaxCanvasSide = 16384;
+static const uint64_t WebPMaxCanvasPixels = 40000000;
+
 @implementation WebPImageFrame
 
 - (id)copyWithZone:(NSZone *)zone {
@@ -283,7 +286,7 @@ BOOL WebPCGColorSpaceIsDeviceGray(CGColorSpaceRef space) {
     uint32_t webpLoopCount =  WebPDemuxGetI(demuxer, WEBP_FF_LOOP_COUNT);
     uint32_t canvasWidth = WebPDemuxGetI(demuxer, WEBP_FF_CANVAS_WIDTH);
     uint32_t canvasHeight = WebPDemuxGetI(demuxer, WEBP_FF_CANVAS_HEIGHT);
-    if (webpFrameCount == 0 || canvasWidth < 1 || canvasHeight < 1) {
+    if (webpFrameCount == 0 || canvasWidth < 1 || canvasHeight < 1 || canvasWidth > WebPMaxCanvasSide || canvasHeight > WebPMaxCanvasSide || (uint64_t)canvasWidth * canvasHeight > WebPMaxCanvasPixels) {
         WebPDemuxDelete(demuxer);
         return;
     }

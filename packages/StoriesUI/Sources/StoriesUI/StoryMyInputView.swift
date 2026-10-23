@@ -123,6 +123,7 @@ final class Story_LikesCountView : View {
         addSubview(textView)
         imageView.image = like_image
         imageView.sizeToFit()
+        imageView.isAccessibilityDecorative = true
         textView.userInteractionEnabled = false
         textView.isSelectable = false
     }
@@ -196,6 +197,8 @@ final class StoryMyInputView : Control, StoryInput {
         
         viewsText.userInteractionEnabled = false
         viewsText.isSelectable = false
+        viewsText.isAccessibilityDecorative = true
+        views.setAccessibilityLabel(strings().storyViewersViewers)
         
 //        views.scaleOnClick = true
         
@@ -210,6 +213,8 @@ final class StoryMyInputView : Control, StoryInput {
         
         delete.set(image: delete_image, for: .Normal)
         delete.sizeToFit(.zero, NSMakeSize(24, 24), thatFit: true)
+        more.setAccessibilityLabel(strings().voiceOverCommonMore)
+        delete.setAccessibilityLabel(strings().voiceOverCommonDelete)
         
         more.contextMenu = { [weak self] in
             _ = ContextMenu(presentation: AppMenu.Presentation.current(darkAppearance.colors))
@@ -256,6 +261,7 @@ final class StoryMyInputView : Control, StoryInput {
         let layout = TextViewLayout(text)
         layout.measure(width: .greatestFiniteMagnitude)
         self.viewsText.update(layout)
+        self.views.setAccessibilityValue(string)
         
         
         let avatars: Story_AvatarContentView?

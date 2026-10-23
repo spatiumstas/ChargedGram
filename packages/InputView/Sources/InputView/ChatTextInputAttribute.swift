@@ -50,13 +50,11 @@ public final class TextInputTextQuoteAttribute: NSObject {
     }
     
     override public func isEqual(_ object: Any?) -> Bool {
-        guard let other = object as? TextInputTextQuoteAttribute else {
+        if let other = object as? TextInputTextQuoteAttribute {
+            return self === other
+        } else {
             return false
         }
-        
-        let _ = other
-        
-        return self.collapsed == other.collapsed
     }
 }
 
@@ -425,19 +423,6 @@ private func refreshTextMentions(text: NSString, initialAttributedText: NSAttrib
     }
 }
 
-private let textUrlEdgeCharacters: CharacterSet = {
-    var set: CharacterSet = .alphanumerics
-    set.formUnion(.symbols)
-    set.formUnion(.punctuationCharacters)
-    return set
-}()
-
-private let textUrlCharacters: CharacterSet = {
-    var set: CharacterSet = textUrlEdgeCharacters
-    set.formUnion(.whitespacesAndNewlines)
-    return set
-}()
-
 private func refreshTextUrls(text: NSString, initialAttributedText: NSAttributedString, attributedText: NSMutableAttributedString, fullRange: NSRange) {
     var textUrlRanges: [(NSRange, TextInputTextUrlAttribute)] = []
     initialAttributedText.enumerateAttribute(TextInputAttributes.textUrl, in: fullRange, options: [], using: { value, range, _ in
@@ -604,101 +589,38 @@ private func refreshBlockQuotes(text: NSString, initialAttributedText: NSAttribu
         }
     }
     
-    _ = quoteRanges
-    
     for i in 0 ..< quoteRanges.count {
-        let range = quoteRanges[i].0
-        
-        var validLower = range.lowerBound
-        inner1: for i in range.lowerBound ..< range.upperBound {
-            if let c = UnicodeScalar(text.character(at: i)) {
-                if textUrlCharacters.contains(c) {
-                    validLower = i
-                    break inner1
-                }
-            } else {
-                break inner1
-            }
+        var range = quoteRanges[i].0
+        while range.length > 0 && text.character(at: range.lowerBound) == 0x0a {
+            range.location += 1
+            range.length -= 1
         }
-        var validUpper = range.upperBound
-        inner2: for i in (validLower ..< range.upperBound).reversed() {
-            if let c = UnicodeScalar(text.character(at: i)) {
-                if textUrlCharacters.contains(c) {
-                    validUpper = i + 1
-                    break inner2
-                }
-            } else {
-                break inner2
-            }
+        while range.length > 0 && text.character(at: range.upperBound - 1) == 0x0a {
+            range.length -= 1
+        }
+        if range.length == 0 {
+            quoteRanges[i].0 = range
+            continue
         }
         
-        let minLower = (i == 0) ? fullRange.lowerBound : quoteRanges[i - 1].0.upperBound
-        inner3: for i in (minLower ..< validLower).reversed() {
-            if let c = UnicodeScalar(text.character(at: i)) {
-                if textUrlEdgeCharacters.contains(c) {
-                    validLower = i
-                } else {
-                    break inner3
-                }
-            } else {
-                break inner3
-            }
+        var lineLower = range.lowerBound
+        while lineLower > fullRange.lowerBound && text.character(at: lineLower - 1) != 0x0a {
+            lineLower -= 1
+        }
+        var lineUpper = range.upperBound
+        while lineUpper < fullRange.upperBound && text.character(at: lineUpper) != 0x0a {
+            lineUpper += 1
         }
         
-        let maxUpper = (i == quoteRanges.count - 1) ? fullRange.upperBound : quoteRanges[i + 1].0.lowerBound
-        inner3: for i in validUpper ..< maxUpper {
-            if let c = UnicodeScalar(text.character(at: i)) {
-                if textUrlEdgeCharacters.contains(c) {
-                    validUpper = i + 1
-                } else {
-                    break inner3
-                }
-            } else {
-                break inner3
-            }
-        }
-        
-        quoteRanges[i] = (NSRange(location: validLower, length: validUpper - validLower), quoteRanges[i].1)
+        quoteRanges[i] = (NSRange(location: lineLower, length: lineUpper - lineLower), quoteRanges[i].1)
     }
     
     quoteRanges = quoteRanges.filter({ $0.0.length > 0 })
     
-//    while quoteRanges.count > 1 {
-//        var hadReductions = false
-//        outer: for i in 0 ..< quoteRanges.count - 1 {
-//            if quoteRanges[i].1 === quoteRanges[i + 1].1 {
-//                var combine = true
-//                inner: for j in quoteRanges[i].0.upperBound ..< quoteRanges[i + 1].0.lowerBound {
-//                    if let c = UnicodeScalar(text.character(at: j)) {
-//                        if textUrlCharacters.contains(c) {
-//                        } else {
-//                            combine = false
-//                            break inner
-//                        }
-//                    } else {
-//                        combine = false
-//                        break inner
-//                    }
-//                }
-//                if combine {
-//                    hadReductions = true
-//                    quoteRanges[i] = (NSRange(location: quoteRanges[i].0.lowerBound, length: quoteRanges[i + 1].0.upperBound - quoteRanges[i].0.lowerBound), quoteRanges[i].1)
-//                    quoteRanges.remove(at: i + 1)
-//                    break outer
-//                }
-//            }
-//        }
-//        if !hadReductions {
-//            break
-//        }
-//    }
-    
-    
-    
     attributedText.removeAttribute(TextInputAttributes.quote, range: fullRange)
         
     for (range, attribute) in mergeQuoteRanges(quoteRanges) {
-        attributedText.addAttribute(TextInputAttributes.quote, value: TextInputTextQuoteAttribute(collapsed: attribute.collapsed), range: range)
+        attributedText.addAttribute(TextInputAttributes.quote, value: attribute, range: range)
     }
     
 }
@@ -712,6 +634,7 @@ public func refreshTextInputAttributes(textView: NSTextView, primaryTextColor: N
     let initialAttributedText = textView.attributedString()
     
     guard initialAttributedText.length != 0, let textStorage = textView.textStorage else {
+        textView.typingAttributes.removeValue(forKey: TextInputAttributes.quote)
         return
     }
     
@@ -844,6 +767,17 @@ public func refreshTextInputAttributes(textView: NSTextView, primaryTextColor: N
     }
     
     textStorage.endEditing()
+    
+    let selectedRange = textView.selectedRange()
+    if selectedRange.length == 0 {
+        var typingAttributes = textView.typingAttributes
+        if selectedRange.location > 0 && selectedRange.location <= textStorage.length, let quote = textStorage.attribute(TextInputAttributes.quote, at: selectedRange.location - 1, effectiveRange: nil) {
+            typingAttributes[TextInputAttributes.quote] = quote
+        } else {
+            typingAttributes.removeValue(forKey: TextInputAttributes.quote)
+        }
+        textView.typingAttributes = typingAttributes
+    }
 }
 
 

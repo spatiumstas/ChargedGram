@@ -109,6 +109,7 @@ public final class FactCheckMessageView : View {
             addSubview(imageView)
             scaleOnClick = true
             self.imageView.animates = true
+            self.imageView.isAccessibilityDecorative = true
         }
         
         required init?(coder: NSCoder) {
@@ -117,6 +118,7 @@ public final class FactCheckMessageView : View {
         
         func update(layout: FactCheckMessageLayout, animated: Bool) {
             let mainColor = layout.presentation.activity.main
+            self.setAccessibilityLabel(layout.revealed ? strings().voiceOverCommonCollapse : strings().voiceOverCommonExpand)
             
             let image: CGImage?
             if layout.revealed {

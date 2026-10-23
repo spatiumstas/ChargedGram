@@ -165,6 +165,14 @@ public class ExportedInvitationRowItem: GeneralRowItem {
     public override func menuItems(in location: NSPoint) -> Signal<[ContextMenuItem], NoError> {
         return _menuItems()
     }
+
+    public override var accessibilityLabel: String? {
+        return linkTextLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return usageTextLayout?.attributedString.string
+    }
     
     public override func viewClass() -> AnyClass {
         return ExportedInvitationRowView.self
@@ -207,6 +215,8 @@ private final class ExportedInvitationRowView : GeneralContainableRowView {
         
         
         linkContainer.addSubview(actions)
+        actions.setAccessibilityLabel(strings().voiceOverCommonMore)
+        linkContainer.setAccessibilityLabel(strings().voiceOverCommonCopy)
         
         addSubview(usageContainer)
         
@@ -325,6 +335,7 @@ private final class ExportedInvitationRowView : GeneralContainableRowView {
         guard let item = item as? ExportedInvitationRowItem else {
             return
         }
+        usageContainer.setAccessibilityLabel(item.usageTextLayout?.attributedString.string)
         
         let duration: Double = 0.4
         let timingFunction: CAMediaTimingFunctionName = .spring

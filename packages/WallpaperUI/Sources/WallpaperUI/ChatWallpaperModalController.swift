@@ -73,6 +73,10 @@ private final class ChatWallpaperRowItem: GeneralRowItem {
         return ChatWallpaperRowView.self
     }
 
+    public override var accessibilityLabel: String? {
+        return strings().voiceOverCommonWallpaper
+    }
+
     public override func menuItems(in location: NSPoint) -> Signal<[ContextMenuItem], NoError> {
         let insets = self.inset
         let count = CGFloat(self.perRowCount)
@@ -117,6 +121,8 @@ private final class ChatWallpaperRowView: GeneralContainableRowView {
             addSubview(checkmark)
             checkmark.image = theme.icons.chatGroupToggleSelected
             checkmark.sizeToFit()
+            checkmark.isAccessibilityDecorative = true
+            setAccessibilityLabel(strings().voiceOverCommonWallpaper)
             scaleOnClick = true
             wallpaperView.layer?.cornerRadius = 10
             wallpaperView.layer?.masksToBounds = true
@@ -131,6 +137,7 @@ private final class ChatWallpaperRowView: GeneralContainableRowView {
             self.context = context
             wallpaperView.setWallpaper(account: context.account, wallpaper: entry.wallpaper, size: frame.size)
             checkmark.isHidden = !entry.selected
+            setAccessibilityValue(entry.selected ? strings().voiceOverCommonSelected : nil)
             needsLayout = true
         }
 
@@ -350,7 +357,6 @@ public func ChatWallpaperModalController(_ context: any AccountContextProtocol, 
     }
 
     let controller = InputDataController(dataSignal: signal, title: strings().chatWPBackgroundTitle)
-
     controller.onDeinit = {
         actionsDisposable.dispose()
     }

@@ -252,11 +252,13 @@ private final class WallpaperPreviewView: View {
 
         dismissButton.set(image: theme.icons.glass_close, for: .Normal)
         dismissButton.setGlassEffect()
+        dismissButton.setAccessibilityLabel(strings().voiceOverCommonClose)
         dismissButton.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
         addSubview(dismissButton)
 
         shareButton.set(image: TelegramThemeHooks.shared.image(.iconShareStickerPack).precomposed(theme.colors.text), for: .Normal)
         shareButton.setGlassEffect()
+        shareButton.setAccessibilityLabel(strings().voiceOverCommonShare)
         shareButton.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
         addSubview(shareButton)
         
@@ -856,6 +858,7 @@ private final class WallpaperPreviewView: View {
             self.patternCheckbox.hasPattern = false
             self.colorCheckbox.colorsValue = colors.map { NSColor($0) }
             self.rotateColors.update(colors.count > 2 ? theme.icons.wallpaper_color_play : theme.icons.wallpaper_color_rotate)
+            self.rotateColors.setAccessibilityLabel(colors.count > 2 ? strings().voiceOverCommonPlay : strings().voiceOverCommonRotate)
             self.ready?()
         case let .image(representations, settings):
             self.patternCheckbox.hasPattern = false
@@ -895,6 +898,7 @@ private final class WallpaperPreviewView: View {
             
             if isPattern {
                 self.rotateColors.update(settings.colors.count > 2 ? theme.icons.wallpaper_color_play : theme.icons.wallpaper_color_rotate)
+                self.rotateColors.setAccessibilityLabel(settings.colors.count > 2 ? strings().voiceOverCommonPlay : strings().voiceOverCommonRotate)
             }
             
             let dimensions = largestImageRepresentation(representations)!.dimensions.size
@@ -1312,6 +1316,9 @@ private final class WallpaperPreviewRowItem: GeneralRowItem {
     }
     public override func viewClass() -> AnyClass {
         return WallpaperPreviewRowView.self
+    }
+    public override var accessibilityLabel: String? {
+        return strings().voiceOverCommonWallpaper
     }
 }
 

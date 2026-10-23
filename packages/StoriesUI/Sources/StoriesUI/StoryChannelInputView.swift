@@ -11,6 +11,7 @@ import ShortPeerRow
 import TelegramTheme
 import TelegramUtils
 import InputView
+import Localization
 
 
 private let share_image = TelegramThemeHooks.shared.image(.iconStoryShare).precomposed(NSColor.white)
@@ -65,6 +66,8 @@ final class StoryChannelInputView : Control, StoryInput {
         
         viewsImage.image = view_image
         viewsImage.sizeToFit()
+        viewsImage.isAccessibilityDecorative = true
+        views.isAccessibilityDecorative = true
         
         self.layer?.masksToBounds = false
         
@@ -81,9 +84,11 @@ final class StoryChannelInputView : Control, StoryInput {
         
         share.set(image: share_image, for: .Normal)
         share.sizeToFit(.zero, NSMakeSize(24, 24), thatFit: true)
+        share.setAccessibilityLabel(strings().voiceOverCommonShare)
                 
         repost.set(image: repost_image, for: .Normal)
         repost.sizeToFit(.zero, NSMakeSize(24, 24), thatFit: true)
+        repost.setAccessibilityLabel(strings().voiceOverCommonRepost)
 
         repost.set(handler: { [weak self] _ in
             if let story = self?.story {

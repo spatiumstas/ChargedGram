@@ -25,6 +25,14 @@ private final class DisplayMeAsHeaderItem : GeneralRowItem {
     public override var height: CGFloat {
         return textLayout.layoutSize.height
     }
+
+    public override var accessibilityLabel: String? {
+        return textLayout.attributedString.string
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
     
     public override func makeSize(_ width: CGFloat, oldWidth: CGFloat = 0) -> Bool {
         _ = super.makeSize(width, oldWidth: oldWidth)

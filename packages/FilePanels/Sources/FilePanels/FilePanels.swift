@@ -7,7 +7,16 @@ public let photoExts:[String] = ["png","jpg","jpeg","tiff", "heic"]
 public let videoExts:[String] = ["mp4","mov","avi", "m4v"]
 public let audioExts:[String] = ["mp3","wav", "m4a", "ogg"]
 
+
 public func filePanel(with exts:[String]? = nil, allowMultiple:Bool = true, canChooseDirectories: Bool = false, for window:Window, appearance: NSAppearance? = theme.appearance, completion:@escaping ([String]?)->Void) {
+    presentFilePanel(with: exts, allowMultiple: allowMultiple, canChooseDirectories: canChooseDirectories, for: window, appearance: appearance, cancelled: nil, completion: completion)
+}
+
+public func filePanel(with exts:[String]? = nil, allowMultiple:Bool = true, canChooseDirectories: Bool = false, for window:Window, appearance: NSAppearance? = theme.appearance, cancelled: @escaping () -> Void, completion:@escaping ([String]?)->Void) {
+    presentFilePanel(with: exts, allowMultiple: allowMultiple, canChooseDirectories: canChooseDirectories, for: window, appearance: appearance, cancelled: cancelled, completion: completion)
+}
+
+private func presentFilePanel(with exts: [String]?, allowMultiple: Bool, canChooseDirectories: Bool, for window: Window, appearance: NSAppearance?, cancelled: (() -> Void)?, completion: @escaping ([String]?) -> Void) {
     delay(0.01, closure: {
         var result:[String] = []
         let panel:NSOpenPanel = NSOpenPanel()
@@ -32,11 +41,13 @@ public func filePanel(with exts:[String]? = nil, allowMultiple:Bool = true, canC
                 }
                 completion(result)
             } else {
+                if response == .cancel { cancelled?() }
                 completion(nil)
             }
         }
     })
 }
+
 
 public func selectFolder(for window:Window, completion:@escaping (String)->Void) {
     delay(0.01, closure: {
@@ -59,6 +70,7 @@ public func selectFolder(for window:Window, completion:@escaping (String)->Void)
         }
     })
 }
+
 
 public func savePanel(file:String, ext:String, for window:Window, defaultName: String? = nil, completion:((String?)->Void)? = nil) {
     
@@ -89,6 +101,7 @@ public func savePanel(file:String, ext:String, for window:Window, defaultName: S
         
     })
 }
+
 
 public func savePanel(file:String, named:String, for window:Window, completion:((String)->Void)? = nil) {
     

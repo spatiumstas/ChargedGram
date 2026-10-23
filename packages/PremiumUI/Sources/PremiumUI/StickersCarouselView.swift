@@ -63,6 +63,7 @@ public class StickersCarouselView: View, PremiumSlideView {
         self.scrollView.background = .clear
         
         self.tapView.userInteractionEnabled = false
+        self.tapView.setAccessibilityLabel(strings().voiceOverCommonSticker)
                 
         self.tapView.set(handler: { [weak self] _ in
             self?.stickerTapped()

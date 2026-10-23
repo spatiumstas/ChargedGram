@@ -11,6 +11,7 @@ class SEUnauthorizedView : View {
         
         imageView.image = #imageLiteral(resourceName: "Icon_TelegramLogin").precomposed()
         imageView.sizeToFit()
+        imageView.isAccessibilityDecorative = true
         self.backgroundColor = theme.colors.background
         cancel.set(font: .medium(.title), for: .Normal)
         cancel.set(color: theme.colors.accent, for: .Normal)

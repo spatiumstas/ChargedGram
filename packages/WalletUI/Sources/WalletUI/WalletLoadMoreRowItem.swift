@@ -23,6 +23,36 @@ final class WalletLoadMoreRowItem: GeneralRowItem {
     override func viewClass() -> AnyClass {
         return WalletLoadMoreRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        switch mode {
+        case .showMore:
+            return titleLayout.attributedString.string
+        case .loading:
+            return strings().voiceOverCommonLoading
+        }
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        switch mode {
+        case .showMore:
+            return .button
+        case .loading:
+            return .busyIndicator
+        }
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        guard mode == .showMore else {
+            return false
+        }
+        action()
+        return true
+    }
 }
 
 private final class WalletLoadMoreRowView: GeneralContainableRowView {

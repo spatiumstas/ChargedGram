@@ -56,11 +56,16 @@ public class Sender: NSObject {
             let colorQuality: Float = 0.3
             options.setObject(colorQuality as NSNumber, forKey: kCGImageDestinationLossyCompressionQuality as NSString)
             
-            let asset = AVAsset(url: URL(fileURLWithPath: path))
-            let imageGenerator = AVAssetImageGenerator(asset: asset)
-            imageGenerator.maximumSize = CGSize(width: 320, height: 320)
-            imageGenerator.appliesPreferredTrackTransform = true
-            let fullSizeImage = try? imageGenerator.copyCGImage(at: CMTime(seconds: 0.0, preferredTimescale: asset.duration.timescale), actualTime: nil)
+            let fullSizeImage: CGImage?
+            if let frame = PendingVideoRenders.shared.info(for: path)?.frame, let source = CGImageSourceCreateWithData(frame as CFData, nil) {
+                fullSizeImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 320] as CFDictionary)
+            } else {
+                let asset = AVAsset(url: URL(fileURLWithPath: path))
+                let imageGenerator = AVAssetImageGenerator(asset: asset)
+                imageGenerator.maximumSize = CGSize(width: 320, height: 320)
+                imageGenerator.appliesPreferredTrackTransform = true
+                fullSizeImage = try? imageGenerator.copyCGImage(at: CMTime(seconds: 0.0, preferredTimescale: asset.duration.timescale), actualTime: nil)
+            }
             
             if let image = fullSizeImage {
                 
@@ -157,6 +162,10 @@ public class Sender: NSObject {
     }
 
     public static func enqueue(input:ChatTextInputState, context: any AccountContextProtocol, peerId:PeerId, replyId:EngineMessageReplySubject?, threadId: Int64?, replyStoryId: StoryId? = nil, disablePreview:Bool = false, linkBelowMessage: Bool = false, largeMedia: Bool? = nil, silent: Bool = false, atDate:Date? = nil, repeatPeriod: Int32? = nil, sendAsPeerId: PeerId? = nil, mediaPreview: TelegramMediaWebpage? = nil, emptyHandler:(()->Void)? = nil, customChatContents: ChatCustomContentsProtocol? = nil, messageEffect: AvailableMessageEffects.MessageEffect? = nil, sendPaidMessageStars: StarsAmount? = nil, suggestPost: ChatInterfaceState.ChannelSuggestPost? = nil) -> Signal<[MessageId?],NoError> {
+        return enqueue(input: input, context: context, peerId: peerId, replyId: replyId, threadId: threadId, replyStoryId: replyStoryId, disablePreview: disablePreview, linkBelowMessage: linkBelowMessage, largeMedia: largeMedia, silent: silent, atDate: atDate, repeatPeriod: repeatPeriod, sendAsPeerId: sendAsPeerId, mediaPreview: mediaPreview, emptyHandler: emptyHandler, customChatContents: customChatContents, messageEffect: messageEffect, sendPaidMessageStars: sendPaidMessageStars, suggestPost: suggestPost, observedResult: nil)
+    }
+
+    public static func enqueue(input:ChatTextInputState, context: any AccountContextProtocol, peerId:PeerId, replyId:EngineMessageReplySubject?, threadId: Int64?, replyStoryId: StoryId? = nil, disablePreview:Bool = false, linkBelowMessage: Bool = false, largeMedia: Bool? = nil, silent: Bool = false, atDate:Date? = nil, repeatPeriod: Int32? = nil, sendAsPeerId: PeerId? = nil, mediaPreview: TelegramMediaWebpage? = nil, emptyHandler:(()->Void)? = nil, customChatContents: ChatCustomContentsProtocol? = nil, messageEffect: AvailableMessageEffects.MessageEffect? = nil, sendPaidMessageStars: StarsAmount? = nil, suggestPost: ChatInterfaceState.ChannelSuggestPost? = nil, observedResult: ((Int, [MessageId?]) -> Void)?) -> Signal<[MessageId?],NoError> {
         
         var inset:Int = 0
         let dynamicEmojiOrder = context.stickerSettings.dynamicPackOrder
@@ -239,13 +248,22 @@ public class Sender: NSObject {
             }
         }
         
+        func observe(_ signal: Signal<[MessageId?], NoError>) -> Signal<[MessageId?], NoError> {
+            guard let observedResult else { return signal }
+            let expectedCount = mapped.count
+            return signal |> map { ids in
+                observedResult(expectedCount, ids)
+                return ids
+            }
+        }
+
         if let customChatContents = customChatContents {
-            return customChatContents.enqueueMessages(messages: mapped)
+            return observe(customChatContents.enqueueMessages(messages: mapped))
         } else {
             
             if !mapped.isEmpty {
                 let inlineMedia = input.inlineMedia.map { $0.key }
-                return enqueueMessages(account: context.account, peerId: peerId, messages: mapped) |> mapToSignal { value in
+                return observe(enqueueMessages(account: context.account, peerId: peerId, messages: mapped) |> mapToSignal { value in
                     if !emojis.isEmpty {
                         let es = saveUsedEmoji(emojis, postbox: context.account.postbox)
                         let aes = saveAnimatedUsedEmoji(inlineMedia, postbox: context.account.postbox)
@@ -254,7 +272,7 @@ public class Sender: NSObject {
                         }
                     }
                     return .single(value)
-                } |> deliverOnMainQueue
+                } |> deliverOnMainQueue)
             } else {
                 DispatchQueue.main.async {
                     emptyHandler?()
@@ -286,7 +304,14 @@ public class Sender: NSObject {
             func makeFileMedia(_ isMedia: Bool) {
                 let mimeType = resolvedMIMEType(for: container)
                 let attrs:[TelegramMediaFileAttribute] = fileAttributes(for:mimeType, path:path, isMedia: isMedia)
-                let resource: TelegramMediaResource = path.isDirectory ? LocalFileArchiveMediaResource(randomId: randomId, path: path) : LocalFileReferenceMediaResource(localFilePath:path,randomId:randomId, size: fileSize(path))
+                let resource: TelegramMediaResource
+                if path.isDirectory {
+                    resource = LocalFileArchiveMediaResource(randomId: randomId, path: path)
+                } else if PendingVideoRenders.shared.info(for: path) != nil {
+                    resource = LocalFileVideoMediaResource(randomId: randomId, path: path)
+                } else {
+                    resource = LocalFileReferenceMediaResource(localFilePath:path,randomId:randomId, size: fileSize(path))
+                }
                 media = TelegramMediaFile(fileId: MediaId(namespace: Namespaces.Media.LocalFile, id: randomId), partialReference: nil, resource: resource, previewRepresentations: previewForFile(path, isSecretRelated: isSecretRelated, account: account), videoThumbnails: [], immediateThumbnailData: nil, mimeType: mimeType, size: nil, attributes: attrs, alternativeRepresentations: [])
             }
             
@@ -427,6 +452,14 @@ public class Sender: NSObject {
             attrs.append(.Audio(isVoice: false, duration: Int(CMTimeGetSeconds(asset.duration)), title: defaultTitle, performer: defaultPerformer, waveform: nil))
         }
         if mime.hasPrefix("video"), isMedia {
+            if let pending = PendingVideoRenders.shared.info(for: path) {
+                attrs.append(TelegramMediaFileAttribute.Video(duration: pending.duration, size: PixelDimensions(pending.dimensions), flags: [.supportsStreaming], preloadSize: nil, coverTime: nil, videoCodec: nil))
+                attrs.append(TelegramMediaFileAttribute.FileName(fileName: path.nsstring.lastPathComponent.nsstring.deletingPathExtension.appending(".mp4")))
+                if !pending.hasAudio {
+                    attrs.append(.Animated)
+                }
+                return attrs
+            }
             let asset = AVURLAsset(url: URL(fileURLWithPath: path))
             let video = asset.tracks(withMediaType: AVMediaType.video).first
             let audio = asset.tracks(withMediaType: AVMediaType.audio).first
@@ -606,10 +639,18 @@ public class Sender: NSObject {
     }
     
     public static func enqueue(media:Media, context: any AccountContextProtocol, peerId:PeerId, replyId:EngineMessageReplySubject?, threadId: Int64?, replyStoryId: StoryId? = nil, silent: Bool = false, atDate: Date? = nil, repeatPeriod: Int32? = nil, query: String? = nil, collectionId: ItemCollectionId? = nil, customChatContents: ChatCustomContentsProtocol? = nil, sendPaidMessageStars: StarsAmount? = nil) ->Signal<[MessageId?],NoError> {
-        return enqueue(media: [media], caption: ChatTextInputState(), context: context, peerId: peerId, replyId: replyId, threadId: threadId, replyStoryId: replyStoryId, silent: silent, atDate: atDate, query: query, collectionId: collectionId, customChatContents: customChatContents, sendPaidMessageStars: sendPaidMessageStars)
+        return enqueue(media: media, context: context, peerId: peerId, replyId: replyId, threadId: threadId, replyStoryId: replyStoryId, silent: silent, atDate: atDate, repeatPeriod: repeatPeriod, query: query, collectionId: collectionId, customChatContents: customChatContents, sendPaidMessageStars: sendPaidMessageStars, observedResult: nil)
     }
-    
+
+    public static func enqueue(media:Media, context: any AccountContextProtocol, peerId:PeerId, replyId:EngineMessageReplySubject?, threadId: Int64?, replyStoryId: StoryId? = nil, silent: Bool = false, atDate: Date? = nil, repeatPeriod: Int32? = nil, query: String? = nil, collectionId: ItemCollectionId? = nil, customChatContents: ChatCustomContentsProtocol? = nil, sendPaidMessageStars: StarsAmount? = nil, observedResult: ((Int, [MessageId?]) -> Void)?) ->Signal<[MessageId?],NoError> {
+        return enqueue(media: [media], caption: ChatTextInputState(), context: context, peerId: peerId, replyId: replyId, threadId: threadId, replyStoryId: replyStoryId, silent: silent, atDate: atDate, repeatPeriod: repeatPeriod, query: query, collectionId: collectionId, customChatContents: customChatContents, sendPaidMessageStars: sendPaidMessageStars, observedResult: observedResult)
+    }
+
     public static func enqueue(media:[Media], caption: ChatTextInputState, context: any AccountContextProtocol, peerId:PeerId, replyId:EngineMessageReplySubject?, threadId: Int64?, replyStoryId: StoryId? = nil, isCollage: Bool = false, additionText: ChatTextInputState? = nil, silent: Bool = false, atDate: Date? = nil, repeatPeriod: Int32? = nil, sendAsPeerId: PeerId? = nil, query: String? = nil, collectionId: ItemCollectionId? = nil, isSpoiler: Bool = false, customChatContents: ChatCustomContentsProtocol? = nil, messageEffect: AvailableMessageEffects.MessageEffect? = nil, leadingText: Bool = false, sendPaidMessageStars: StarsAmount? = nil, suggestPost: ChatInterfaceState.ChannelSuggestPost? = nil) ->Signal<[MessageId?],NoError> {
+        return enqueue(media: media, caption: caption, context: context, peerId: peerId, replyId: replyId, threadId: threadId, replyStoryId: replyStoryId, isCollage: isCollage, additionText: additionText, silent: silent, atDate: atDate, repeatPeriod: repeatPeriod, sendAsPeerId: sendAsPeerId, query: query, collectionId: collectionId, isSpoiler: isSpoiler, customChatContents: customChatContents, messageEffect: messageEffect, leadingText: leadingText, sendPaidMessageStars: sendPaidMessageStars, suggestPost: suggestPost, observedResult: nil)
+    }
+
+    public static func enqueue(media:[Media], caption: ChatTextInputState, context: any AccountContextProtocol, peerId:PeerId, replyId:EngineMessageReplySubject?, threadId: Int64?, replyStoryId: StoryId? = nil, isCollage: Bool = false, additionText: ChatTextInputState? = nil, silent: Bool = false, atDate: Date? = nil, repeatPeriod: Int32? = nil, sendAsPeerId: PeerId? = nil, query: String? = nil, collectionId: ItemCollectionId? = nil, isSpoiler: Bool = false, customChatContents: ChatCustomContentsProtocol? = nil, messageEffect: AvailableMessageEffects.MessageEffect? = nil, leadingText: Bool = false, sendPaidMessageStars: StarsAmount? = nil, suggestPost: ChatInterfaceState.ChannelSuggestPost? = nil, observedResult: ((Int, [MessageId?]) -> Void)?) ->Signal<[MessageId?],NoError> {
         
         let dynamicEmojiOrder: Bool = context.stickerSettings.dynamicPackOrder
         
@@ -702,10 +743,16 @@ public class Sender: NSObject {
             }
             messages.insert(contentsOf: mapped, at: 0)
         }
+        let expectedCount = messages.count
+        let signal: Signal<[MessageId?], NoError>
         if let customChatContents {
-            return customChatContents.enqueueMessages(messages: messages) |> deliverOnMainQueue |> take(1)
+            signal = customChatContents.enqueueMessages(messages: messages)
         } else {
-            return enqueueMessages(account: context.account, peerId: peerId, messages: messages) |> deliverOnMainQueue |> take(1)
+            signal = enqueueMessages(account: context.account, peerId: peerId, messages: messages)
+        }
+        return signal |> deliverOnMainQueue |> take(1) |> map { ids in
+            observedResult?(expectedCount, ids)
+            return ids
         }
     }
     

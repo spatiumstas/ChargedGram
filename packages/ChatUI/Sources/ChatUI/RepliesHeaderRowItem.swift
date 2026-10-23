@@ -25,6 +25,18 @@ public class RepliesHeaderRowItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return RepliesHeaderRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return textLayout.attributedString.string
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .staticText
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 

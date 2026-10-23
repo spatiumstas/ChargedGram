@@ -1,4 +1,5 @@
 import Cocoa
+import InputView
 import TGUIKit
 import SwiftSignalKit
 import TelegramCore
@@ -40,7 +41,7 @@ func showWalletSendMoney(chatInteraction: ChatInteraction, user: TelegramUser, f
             chatInteraction?.scrollToLatest(true)
         }
     })
-    showModal(with: ChatInputUIHooks.shared.walletHooks.makeWalletSendController(context, walletContext, user, handlers), for: context.window, morphSource: morphSource)
+    showModal(with: ChatInputUIHooks.shared.walletHooks.makeWalletSendControllerObserved(context, walletContext, user, handlers), for: context.window, morphSource: morphSource)
 }
 
 public final class ChatInputAttachButton: View, MorphHoldObserving {
@@ -73,6 +74,7 @@ public final class ChatInputAttachButton: View, MorphHoldObserving {
 
         self.layer?.masksToBounds = false
         button.scaleOnClick = true
+        button.setAccessibilityLabel(strings().voiceOverAttachMedia)
         addSubview(button)
 
         setupContextMenu()
@@ -110,6 +112,7 @@ public final class ChatInputAttachButton: View, MorphHoldObserving {
             if aiButton == nil {
                 let ai = ImageButton()
                 ai.autohighlight = false
+                ai.setAccessibilityLabel(strings().voiceOverCommonTranslate)
                 ai.scaleOnClick = true
                 ai.set(handler: { [weak self] _ in
                     self?.runAITranslate()
@@ -134,11 +137,17 @@ public final class ChatInputAttachButton: View, MorphHoldObserving {
         guard !text.isEmpty else { return }
         let context = chatInteraction.interactionContext
         let language = Translate.detectLanguage(for: text)
-        showModal(with: ChatInputUIHooks.shared.makeTranslateModal(context, language, appAppearance.languageCode, text, { [weak chatInteraction] translated in
-            chatInteraction?.updateInput(with: translated)
-        }, { [weak chatInteraction] translated in
-            chatInteraction?.updateInput(with: translated)
-            chatInteraction?.sendMessage(true, nil, nil)
+        let apply: (NSAttributedString, Bool) -> Void = { [weak chatInteraction] translated, send in
+            guard let chatInteraction else { return }
+            chatInteraction.updateInput(with: translated)
+            if send {
+                chatInteraction.sendMessage(true, nil, nil)
+            }
+        }
+        showModal(with: ChatInputUIHooks.shared.makeTranslateModalObserved(context, language, appAppearance.languageCode, text, onUse: { translated in
+            apply(translated, false)
+        }, onSend: { translated in
+            apply(translated, true)
         }), for: context.window, morphSource: { [weak self] in self?.aiButton })
     }
 
@@ -312,36 +321,7 @@ public final class ChatInputAttachButton: View, MorphHoldObserving {
                         if canAddAttach {
                             let bot = attach
                             items.append(ContextMenuItem(attach.shortName, handler: {
-                                let open: () -> Void = {
-                                    ChatNavigationHooks.shared.openBrowserTab(context, .webapp(bot: bot.peer, peerId: peerId, buttonText: "", url: nil, payload: nil, threadId: threadId, replyTo: replyTo, fromMenu: false))
-                                }
-                                if bot.flags.contains(.showInSettingsDisclaimer) || bot.flags.contains(.notActivated) {
-                                    var options: [ModalAlertData.Option] = []
-                                    options.append(.init(string: strings().webBotAccountDisclaimerThird, isSelected: false, mandatory: true))
-
-
-                                    var description: ModalAlertData.Description? = nil
-                                    let installBot = !bot.flags.contains(.notActivated) && bot.peer._asPeer().botInfo?.flags.contains(.canBeAddedToAttachMenu) == true && !bot.flags.contains(.showInAttachMenu)
-
-                                    if installBot {
-                                        description = .init(string: strings().webBotAccountDesclaimerDesc(bot.shortName), onlyWhenEnabled: false)
-                                    }
-
-                                    let data = ModalAlertData(title: strings().webBotAccountDisclaimerTitle, info: strings().webBotAccountDisclaimerText, description: description, ok: strings().webBotAccountDisclaimerOK, options: options)
-                                    showModalAlert(for: context.window, data: data, completion: { result in
-
-                                        _ = context.engine.messages.acceptAttachMenuBotDisclaimer(botId: bot.peer.id).start()
-                                        ChatNavigationHooks.shared.installAttachMenuBot(context, bot.peer._asPeer(), { value in
-                                            if value, installBot {
-                                                showModalText(for: context.window, text: strings().webAppAttachSuccess(bot.peer._asPeer().displayTitle))
-                                            }
-                                            open()
-                                        })
-                                    })
-                                } else {
-                                    open()
-                                }
-
+                                chatOpenAttachMenuBot(bot, context: context, peerId: peerId, threadId: threadId, replyId: replyTo)
                             }, itemImage: value))
                         }
                     }
@@ -457,6 +437,12 @@ public final class ChatInputAttachButton: View, MorphHoldObserving {
 
             if !items.isEmpty {
                 let menu = ContextMenu(betterInside: true)
+                menu.delegate = menu
+
+                menu.onShow = { _ in
+                }
+                menu.onClose = {
+                }
                 for item in items {
                     menu.addItem(item)
                 }

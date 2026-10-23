@@ -23,6 +23,16 @@ final class UpdateTabView : Control {
     let shimmer = ShimmerEffectView()
     let progressView: ProgressIndicator = ProgressIndicator(frame: NSMakeRect(0, 0, 24, 24))
     
+    var bottomOverlayChanged: (() -> Void)?
+
+    override var isHidden: Bool {
+        didSet {
+            if isHidden != oldValue {
+                bottomOverlayChanged?()
+            }
+        }
+    }
+
     var isChatList: Bool = false
     
     var isInstalling: Bool = false {
@@ -40,11 +50,7 @@ final class UpdateTabView : Control {
             } else {
                 if let superview = self.superview, isChatList {
                     change(size: NSMakeSize(self.textView.frame.width + 40, frame.height), animated: true, timingFunction: .spring)
-                    if layoutState != .minimisize {
-                        change(pos: NSMakePoint(superview.bounds.focus(self.frame.size).minX, superview.frame.height - self.frame.height - 60), animated: true, timingFunction: .spring)
-                    } else {
-                        change(pos: NSMakePoint(superview.bounds.focus(self.frame.size).minX, superview.frame.height - self.frame.height), animated: true, timingFunction: .spring)
-                    }
+                    change(pos: NSMakePoint(superview.bounds.focus(self.frame.size).minX, self.frame.minY), animated: true, timingFunction: .spring)
                     imageView.change(pos: self.bounds.focus(imageView.frame.size).origin, animated: true, timingFunction: .spring)
                 }
             }
@@ -78,6 +84,8 @@ final class UpdateTabView : Control {
         let layout = TextViewLayout(.initialize(string: strings().updateUpdateTelegram, color: theme.colors.underSelectedColor, font: .medium(.title)))
         layout.measure(width: max(280, frame.width))
         textView.update(layout)
+        imageView.isAccessibilityDecorative = true
+        setAccessibilityLabel(strings().updateUpdateTelegram)
         
         let shadow = NSShadow()
         shadow.shadowBlurRadius = 5
@@ -122,6 +130,7 @@ final class UpdateTabView : Control {
         textView.center()
         progressView.center()
         imageView.center()
+        bottomOverlayChanged?()
         
     }
     
@@ -395,7 +404,42 @@ class MainViewController: TelegramGenericViewController<MainController_View> {
         self.navigation.frame = bounds
         self.contacts.frame = bounds
         updateController.updateLayout(context.layout, parentSize: size, isChatList: true)
+        updateChatListBottomOverlays()
         layoutConnectingStatusView()
+    }
+
+    private func updateChatListBottomOverlays() {
+        let updateView = updateController.genericView
+        let activeController = tabController.current === navigation ? navigation.controller : nil
+        if activeController?.isLoaded() != true || !(activeController?.view is PeerListContainerView) {
+            let bottomInset: CGFloat = updateView.layoutState == .minimisize ? 10 : 60
+            updateView.setFrameOrigin(NSMakePoint(updateView.frame.minX, bounds.height - updateView.frame.height - bottomInset))
+        }
+        let updateContainer: (ViewController) -> Void = { [weak self, updateView] controller in
+            guard controller.isLoaded(), let listView = controller.view as? PeerListContainerView else {
+                return
+            }
+            listView.layoutBottomOverlay = { [weak self, weak listView, weak updateView] bottomY, transition in
+                guard let self, self.tabController.current === self.navigation, self.navigation.controller.view === listView,
+                      let listView, let updateView, !updateView.isHidden, let container = updateView.superview, listView.isDescendant(of: container) else {
+                    return nil
+                }
+                let gap: CGFloat = 12
+                let bottom = container.convert(NSMakePoint(0, bottomY), from: listView).y
+                var rect = updateView.frame
+                rect.origin.y = bottom - rect.height - gap
+                if rect != updateView.frame {
+                    transition.updateFrame(view: updateView, frame: rect)
+                }
+                return listView.convert(rect, from: container)
+            }
+            listView.updateBottomControls(size: listView.frame.size, transition: .immediate)
+        }
+        updateContainer(navigation.controller)
+        navigation.enumerateControllers { controller, _ in
+            updateContainer(controller)
+            return false
+        }
     }
 
     override var absorbsNavigationHeaderOverflow: Bool {
@@ -431,9 +475,14 @@ class MainViewController: TelegramGenericViewController<MainController_View> {
         addSubview(self.tabController.view)
 
         if !context.isSupport {
-        //#if !APP_STORE
             addSubview(updateController.view)
-        //#endif
+            updateController.genericView.bottomOverlayChanged = { [weak self] in
+                self?.updateChatListBottomOverlays()
+            }
+        }
+
+        navigation.controllerDidChange = { [weak self] in
+            self?.updateChatListBottomOverlays()
         }
 
         connectingStatusView.isHidden = true
@@ -472,13 +521,13 @@ class MainViewController: TelegramGenericViewController<MainController_View> {
             if state == .minimisize {
                 self.tabController.select(index: self.chatIndex)
             }
-            //#if !APP_STORE
             self.updateController.updateLayout(state, parentSize: self.frame.size, isChatList: true)
-            //#endif
+            self.updateChatListBottomOverlays()
         }))
         
         tabController.didChangedIndex = { [weak self] index in
             self?.checkSettings(index)
+            self?.updateChatListBottomOverlays()
         }
     }
     
@@ -486,7 +535,7 @@ class MainViewController: TelegramGenericViewController<MainController_View> {
         chatList.loadViewIfNeeded(bounds)
         settings.loadViewIfNeeded(bounds)
     }
-    
+
     private func showCallsTab() {
         tabController.insert(tab: TabAnimatedItem(.tab_calls, image: theme.icons.tab_calls, selectedImage: theme.icons.tab_calls_active, controller: phoneCalls), at: 1)
     }
@@ -516,6 +565,7 @@ class MainViewController: TelegramGenericViewController<MainController_View> {
                 }
             }
         }))
+
     }
     
     private func _showFastChatSettings(_ control: Control, unreadCount: Int32) {
@@ -772,11 +822,16 @@ class MainViewController: TelegramGenericViewController<MainController_View> {
         
         let rootController = navigation.empty
 
-        guard let searchHost: PeersListController =
-            (navigation.controller as? CommunityListController)
-            ?? (rootController as? ChatListController)
-            ?? ((rootController as? TabBarController)?.current as? ChatListController)
-        else {
+        let searchHost: PeersListController?
+        if let controller = navigation.controller as? ChatListController, controller.mode == .folder(.archive) {
+            searchHost = controller
+        } else {
+            searchHost = (navigation.controller as? CommunityListController)
+                ?? (rootController as? ChatListController)
+                ?? ((rootController as? TabBarController)?.current as? ChatListController)
+        }
+
+        guard let searchHost else {
             return
         }
 
@@ -831,11 +886,7 @@ class MainViewController: TelegramGenericViewController<MainController_View> {
     }
     
     var settingsIndex: Int {
-        if showCallTabs {
-            return 3
-        } else {
-            return 2
-        }
+        return chatIndex + 1
     }
     
     
@@ -901,9 +952,7 @@ class MainViewController: TelegramGenericViewController<MainController_View> {
         self.phoneCalls = RecentCallsViewController(context)
         self.navigation = NavigationViewController(self.chatList, context.window)
 
-        //#if !APP_STORE
             updateController = UpdateTabController(context.sharedContext)
-        //#endif
         super.init(context)
         
         self.insets.right = 0

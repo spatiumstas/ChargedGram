@@ -486,7 +486,7 @@ public func richTextOutgoing(from page: InstantPage) -> (blocks: [RichTextOutgoi
         return RichTextOutgoingBlock(core: block)
     }
     func emitMedia(kind: String, id: MediaId, caption: InstantPageCaption, spoiler: Bool) {
-        guard let media = page.media[id] else { return }
+        guard let media = page.media[id]?._asMedia() else { return }
         let k = key(); mediaMap[k] = media
         out.append(.media(kind: kind, mediaID: k, caption: runs(from: caption.text), spoiler: spoiler))
     }
@@ -501,7 +501,7 @@ public func richTextOutgoing(from page: InstantPage) -> (blocks: [RichTextOutgoi
             case let .video(id, _, _, _, sp): mediaId = id; spoiler = sp
             default: mediaId = nil; spoiler = false
             }
-            if let mediaId = mediaId, let media = page.media[mediaId] {
+            if let mediaId = mediaId, let media = page.media[mediaId]?._asMedia() {
                 let k = key(); mediaMap[k] = media; ids.append(k); spoilers.append(spoiler)
             }
         }
@@ -823,7 +823,7 @@ private func pullQuoteAuthorRuns(fromCaption caption: RichText) -> [TextRun] {
 private func buildInstantPage(from blocks: [RichTextOutgoingBlock], media: [String: Media]) -> InstantPage {
     var pageMedia: [MediaId: Media] = [:]
     let pageBlocks = buildPageBlocks(from: blocks, media: media, pageMedia: &pageMedia)
-    return InstantPage(blocks: pageBlocks, media: pageMedia, isComplete: true, rtl: false, url: "", views: nil)
+    return InstantPage(blocks: pageBlocks, media: pageMedia.mapValues(EngineMedia.init), isComplete: true, rtl: false, url: "", views: nil)
 }
 
 private func buildPageBlocks(from blocks: [RichTextOutgoingBlock], media: [String: Media], pageMedia: inout [MediaId: Media]) -> [InstantPageBlock] {

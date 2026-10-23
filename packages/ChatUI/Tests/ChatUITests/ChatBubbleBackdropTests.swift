@@ -284,4 +284,25 @@ final class ChatBubbleBackdropTests: XCTestCase {
         }
         windows.forEach { $0.close() }
     }
+
+    func testRepeatedIdenticalSetTypeCost() {
+        let backdrop = ChatMessageBubbleBackdrop()
+        let window = host(backdrop)
+        let rect = NSMakeRect(30, 120, 220, 64)
+        let container = NSMakeSize(400, 800)
+        backdrop.setType(image: mask, border: border, background: background)
+        backdrop.updateLayout(size: backdrop.frame.size, transition: .immediate)
+        backdrop.update(rect: rect, within: container, transition: .immediate)
+        let maskLayer = backdrop.layer?.mask
+        let start = CFAbsoluteTimeGetCurrent()
+        for _ in 0 ..< 100000 {
+            backdrop.setType(image: mask, border: border, background: background)
+            backdrop.update(rect: rect, within: container, transition: .immediate)
+        }
+        CATransaction.flush()
+        let elapsed = CFAbsoluteTimeGetCurrent() - start
+        print(String(format: "ChatBubbleBackdrop identical setType+update: %.2f µs each", elapsed / 100000 * 1e6))
+        XCTAssertTrue(backdrop.layer?.mask === maskLayer)
+        withExtendedLifetime(window) {}
+    }
 }

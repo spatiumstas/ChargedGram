@@ -296,21 +296,15 @@ public final class ChatLiveTranslateContext {
                 isHidden = true
             }
             
-            if let peer = peer {
-                isHidden = !peer.isPremium || isHidden
-            } else {
-                isHidden = true
-            }
-            
             var translationState = translationState
-            if let paywall = settings.paywall, isHidden {
-                translationState?.paywall = paywall.show
-            } else {
-                translationState?.paywall = false
-            }
-            
-            if let state = translationState, state.paywall && peer?.isPremium == false {
-                isHidden = false
+            if let peer = peer {
+                if !peer.isPremium {
+                    let showPaywall = settings.paywall?.show ?? true
+                    translationState?.paywall = showPaywall
+                    isHidden = isHidden || !showPaywall
+                } else {
+                    translationState?.paywall = false
+                }
             }
             
             let translateConfig = AppConfigTranslateState(rawValue: context.appConfiguration.getStringValue("translations_auto_enabled", orElse: "enabled")) ?? .disabled
@@ -730,7 +724,7 @@ public func chatTranslationState(context: any AccountContextProtocol, peerId: En
                     |> take(1)
                     |> map { messageHistoryView, _, _ -> ChatTranslationState? in
                         let messages = messageHistoryView.entries.map(\.message)
-                        
+
                         var fromLangs: [String: Int] = [:]
                         var count = 0
                         for message in messages {
@@ -763,7 +757,7 @@ public func chatTranslationState(context: any AccountContextProtocol, peerId: En
                                 break
                             }
                         }
-                        
+
                         var mostFrequent: (String, Int)?
                         if count >= 5 {
                             for (lang, count) in fromLangs {

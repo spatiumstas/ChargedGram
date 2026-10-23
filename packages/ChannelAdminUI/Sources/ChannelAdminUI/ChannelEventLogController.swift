@@ -51,6 +51,7 @@ private class SearchContainerView : View {
 
         cancelButton.autohighlight = false
         cancelButton.scaleOnClick = true
+        cancelButton.setAccessibilityLabel(strings().voiceOverCommonCancel)
         cancelButton.set(handler: { [weak self] _ in
             self?.hideSearch?()
         }, for: .Click)
@@ -99,8 +100,7 @@ private final class EmptyView : View {
         super.init(frame: frameRect)
         addSubview(imageView)
         addSubview(textView)
-        
-        
+        imageView.isAccessibilityDecorative = true
     }
     
     func update(_ text: String) {
@@ -179,6 +179,7 @@ public class ChannelEventLogView : View {
         info.sizeToFit(.zero, NSMakeSize(40, 40), thatFit: true)
         info.layer?.cornerRadius = 20
         info.setGlassEffect(size: NSMakeSize(40, 40))
+        info.setAccessibilityLabel(strings().voiceOverCommonInfo)
     }
     
     func updateState(_ state: ChannelEventLogState) {

@@ -8,6 +8,7 @@ public enum UniqueGiftBackgroundStyle: Equatable {
     case item(giftCenterY: CGFloat, cornerRadius: CGFloat)
     case message(patternCenterY: CGFloat, cornerRadius: CGFloat)
     case header(patternCenterY: CGFloat)
+    case animatedHeader(patternCenterY: CGFloat)
     case profile(avatarCenter: CGPoint, avatarSize: CGFloat, defaultHeight: CGFloat, gradientCenter: CGPoint)
 
     public func geometry(size: CGSize) -> UniqueGiftBackgroundGeometry {
@@ -16,7 +17,7 @@ public enum UniqueGiftBackgroundStyle: Equatable {
             return .item(size: size, giftCenterY: giftCenterY, cornerRadius: cornerRadius)
         case let .message(patternCenterY, cornerRadius):
             return .message(size: size, patternCenterY: patternCenterY, cornerRadius: cornerRadius)
-        case let .header(patternCenterY):
+        case let .header(patternCenterY), let .animatedHeader(patternCenterY):
             return .header(size: size, patternCenterY: patternCenterY)
         case let .profile(avatarCenter, avatarSize, defaultHeight, gradientCenter):
             return .profile(size: size, avatarCenter: avatarCenter, avatarSize: avatarSize, defaultHeight: defaultHeight, gradientCenter: gradientCenter)
@@ -24,17 +25,19 @@ public enum UniqueGiftBackgroundStyle: Equatable {
     }
 
     var hasLivePattern: Bool {
-        if case .profile = self {
+        switch self {
+        case .profile, .animatedHeader:
             return true
+        default:
+            return false
         }
-        return false
     }
 
     var cornerRadius: CGFloat {
         switch self {
         case let .item(_, cornerRadius), let .message(_, cornerRadius):
             return cornerRadius
-        case .header, .profile:
+        case .header, .animatedHeader, .profile:
             return 0.0
         }
     }
@@ -58,6 +61,8 @@ private final class UniqueGiftRenderTarget {
 }
 
 public final class UniqueGiftBackgroundLayer: CALayer {
+    public var onContentReady: (() -> Void)?
+
     private static let renderQueue: OperationQueue = {
         let queue = OperationQueue()
         queue.name = "org.telegram.uniqueGiftBackground"
@@ -287,6 +292,9 @@ public final class UniqueGiftBackgroundLayer: CALayer {
         self.cornerRadius = 0.0
         self.contentsScale = key?.scale ?? self.effectiveScale
         self.contents = image
+        if image != nil, key?.glyphId == self.content?.pattern?.fileId {
+            self.onContentReady?()
+        }
     }
 
     private func updateLiveLayers() {
@@ -325,6 +333,19 @@ public final class UniqueGiftBackgroundLayer: CALayer {
         }
         CATransaction.commit()
         self.updatePatternLayers(geometry: geometry, content: content)
+        if content.pattern == nil || self.glyph != nil {
+            self.onContentReady?()
+        }
+    }
+
+    public func animatePatternTransition() {
+        guard let mask = patternTintLayer?.mask else { return }
+        let animation = CAKeyframeAnimation(keyPath: "transform.scale")
+        animation.values = [1, 1.14, 1]
+        animation.keyTimes = [0, 0.45, 1]
+        animation.duration = 0.4
+        animation.timingFunctions = [CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .easeInEaseOut)]
+        mask.add(animation, forKey: "giftBuilder.pattern")
     }
 
     private func removePatternLayers() {
@@ -379,6 +400,15 @@ public final class UniqueGiftBackgroundLayer: CALayer {
 
 public final class UniqueGiftBackgroundView: NSView {
     private let backgroundLayer = UniqueGiftBackgroundLayer()
+
+    public var onContentReady: (() -> Void)? {
+        get { backgroundLayer.onContentReady }
+        set { backgroundLayer.onContentReady = newValue }
+    }
+
+    public func animatePatternTransition() {
+        backgroundLayer.animatePatternTransition()
+    }
 
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)

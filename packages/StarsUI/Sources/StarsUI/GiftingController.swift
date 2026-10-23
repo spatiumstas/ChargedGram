@@ -103,6 +103,14 @@ private final class HeaderTextRowItem : GeneralRowItem {
         return headerLayout.layoutSize.height + 2 + infoLayout.layoutSize.height
     }
     
+    public override var accessibilityLabel: String? {
+        return headerLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return infoLayout.attributedString.string
+    }
+
     public override func viewClass() -> AnyClass {
         return HeaderTextRowView.self
     }
@@ -166,6 +174,14 @@ private final class HeaderRowItem : GeneralRowItem {
         return 70
     }
     
+    public override var accessibilityLabel: String? {
+        return peers.map { $0._asPeer().displayTitle }.joined(separator: ", ")
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
     public override func viewClass() -> AnyClass {
         return HeaderRowView.self
     }
@@ -248,6 +264,32 @@ private final class FilterRowItem : GeneralRowItem {
         self.arguments = arguments
         super.init(initialSize)
     }
+    public override var accessibilityLabel: String? {
+        switch item.value {
+        case let .stars(amount):
+            return strings().starListItemCountOther(Int(amount))
+        default:
+            return layout.attributedString.string.replacingOccurrences(of: clown, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .radioButton
+    }
+
+    public override var accessibilityToggleState: Bool? {
+        return item.selected
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        arguments.selectFilter(item.value)
+        return true
+    }
+
     public override func viewClass() -> AnyClass {
         return FilterRowView.self
     }
@@ -401,6 +443,10 @@ private final class StarGiftFilterRowItem : GeneralRowItem {
         return 40
     }
     
+    public override var accessibilityLabel: String? {
+        return strings().voiceOverCommonFilter
+    }
+
     public override func viewClass() -> AnyClass {
         return StarGiftFilterRowView.self
     }
@@ -993,7 +1039,7 @@ public func GiftingController(context: (any AccountContextProtocol), peerId: Pee
             return TransferUniqueGiftHeaderItem(initialSize, stableId: stableId, gift: unique, toPeer: peer, context: context)
         }), footer: ModalAlertData.Footer.init(id: "footer", value: { initialSize, stableId, presentation, action in
             return InputDataTableBasedItem(initialSize, stableId: stableId, viewType: .singleItem, rows: getTransferAttributesRows(gift: unique), context: context)
-        }))
+        }), width: 340, showCloseButton: true)
         
         showModalAlert(for: window, data: data, completion: { result in
             _ = giftsContext.transferStarGift(prepaid: convertStars == nil, reference: reference, peerId: peerId).startStandalone()

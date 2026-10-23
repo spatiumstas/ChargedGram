@@ -46,45 +46,6 @@ private func roundVideoDecoration() -> (watermark: CGImage, planeFrames: CGImage
     return (watermark, planeFrames)
 }
 
-private func passthroughExport(asset: AVAsset, name: String, timeRange: CMTimeRange? = nil) -> Signal<String?, NoError> {
-    return Signal { subscriber in
-        let path = temporaryMediaPath(name, "mp4")
-        let output = URL(fileURLWithPath: path)
-        guard let export = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) else {
-            removeFile(at: path)
-            subscriber.putNext(nil)
-            subscriber.putCompletion()
-            return EmptyDisposable
-        }
-        export.outputURL = output
-        export.outputFileType = .mp4
-        export.shouldOptimizeForNetworkUse = true
-        if let timeRange {
-            export.timeRange = timeRange
-        }
-        export.exportAsynchronously {
-            if export.status == .completed {
-                subscriber.putNext(path)
-            } else {
-                removeFile(at: path)
-                subscriber.putNext(nil)
-            }
-            subscriber.putCompletion()
-        }
-        return ActionDisposable {
-            export.cancelExport()
-        }
-    }
-}
-
-public func exportTrimmedVideo(path: String, range: Range<Double>) -> Signal<String?, NoError> {
-    let timeRange = CMTimeRange(start: CMTimeMakeWithSeconds(range.lowerBound, preferredTimescale: 1000), end: CMTimeMakeWithSeconds(range.upperBound, preferredTimescale: 1000))
-    return passthroughExport(asset: AVURLAsset(url: URL(fileURLWithPath: path)), name: "video_message_trim", timeRange: timeRange)
-}
-
-
-
-
 public class VideoRecorderPipeline : NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, TGVideoCameraMovieRecorderDelegate, AVCaptureAudioDataOutputSampleBufferDelegate  {
     
     
@@ -104,7 +65,12 @@ public class VideoRecorderPipeline : NSObject, AVCaptureVideoDataOutputSampleBuf
             
             switch self.status {
             case .startingRecording, .recording, .madeThumbnail:
-                self.composedRecording { path, duration in
+                self.composedRecording { [weak self] result in
+                    guard let self, !self.isDiscarded, self.isPaused else { return }
+                    guard let (path, duration) = result else {
+                        self.status = .failed
+                        return
+                    }
                     self.status = .paused(info: ChatRecordingPreviewData(path: path, duration: duration, waveform: nil, thumb: self.thumbnail))
                 }
             default:
@@ -165,6 +131,7 @@ public class VideoRecorderPipeline : NSObject, AVCaptureVideoDataOutputSampleBuf
     private var segments: [URL] = []
     private var derivedFiles: [String] = []
     private var composedFile: String?
+    private var compositionRequestId = UUID()
     private var sentPath: String?
     private var isDiscarded: Bool = false
     private var completedDuration: Double = 0
@@ -471,8 +438,13 @@ public class VideoRecorderPipeline : NSObject, AVCaptureVideoDataOutputSampleBuf
     }
     
     private func finishWithComposedResult() {
-        self.composedRecording { path, duration in
-            self.resultDuration = Int(ceil(duration))
+        self.composedRecording { [weak self] result in
+            guard let self, !self.isDiscarded, case .stoppingRecording = self.status else { return }
+            guard let (path, duration) = result, let resultDuration = Int(exactly: ceil(duration)), resultDuration > 0 else {
+                self.status = .failed
+                return
+            }
+            self.resultDuration = resultDuration
             let isOriginalFile = self.segments == [self.url]
             if isOriginalFile {
                 self.liveUploading?.fileDidChangedSize(true)
@@ -492,6 +464,8 @@ public class VideoRecorderPipeline : NSObject, AVCaptureVideoDataOutputSampleBuf
     }
 
     private func clearComposedURL() {
+        compositionRequestId = UUID()
+        composeDisposable.set(nil)
         if let composedFile = self.composedFile {
             removeUnlessSent(composedFile)
             self.composedFile = nil
@@ -514,22 +488,45 @@ public class VideoRecorderPipeline : NSObject, AVCaptureVideoDataOutputSampleBuf
     public func applyTrim(_ range: Range<Double>) -> Signal<Bool, NoError> {
         return Signal { subscriber in
             let exportDisposable = MetaDisposable()
+            let cancelled = Atomic(value: false)
             VideoRecorderPipeline.queue.async {
-                guard self.isPaused else {
+                guard !cancelled.with({ $0 }), !self.isDiscarded, self.isPaused else {
                     subscriber.putNext(false)
                     subscriber.putCompletion()
                     return
                 }
-                self.composedRecording { path, _ in
+                self.composedRecording { [weak self] result in
+                    guard let self else {
+                        subscriber.putNext(false)
+                        subscriber.putCompletion()
+                        return
+                    }
+                    guard let (path, _) = result else {
+                        subscriber.putNext(false)
+                        subscriber.putCompletion()
+                        return
+                    }
+                    guard !cancelled.with({ $0 }), !self.isDiscarded, self.isPaused else {
+                        subscriber.putNext(false)
+                        subscriber.putCompletion()
+                        return
+                    }
                     exportDisposable.set(exportTrimmedVideo(path: path, range: range).start(next: { output in
                         VideoRecorderPipeline.queue.async {
-                            if let output {
+                            guard !cancelled.with({ $0 }), !self.isDiscarded, self.isPaused else {
+                                output?.discard()
+                                subscriber.putNext(false)
+                                subscriber.putCompletion()
+                                return
+                            }
+                            if let output, let outputPath = output.takePath() {
                                 self.removeSegmentFiles()
-                                self.derivedFiles.append(output)
-                                self.segments = [URL(fileURLWithPath: output)]
-                                self.completedDuration = range.upperBound - range.lowerBound
+                                self.derivedFiles.append(outputPath)
+                                self.segments = [URL(fileURLWithPath: outputPath)]
+                                self.completedDuration = output.duration
                                 self.lastSegmentDuration = 0
                                 self.liveUploading = nil
+                                self.status = .paused(info: ChatRecordingPreviewData(path: outputPath, duration: self.completedDuration, waveform: nil, thumb: self.thumbnail))
                                 subscriber.putNext(true)
                             } else {
                                 subscriber.putNext(false)
@@ -539,44 +536,64 @@ public class VideoRecorderPipeline : NSObject, AVCaptureVideoDataOutputSampleBuf
                     }))
                 }
             }
-            return exportDisposable
+            return ActionDisposable {
+                _ = cancelled.swap(true)
+                exportDisposable.dispose()
+            }
         }
     }
     
-    private func composedRecording(_ completion: @escaping (String, Double) -> Void) {
-        if self.segments.count == 1, let single = self.segments.first {
-            completion(single.path, self.completedDuration)
+    private func composedRecording(_ completion: @escaping ((String, Double)?) -> Void) {
+        let requestId = UUID()
+        self.compositionRequestId = requestId
+        self.composeDisposable.set(nil)
+        let segments = self.segments
+        guard !self.isDiscarded, !segments.isEmpty else {
+            completion(nil)
             return
         }
-        self.clearComposedURL()
-        
-        let composition = AVMutableComposition()
-        for segment in self.segments {
-            let asset = AVURLAsset(url: segment)
-            guard let video = asset.tracks(withMediaType: .video).first else {
-                continue
+        if segments.count == 1, let single = segments.first {
+            guard let duration = recordingVideoDuration(AVURLAsset(url: single)) else {
+                completion(nil)
+                return
             }
-            try? composition.insertTimeRange(video.timeRange, of: asset, at: composition.duration)
+            completion((single.path, duration))
+            return
         }
-        
-        let duration = CMTimeGetSeconds(composition.duration)
-        composeDisposable.set(passthroughExport(asset: composition, name: "video_message_joined").start(next: { [weak self] output in
+        guard let composition = recordingVideoComposition(segments) else {
+            completion(nil)
+            return
+        }
+        let request = MetaDisposable()
+        composeDisposable.set(request)
+        request.set((passthroughExport(asset: composition, name: "video_message_joined") |> then(.single(nil)) |> take(1)).start(next: { [weak self] output in
             VideoRecorderPipeline.queue.async {
                 guard let self else {
-                    if let output {
-                        removeFile(at: output)
-                    }
+                    output?.discard()
                     return
                 }
-                if let output {
-                    self.composedFile = output
-                    completion(output, duration.isNaN ? self.completedDuration : duration)
-                } else {
-                    completion(self.segments.last?.path ?? self.url.path, self.completedDuration)
+                guard self.compositionRequestId == requestId else {
+                    output?.discard()
+                    return
                 }
+                guard !self.isDiscarded, self.segments == segments else {
+                    output?.discard()
+                    completion(nil)
+                    return
+                }
+                guard let output, output.duration.isFinite, output.duration > 0,
+                    Int(exactly: ceil(output.duration)) != nil, let outputPath = output.takePath() else {
+                    output?.discard()
+                    completion(nil)
+                    return
+                }
+                self.clearComposedURL()
+                self.composedFile = outputPath
+                completion((outputPath, output.duration))
             }
         }))
     }
+
 
     
     deinit {

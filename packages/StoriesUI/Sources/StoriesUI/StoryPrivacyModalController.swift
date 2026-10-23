@@ -18,6 +18,7 @@ import TelegramTheme
 import TelegramUtils
 import TelegramMediaUtils
 import InlineStickerLayer
+import AlertsUI
 
 private final class StoryPreviewHeaderItem : GeneralRowItem {
     fileprivate let context: any AccountContextProtocol
@@ -45,6 +46,14 @@ private final class StoryPreviewHeaderItem : GeneralRowItem {
     override var height: CGFloat {
         return 20 + 4
     }
+
+    override var accessibilityLabel: String? {
+        return strings().voiceOverChatForwardedFrom(peer._asPeer().displayTitle)
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 private final class StoryPreviewHeaderView : TableRowView {
@@ -59,6 +68,8 @@ private final class StoryPreviewHeaderView : TableRowView {
         addSubview(imageView)
         nameView.userInteractionEnabled = false
         nameView.isSelectable = false
+        nameView.isAccessibilityDecorative = true
+        imageView.isAccessibilityDecorative = true
     }
     
     required init?(coder: NSCoder) {
@@ -122,6 +133,10 @@ private final class StoryPreviewRowItem : GeneralRowItem {
     override var height: CGFloat {
         return 100
     }
+
+    override var accessibilityLabel: String? {
+        return strings().voiceOverCommonStory
+    }
 }
 
 private final class StoryPreviewRowView : GeneralContainableRowView {
@@ -133,6 +148,7 @@ private final class StoryPreviewRowView : GeneralContainableRowView {
         super.init(frame: frameRect)
         addSubview(inputView)
         addSubview(emojiButton)
+        emojiButton.setAccessibilityLabel(strings().voiceOverCommonEmoji)
         inputView.placeholder = strings().previewSenderCaptionPlaceholder
     }
     
@@ -283,6 +299,7 @@ private enum OptionId: Int, Hashable {
 private struct State : Equatable {
     var privacy: StoryPosterResultPrivacy
     var initited: Bool = false
+    var privacyLoaded = false
     var peers: [EnginePeer.Id : EnginePeer] = [:]
     var sendAsPeers: [SendAsPeer] = []
     var blockedPeers:[RenderedPeer] = []
@@ -530,6 +547,22 @@ public enum StoryPrivacyReason {
     case settings(StoryContentItem)
 }
 
+private func storyPrivacyBlockedPeerIds(_ context: BlockedPeersContext) -> Signal<[PeerId]?, NoError> {
+    return context.state
+    |> deliverOnMainQueue
+    |> filter { state in
+        if !state.isLoadingMore, state.canLoadMore {
+            context.loadMore()
+        }
+        return !state.isLoadingMore && !state.canLoadMore
+    }
+    |> take(1)
+    |> map { state -> [PeerId]? in
+        guard state.totalCount == state.peers.count else { return nil }
+        return state.peers.map { $0.peerId }
+    }
+}
+
 public func StoryPrivacyModalController<Context: AccountContextProtocol>(context: Context, presentation: TelegramPresentationTheme, reason: StoryPrivacyReason, text: String? = nil) -> InputDataModalController {
 
     let actionsDisposable = DisposableSet()
@@ -574,56 +607,58 @@ public func StoryPrivacyModalController<Context: AccountContextProtocol>(context
     }
         
     
-    switch reason {
-    case .share, .upload:
-        let state: Signal<StoryPosterState?, NoError> = storyPosterState(engine: context.engine)
-        actionsDisposable.add(state.start(next: { value in
-            updateState { current in
-                var current = current
-                if let privacy = value?.privacy {
-                    current.privacy = privacy
-                }
-                return current
-            }
-        }))
-    case let .settings(story):
-        let state: Signal<StoryPosterState?, NoError> = storyPosterState(engine: context.engine) |> take(1)
-        actionsDisposable.add(state.start(next: { value in
-            updateState { current in
-                var current = current
-                if let privacy = value?.privacy {
-                    if let storyPrivacy = story.storyItem.privacy {
-                        var privacyEveryone: EngineStoryPrivacy = privacy.privacyEveryone
-                        var privacyContacts: EngineStoryPrivacy = privacy.privacyContacts
-                        var privacyCloseFriends: EngineStoryPrivacy = privacy.privacyFriends
-                        var privacyNobody: EngineStoryPrivacy = privacy.privacyNobody
-                        
-                        switch storyPrivacy.base {
-                        case .everyone:
-                            privacyEveryone = storyPrivacy
-                        case .contacts:
-                            privacyContacts = storyPrivacy
-                        case .closeFriends:
-                            privacyCloseFriends = storyPrivacy
-                        case .nobody:
-                            privacyNobody = storyPrivacy
-                        }
-                        current.privacy = .init(sendAsPeerId: nil, privacyEveryone: privacyEveryone, privacyContacts: privacyContacts, privacyFriends: privacyCloseFriends, privacyNobody: privacyNobody, selectedPrivacy: storyPrivacy.base, isForwardingDisabled: privacy.isForwardingDisabled, pin: privacy.pin)
-                    } else {
-                        current.privacy = privacy
+    let initialPrivacySignal = storyPosterState(engine: context.engine) |> take(1) |> deliverOnMainQueue
+    actionsDisposable.add(initialPrivacySignal.start(next: { value in
+        updateState { current in
+            var current = current
+            var privacy = value?.privacy ?? current.privacy
+            if case let .settings(story) = reason {
+                privacy.sendAsPeerId = nil
+                if let storyPrivacy = story.storyItem.privacy {
+                    privacy.selectedPrivacy = storyPrivacy.base
+                    switch storyPrivacy.base {
+                    case .everyone:
+                        privacy.privacyEveryone = storyPrivacy
+                    case .contacts:
+                        privacy.privacyContacts = storyPrivacy
+                    case .closeFriends:
+                        privacy.privacyFriends = storyPrivacy
+                    case .nobody:
+                        privacy.privacyNobody = storyPrivacy
                     }
                 }
-                return current
             }
-        }))
-    }
-    
-    
-    
-    var peerIds:[EnginePeer.Id] = []
-    
+            current.privacy = privacy
+            current.privacyLoaded = true
+            return current
+        }
+    }))
+
+    var peerIds: [EnginePeer.Id] = []
+    var peerGeneration: UInt64 = 0
+    var lastSavedPrivacy: StoryPosterResultPrivacy?
+    let peerDisposable = MetaDisposable()
+    let blockListDisposable = MetaDisposable()
+    let submissionDisposable = MetaDisposable()
+    let audienceDisposable = MetaDisposable()
+    var submissionId: UUID?
+    var submissionCommitted = false
+    var audienceOperationId: UUID?
+    var blockListOperationId: UUID?
+    actionsDisposable.add(peerDisposable)
+    actionsDisposable.add(blockListDisposable)
+    actionsDisposable.add(submissionDisposable)
+    actionsDisposable.add(audienceDisposable)
+
     let selectPeers: (EngineStoryPrivacy)->Void = { privacy in
-        
+        guard stateValue.with({ $0.privacyLoaded && $0.initited }), !submissionCommitted, submissionId == nil, blockListOperationId == nil, audienceOperationId == nil else { return }
+        let operationId = UUID()
+        audienceOperationId = operationId
+        let finish = {
+            if audienceOperationId == operationId { audienceOperationId = nil }
+        }
+        let requestDisposable = MetaDisposable()
+        audienceDisposable.set(requestDisposable)
         let title: String
         switch privacy.base {
         case .closeFriends:
@@ -645,7 +680,23 @@ public func StoryPrivacyModalController<Context: AccountContextProtocol>(context
         }
         
         let behaviour = SelectContactsBehavior(customTheme: { GeneralRowItem.Theme.initialize(presentation) })
-        _ = selectModalPeers(window: window, context: context, title: title, behavior: behaviour, selectedPeerIds: Set(selectedPeerIds)).start(next: { updatedPeerIds in
+        let operation = selectModalPeers(window: window, context: context, title: title, behavior: behaviour, selectedPeerIds: Set(selectedPeerIds))
+        |> take(1)
+        |> deliverOnMainQueue
+        |> mapToSignal { updatedPeerIds -> Signal<Never, NoError> in
+            guard audienceOperationId == operationId, !submissionCommitted else { return .complete() }
+            if case .closeFriends = privacy.base {
+                let save = context.engine.privacy.updateCloseFriends(peerIds: updatedPeerIds)
+                |> deliverOnMainQueue
+                |> afterDisposed { finish() }
+                return showModalProgress(signal: save, for: window)
+                |> `catch` { _ -> Signal<Never, NoError> in
+                    if audienceOperationId == operationId, !submissionCommitted {
+                        alert(for: window, info: strings().unknownError)
+                    }
+                    return .complete()
+                }
+            }
             updateState { current in
                 var current = current
                 switch privacy.base {
@@ -660,13 +711,13 @@ public func StoryPrivacyModalController<Context: AccountContextProtocol>(context
                 }
                 return current
             }
-            if case .closeFriends = privacy.base {
-                _ = context.engine.privacy.updateCloseFriends(peerIds: updatedPeerIds).startStandalone()
-            }
-        })
+            return .complete()
+        }
+        requestDisposable.set(operation.start(completed: finish))
     }
 
-    actionsDisposable.add(statePromise.get().start(next: { state in
+    actionsDisposable.add((statePromise.get() |> deliverOnMainQueue).start(next: { state in
+        guard state.privacyLoaded else { return }
     
         var currentIds:[EnginePeer.Id] = state.privacy.privacyEveryone.additionallyIncludePeers + state.privacy.privacyContacts.additionallyIncludePeers + state.privacy.privacyNobody.additionallyIncludePeers
         
@@ -676,6 +727,11 @@ public func StoryPrivacyModalController<Context: AccountContextProtocol>(context
         currentIds.append(context.peerId)
         
         if currentIds != peerIds {
+            peerIds = currentIds
+            peerGeneration &+= 1
+            let generation = peerGeneration
+            let requestDisposable = MetaDisposable()
+            peerDisposable.set(requestDisposable)
             let peers: Signal<[EnginePeer.Id: EnginePeer], NoError> = context.account.postbox.transaction { transaction in
                 var peers:[EnginePeer.Id: EnginePeer] = [:]
                 for currentId in currentIds {
@@ -686,18 +742,21 @@ public func StoryPrivacyModalController<Context: AccountContextProtocol>(context
                 return peers
             } |> deliverOnMainQueue
             
-            _ = peers.start(next: { peers in
+            requestDisposable.set(peers.start(next: { peers in
+                guard peerGeneration == generation else { return }
                 updateState { current in
                     var current = current
                     current.peers = peers
                     current.initited = true
                     return current
                 }
-            })
-            peerIds = currentIds
+            }))
         }
+        guard stateValue.with({ $0.privacy }) == state.privacy else { return }
         switch reason {
         case .share, .upload:
+            guard lastSavedPrivacy != state.privacy else { return }
+            lastSavedPrivacy = state.privacy
             _ = updateStoryPosterStateInteractively(engine: context.engine, { _ in
                 return .init(privacy: state.privacy)
             }).start()
@@ -718,7 +777,7 @@ public func StoryPrivacyModalController<Context: AccountContextProtocol>(context
 
     let blockedContext = BlockedPeersContext(account: context.account, subject: .stories)
     
-    actionsDisposable.add(combineLatest(adminedChannelsWithParticipants, blockedContext.state, context.engine.data.get(TelegramEngine.EngineData.Item.Contacts.CloseFriends())).start(next: { peers, blocked, friends in
+    actionsDisposable.add((combineLatest(adminedChannelsWithParticipants, blockedContext.state, context.engine.data.subscribe(TelegramEngine.EngineData.Item.Contacts.CloseFriends())) |> deliverOnMainQueue).start(next: { peers, blocked, friends in
         updateState { current in
             var current = current
             current.sendAsPeers = peers
@@ -730,6 +789,7 @@ public func StoryPrivacyModalController<Context: AccountContextProtocol>(context
     
     let textInteractions = TextView_Interactions(presentation: textInput)
     let emoji = EmojiesController(context, presentation: presentation)
+    emoji.showsGlassSurface = true
     
     let contextChatInteraction = ChatInteraction(chatLocation: .peer(context.peerId), context: context)
 
@@ -884,11 +944,44 @@ public func StoryPrivacyModalController<Context: AccountContextProtocol>(context
             }
         }
     }, updateBlockList: {
-        let current = stateValue.with { $0.blockedPeers.map { $0.peerId }}
-        let behaviour = SelectContactsBehavior(customTheme: { GeneralRowItem.Theme.initialize(presentation) })
-        _ = selectModalPeers(window: window, context: context, title: strings().storyPrivacySelectHideFrom, behavior: behaviour, selectedPeerIds: Set(current)).start(next: { updatedPeerIds in
-            _ = blockedContext.updatePeerIds(updatedPeerIds).start()
-        })
+        guard !submissionCommitted, submissionId == nil, audienceOperationId == nil, blockListOperationId == nil else { return }
+        let operationId = UUID()
+        blockListOperationId = operationId
+        let finish = {
+            if blockListOperationId == operationId {
+                blockListOperationId = nil
+            }
+        }
+        let requestDisposable = MetaDisposable()
+        blockListDisposable.set(requestDisposable)
+        var receivedList = false
+        let load = storyPrivacyBlockedPeerIds(blockedContext)
+        |> map { ids -> [PeerId]? in
+            receivedList = true
+            return ids
+        }
+        |> afterDisposed {
+            if !receivedList { finish() }
+        }
+        let operation = showModalProgress(signal: load, for: window)
+        |> mapToSignal { ids -> Signal<[PeerId], NoError> in
+            guard let ids else {
+                alert(for: window, info: strings().unknownError)
+                return .complete()
+            }
+            let behaviour = SelectContactsBehavior(customTheme: { GeneralRowItem.Theme.initialize(presentation) })
+            return selectModalPeers(window: window, context: context, title: strings().storyPrivacySelectHideFrom, behavior: behaviour, selectedPeerIds: Set(ids))
+        }
+        |> take(1)
+        |> mapToSignal { updatedPeerIds -> Signal<Never, NoError> in
+            let save = blockedContext.updatePeerIds(updatedPeerIds) |> afterDisposed { finish() }
+            return showModalProgress(signal: save, for: window)
+            |> `catch` { _ -> Signal<Never, NoError> in
+                alert(for: window, info: strings().unknownError)
+                return .complete()
+            }
+        }
+        requestDisposable.set(operation.start(completed: finish))
     }, showEmojis: { [weak emoji] control in
         if let emoji = emoji {
             showPopover(for: control, with: emoji)
@@ -896,7 +989,7 @@ public func StoryPrivacyModalController<Context: AccountContextProtocol>(context
     })
     
     
-    let signal = statePromise.get() |> filter { $0.initited } |> deliverOnMainQueue |> map { state in
+    let signal = statePromise.get() |> filter { $0.initited && $0.privacyLoaded } |> deliverOnMainQueue |> map { state in
         return InputDataSignalValue(entries: entries(state, arguments: arguments))
     }
     let title: String
@@ -910,7 +1003,6 @@ public func StoryPrivacyModalController<Context: AccountContextProtocol>(context
     }
     
     let controller = InputDataController(dataSignal: signal, title: title)
-    
     controller.onDeinit = { [weak controller] in
         actionsDisposable.dispose()
         if let controller = controller {
@@ -935,8 +1027,26 @@ public func StoryPrivacyModalController<Context: AccountContextProtocol>(context
     controller.getBackgroundColor = {
         presentation.colors.listBackground
     }
+
+    controller.willDisappear = { _ in
+        submissionId = nil
+        submissionCommitted = true
+        audienceOperationId = nil
+        blockListOperationId = nil
+        submissionDisposable.set(nil)
+        audienceDisposable.set(nil)
+        blockListDisposable.set(nil)
+    }
     
     controller.validateData = { _ in
+        guard stateValue.with({ $0.privacyLoaded && $0.initited }), submissionId == nil, !submissionCommitted, blockListOperationId == nil, audienceOperationId == nil else { return .none }
+        let operationId = UUID()
+        submissionId = operationId
+        let finish = {
+            if submissionId == operationId { submissionId = nil }
+        }
+        let requestDisposable = MetaDisposable()
+        submissionDisposable.set(requestDisposable)
         let textState = stateValue.with { $0.textState.textInputState() }
         let privacy = stateValue.with { $0.privacy }
         let selectedPrivacy = stateValue.with { $0.find($0.privacy.selectedPrivacy) }
@@ -953,18 +1063,24 @@ public func StoryPrivacyModalController<Context: AccountContextProtocol>(context
                 target = .myStories
             }
             
-            actionsDisposable.add((context.engine.messages.checkStoriesUploadAvailability(target: target) |> deliverOnMainQueue).start(next: { availability in
+            requestDisposable.set((context.engine.messages.checkStoriesUploadAvailability(target: target) |> take(1) |> deliverOnMainQueue).start(next: { availability in
+                guard submissionId == operationId, !submissionCommitted else { return }
                 
                 switch availability {
                 case .available:
+                    submissionCommitted = true
                     _ = context.engine.messages.uploadStory(target: target, media: .existing(media: story.storyItem.media._asMedia()), mediaAreas: [], text: textState.inputText, entities: textState.messageTextEntities(), pin: privacy.pin, privacy: selectedPrivacy, isForwardingDisabled: privacy.isForwardingDisabled, period: 24 * 60 * 60, randomId: arc4random64(), forwardInfo: forwardInfo, folders: [], music: story.storyItem.music?._asMedia() as? TelegramMediaFile).start()
                     showModalText(for: window, text: strings().storyPrivacySaveRepost)
                     close?()
-                default:
+                case .premiumRequired:
+                    finish()
                     FeatureNavigationHooks.shared.showPremiumBoarding(context, window, nil, false, nil)
+                default:
+                    finish()
+                    alert(for: window, info: strings().unknownError)
                 }
                 
-            }))
+            }, completed: finish))
         case let .upload(media, _):
             
             let target: Stories.PendingTarget
@@ -983,21 +1099,42 @@ public func StoryPrivacyModalController<Context: AccountContextProtocol>(context
                 inputMedia = .video(dimensions: media.dimensions ?? .init(.zero), duration: media.duration ?? 0, resource: media.resource, firstFrameFile: nil, stickers: [], coverTime: nil)
             }
             if let inputMedia {
-                actionsDisposable.add((context.engine.messages.checkStoriesUploadAvailability(target: target) |> deliverOnMainQueue).start(next: { availability in
+                requestDisposable.set((context.engine.messages.checkStoriesUploadAvailability(target: target) |> take(1) |> deliverOnMainQueue).start(next: { availability in
+                    guard submissionId == operationId, !submissionCommitted else { return }
                     switch availability {
                     case .available:
+                        submissionCommitted = true
                         _ = context.engine.messages.uploadStory(target: target, media: inputMedia, mediaAreas: [], text: textState.inputText, entities: textState.messageTextEntities(), pin: privacy.pin, privacy: selectedPrivacy, isForwardingDisabled: privacy.isForwardingDisabled, period: 24 * 60 * 60, randomId: arc4random64(), forwardInfo: nil, folders: [], music: nil).start()
                         showModalText(for: window, text: strings().storyPrivacySaveRepost)
                         close?()
-                    default:
+                    case .premiumRequired:
+                        finish()
                         FeatureNavigationHooks.shared.showPremiumBoarding(context, window, nil, false, nil)
+                    default:
+                        finish()
+                        alert(for: window, info: strings().unknownError)
                     }
-                }))
+                }, completed: finish))
+            } else {
+                finish()
+                alert(for: window, info: strings().unknownError)
             }
         case let .settings(story):
-            _ = context.engine.messages.editStoryPrivacy(id: story.storyItem.id, privacy: selectedPrivacy).startStandalone()
-            showModalText(for: window, text: strings().storyPrivacySavePrivacy)
-            close?()
+            guard story.peerId == nil || story.peerId == context.peerId else {
+                finish()
+                alert(for: window, info: strings().unknownError)
+                return .none
+            }
+            requestDisposable.set((context.engine.messages.editStoryPrivacy(id: story.storyItem.id, privacy: selectedPrivacy) |> deliverOnMainQueue).start(error: { _ in
+                guard submissionId == operationId else { return }
+                finish()
+                alert(for: window, info: strings().unknownError)
+            }, completed: {
+                guard submissionId == operationId, !submissionCommitted else { return }
+                submissionCommitted = true
+                showModalText(for: window, text: strings().storyPrivacySavePrivacy)
+                close?()
+            }))
         }
         return .none
     }

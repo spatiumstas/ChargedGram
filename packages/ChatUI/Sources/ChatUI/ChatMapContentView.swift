@@ -25,7 +25,7 @@ public class ChatMapContentView: ChatMediaContentView {
         super.init(frame: frameRect)
         addSubview(imageView)
         imageView.addSubview(iconView)
-
+        iconView.isAccessibilityDecorative = true
     }
     
     

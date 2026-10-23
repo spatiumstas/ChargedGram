@@ -36,9 +36,10 @@ private final class Arguments {
     let openWaltBalance: () -> Void
     let cardDidLayout: (WalletCardView) -> Void
     let intro = WalletHomeIntro.make()
+    let collectables: WalletCollectablesStage
 
     @available(macOS 10.15, *)
-    init(context: any AccountContextProtocol, environment: WalletUIEnvironment, receive: @escaping ((() -> NSView?)?) -> Void, addFunds: @escaping ((() -> NSView?)?) -> Void, send: @escaping ((() -> NSView?)?) -> Void, openTransaction: @escaping (WalletContext.Transaction, (() -> NSView?)?) -> Void, openCollectible: @escaping (WalletContext.Collectible) -> Void, loadMore: @escaping () -> Void, showMoreTransactions: @escaping () -> Void, selectTab: @escaping (WalletMainTab) -> Void, openAccountProtection: @escaping () -> Void, openEarnings: @escaping () -> Void, openPreviousWallets: @escaping () -> Void, openWaltBalance: @escaping () -> Void, cardDidLayout: @escaping (WalletCardView) -> Void) {
+    init(context: any AccountContextProtocol, environment: WalletUIEnvironment, receive: @escaping ((() -> NSView?)?) -> Void, addFunds: @escaping ((() -> NSView?)?) -> Void, send: @escaping ((() -> NSView?)?) -> Void, openTransaction: @escaping (WalletContext.Transaction, (() -> NSView?)?) -> Void, openCollectible: @escaping (WalletContext.Collectible) -> Void, loadMore: @escaping () -> Void, showMoreTransactions: @escaping () -> Void, selectTab: @escaping (WalletMainTab) -> Void, openAccountProtection: @escaping () -> Void, openEarnings: @escaping () -> Void, openPreviousWallets: @escaping () -> Void, openWaltBalance: @escaping () -> Void, cardDidLayout: @escaping (WalletCardView) -> Void, collectables: WalletCollectablesStage, walletContext: WalletContext) {
         self.cardDidLayout = cardDidLayout
         self.openEarnings = openEarnings
         self.openWaltBalance = openWaltBalance
@@ -51,6 +52,7 @@ private final class Arguments {
         self.send = send
         self.openTransaction = openTransaction
         self.openCollectible = openCollectible
+        self.collectables = collectables
         self.loadMore = loadMore
         self.showMoreTransactions = showMoreTransactions
         self.selectTab = selectTab
@@ -123,7 +125,7 @@ private struct WalletTransactionListValue: Equatable {
 func walletShowsTransferAnimation(_ transaction: WalletContext.Transaction) -> Bool {
     return transaction.status == .pending && transaction.currency == .ton && transaction.direction == .outgoing
         && transaction.kind != .deployContract && transaction.kind != .keyChange
-        && transaction.collectible == nil && transaction.isVisibleInWalletHistory
+        && transaction.isVisibleInWalletHistory
 }
 
 enum WalletPendingTransferObservation: Equatable {
@@ -203,7 +205,7 @@ private let _id_actions = InputDataIdentifier("_id_actions")
 private let _id_protect_account = InputDataIdentifier("_id_protect_account")
 private let _id_tabs = InputDataIdentifier("_id_tabs")
 private let _id_load_more = InputDataIdentifier("_id_load_more")
-private let _id_load_more_collectibles = InputDataIdentifier("_id_load_more_collectibles")
+private let _id_collectibles_grid = InputDataIdentifier("_id_collectibles_grid")
 private let _id_info_fast = InputDataIdentifier("_id_info_fast")
 private let _id_info_cheap = InputDataIdentifier("_id_info_cheap")
 private let _id_info_verified = InputDataIdentifier("_id_info_verified")
@@ -313,6 +315,7 @@ private func entries(_ state: WalletHomeState, arguments: Arguments) -> [InputDa
             cardDidLayout: { cardView in
                 arguments.gramTooltip.update(cardView: cardView, address: cardData.address)
                 arguments.intro.attach(cardView)
+                arguments.collectables.attach(card: cardView)
                 arguments.cardDidLayout(cardView)
             },
             receiveAction: arguments.receive
@@ -388,12 +391,8 @@ private func entries(_ state: WalletHomeState, arguments: Arguments) -> [InputDa
     }
 
     var collectibles: [WalletContext.Collectible] = []
-    var canLoadMoreCollectibles = false
-    var isLoadingMoreCollectibles = false
     if let walletState = state.walletState {
         collectibles = walletState.collectibles.items.filter { !state.suppressedCollectibleAddresses.contains($0.address) }
-        canLoadMoreCollectibles = walletState.collectibles.canLoadMore
-        isLoadingMoreCollectibles = walletState.collectibles.isLoadingMore
     }
 
     var selectedTab = state.selectedTab
@@ -422,26 +421,13 @@ private func entries(_ state: WalletHomeState, arguments: Arguments) -> [InputDa
         entries.append(.sectionId(sectionId, type: .customModern(12)))
         sectionId += 1
 
-        for entry in walletListEntries(collectibles, hasLoadMore: canLoadMoreCollectibles) {
-            entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: walletHomeCollectibleIdentifier(entry.value.address), equatable: .init(entry), comparable: nil, item: { initialSize, stableId in
-                return WalletCollectibleRowItem(
-                    initialSize,
-                    stableId: stableId,
-                    context: arguments.context, environment: arguments.environment,
-                    collectible: entry.value,
-                    viewType: entry.viewType,
-                    callback: arguments.openCollectible
-                )
-            }))
-            index += 1
-        }
-
-        if canLoadMoreCollectibles {
-            // Paged in by the scroll handler in `didLoad`, so this is a progress indicator rather than a
-            // control; `_ = isLoadingMoreCollectibles` keeps the spinner row stable across both states.
-            entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: _id_load_more_collectibles, equatable: .init(isLoadingMoreCollectibles), comparable: nil, item: { initialSize, stableId in
-                return arguments.environment.makeLoadingRow(initialSize, stableId: stableId, height: 40, viewType: .lastItem)
-            }))
+        entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: _id_collectibles_grid, equatable: .init(collectibles), comparable: nil, item: { initialSize, stableId in
+            return WalletCollectablesRowItem(initialSize, stableId: stableId, context: arguments.context, environment: arguments.environment, collectibles: collectibles, stage: arguments.collectables, viewType: .singleItem, open: arguments.openCollectible)
+        }))
+        index += 1
+        if case .wallet? = state.walletState?.phase, collectibles.contains(where: { $0.kind == .gift }) {
+            let footer = strings().walletControllerStickerGridFooter
+            entries.append(.desc(sectionId: sectionId, index: index, text: .plain(footer), data: .init(color: theme.colors.grayText, viewType: .textBottomItem, fontSize: 13, centerViewAlignment: true, alignment: .center)))
             index += 1
         }
     } else if !transactions.isEmpty {
@@ -562,14 +548,19 @@ private func walletHeaderBalanceText(_ walletState: WalletContext.State?) -> (ti
 }
 
 @available(macOS 10.15, *)
-public func showWallet(context: any AccountContextProtocol, environment: WalletUIEnvironment, walletContext: WalletContext?, for window: Window, morphSource: (() -> NSView?)? = nil) {
+public func showWallet(context: any AccountContextProtocol, environment: WalletUIEnvironment, walletContext: WalletContext?, for window: Window, morphSource: (() -> NSView?)? = nil, opensCollectibles: Bool = false) {
+    presentWallet(context: context, environment: environment, walletContext: walletContext, for: window, morphSource: morphSource, opensCollectibles: opensCollectibles)
+}
+
+@available(macOS 10.15, *)
+private func presentWallet(context: any AccountContextProtocol, environment: WalletUIEnvironment, walletContext: WalletContext?, for window: Window, morphSource: (() -> NSView?)?, opensCollectibles: Bool) {
     guard let walletContext = walletContext else {
         return
     }
 
     switch walletContext.stateValue.phase {
     case .restoring, .empty, .creating, .wallet:
-        showModal(with: WalletController(context: context, environment: environment, walletContext: walletContext), for: window, morphSource: morphSource)
+        showModal(with: WalletController(context: context, environment: environment, walletContext: walletContext, opensCollectibles: opensCollectibles), for: window, morphSource: morphSource)
     case let .failed(error):
         let errorText: String
         switch error {
@@ -586,7 +577,7 @@ public func showWallet(context: any AccountContextProtocol, environment: WalletU
 }
 
 @available(macOS 10.15, *)
-public func WalletController(context: any AccountContextProtocol, environment: WalletUIEnvironment, walletContext: WalletContext) -> InputDataModalController {
+public func WalletController(context: any AccountContextProtocol, environment: WalletUIEnvironment, walletContext: WalletContext, opensCollectibles: Bool = false) -> InputDataModalController {
     let actionsDisposable = DisposableSet()
     let waltBalanceDisposable = MetaDisposable()
     actionsDisposable.add(waltBalanceDisposable)
@@ -607,6 +598,7 @@ public func WalletController(context: any AccountContextProtocol, environment: W
     var initialState = WalletHomeState()
     initialState.transferMinimumAmount = walletConfiguration.transferMinAmount
     initialState.gaslessDailyTransfers = walletConfiguration.transferGaslessDailyLimit
+    initialState.selectedTab = opensCollectibles ? .collectibles : .transactions
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
     let updateState: ((WalletHomeState) -> WalletHomeState) -> Void = { f in
@@ -713,6 +705,7 @@ public func WalletController(context: any AccountContextProtocol, environment: W
         }
     }
 
+    let collectables = WalletCollectablesStage(context: context, environment: environment, walletContext: walletContext)
     let arguments = Arguments(context: context, environment: environment, receive: { morphSource in
         openReceive(morphSource)
     }, addFunds: { morphSource in
@@ -727,7 +720,7 @@ public func WalletController(context: any AccountContextProtocol, environment: W
         revealsSentTransfer = true
         showModal(with: WalletTransactionController(context: context, environment: environment, walletContext: walletContext, subject: .transaction(transaction), transferAnimation: transferAnimation), for: context.window, morphSource: morphSource)
     }, openCollectible: { collectible in
-        showModal(with: WalletCollectibleDetailsController(context: context, environment: environment, walletContext: walletContext, collectible: collectible, collectibleSent: { address in
+        showModal(with: WalletCollectibleDetailsController(context: context, environment: environment, walletContext: walletContext, collectible: collectible, cardStage: collectables, collectibleSent: { address in
             updateState { current in
                 var current = current
                 current.suppressedCollectibleAddresses.insert(address)
@@ -784,7 +777,11 @@ public func WalletController(context: any AccountContextProtocol, environment: W
     }, cardDidLayout: { cardView in
         cardScrollCollapse.cardView = cardView
         cardScrollCollapse.apply()
-    })
+    }, collectables: collectables, walletContext: walletContext)
+
+    arguments.collectables.limitReached = {
+        environment.showModalText(for: context.window, text: strings().walletControllerSaveCardFailed)
+    }
 
     openPendingWaltBalanceUrl = { url in
         guard isAwaitingWaltBalanceUrl else {
@@ -830,6 +827,7 @@ public func WalletController(context: any AccountContextProtocol, environment: W
     actionsDisposable.add((context.engine.data.subscribe(TelegramEngine.EngineData.Item.Configuration.App())
     |> map { WalletConfiguration.with(appConfiguration: $0) }
     |> deliverOnMainQueue).start(next: { configuration in
+        collectables.updateConfiguration(configuration)
         updateState { current in
             var current = current
             current.transferMinimumAmount = configuration.transferMinAmount
@@ -845,8 +843,9 @@ public func WalletController(context: any AccountContextProtocol, environment: W
             return current
         }
     }
-    let makePendingTransferAnimation: (String) -> WalletPendingTransferAnimation = { id in
-        let animation = WalletPendingTransferAnimation(id: id)
+    let makePendingTransferAnimation: (WalletContext.Transaction) -> WalletPendingTransferAnimation = { transaction in
+        let id = transaction.presentationId
+        let animation = WalletPendingTransferAnimation(id: id, isCollectible: transaction.collectible != nil)
         animation.onFinished = {
             finishPendingTransfer(id)
         }
@@ -857,7 +856,7 @@ public func WalletController(context: any AccountContextProtocol, environment: W
         guard walletAcceptsTransferAnimation(transaction, sourceWindowMissing: source.map { $0.window == nil } ?? false), let transaction else {
             return false
         }
-        let animation = stateValue.with { $0.pendingTransferAnimations[id] } ?? makePendingTransferAnimation(id)
+        let animation = stateValue.with { $0.pendingTransferAnimations[id] } ?? makePendingTransferAnimation(transaction)
         animation.isPending = transaction.status == .pending
         revealsSentTransfer = false
         transferToReveal = id
@@ -887,7 +886,7 @@ public func WalletController(context: any AccountContextProtocol, environment: W
             }
         }
         for transaction in walletState.transactions.items where walletShowsTransferAnimation(transaction) && animations[transaction.presentationId] == nil {
-            animations[transaction.presentationId] = makePendingTransferAnimation(transaction.presentationId)
+            animations[transaction.presentationId] = makePendingTransferAnimation(transaction)
         }
         return animations.filter { !$0.value.finished }
     }
@@ -896,6 +895,9 @@ public func WalletController(context: any AccountContextProtocol, environment: W
     |> deliverOnMainQueue).start(next: { walletState in
         let pendingTransferAnimations = observePendingTransfers(walletState)
         let previousWalletState = stateValue.with { $0.walletState }
+        if let error = walletState.cardStickerSaveError, error != previousWalletState?.cardStickerSaveError {
+            walletShowCardSaveError(error, context: context, environment: environment)
+        }
         let walletAddressChanged = previousWalletState != nil && previousWalletState?.walletAddress != walletState.walletAddress
         let reloadsPreviousWallets = walletAddressChanged || (previousWalletState != nil && previousWalletState?.phase != walletState.phase)
         if case let .wallet(previousInfo) = previousWalletState?.phase {
@@ -931,6 +933,7 @@ public func WalletController(context: any AccountContextProtocol, environment: W
             }
             return current
         }
+        arguments.collectables.update(state: walletState, suppressed: stateValue.with { $0.suppressedCollectibleAddresses })
         if reloadsPreviousWallets {
             refreshPreviousWalletsBalanceImpl?()
         }
@@ -1025,6 +1028,7 @@ public func WalletController(context: any AccountContextProtocol, environment: W
 
     controller.onDeinit = {
         actionsDisposable.dispose()
+        arguments.collectables.invalidate()
         openSend = nil
         for animation in stateValue.with({ $0.pendingTransferAnimations.values }) {
             animation.onFinished = nil
@@ -1068,6 +1072,7 @@ public func WalletController(context: any AccountContextProtocol, environment: W
         cardScrollCollapse.tableView = controller.tableView
         controller.tableView.addScroll(listener: TableScrollListener(dispatchWhenVisibleRangeUpdated: false, { _ in
             cardScrollCollapse.apply()
+            loadMoreIfNeeded?()
         }))
     }
 
@@ -1700,7 +1705,6 @@ public func WalletTonConnectController(
     let controller = InputDataController(dataSignal: signal, title: title, hasDone: false, getBackgroundColor: {
         isSigning ? theme.colors.listBackground : theme.colors.background
     })
-
     weak var modalController: InputDataModalController?
     let completion = WalletTonConnectCompletion()
     var closeWithoutReject: (() -> Void)?
@@ -1844,4 +1848,27 @@ public func WalletTonConnectController(
         completion.dismiss { modal?.close() }
     }
     return (modal, dismiss)
+}
+
+@available(macOS 10.15, *)
+private func walletShowCardSaveError(_ error: WalletCardUpdateError, context: any AccountContextProtocol, environment: WalletUIEnvironment) {
+    let title = strings().walletControllerStickerSaveErrorTitle
+    let text: String?
+    switch error {
+    case .limitExceeded, .floodWait:
+        text = nil
+    case .backgroundNotAllowed:
+        text = strings().walletControllerStickerBackgroundNotAllowedError
+    case .savedInProfile:
+        text = strings().walletControllerStickerProfileError
+    case .invalidSticker, .notOwned, .duplicate, .invalidAddress, .invalidNft:
+        text = strings().walletControllerStickerInvalidError
+    case .unavailable, .generic:
+        text = strings().unknownError
+    }
+    if let text {
+        environment.showModalText(for: context.window, text: text, title: title)
+    } else {
+        environment.showModalText(for: context.window, text: title)
+    }
 }

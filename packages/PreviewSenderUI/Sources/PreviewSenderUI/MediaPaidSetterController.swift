@@ -52,6 +52,10 @@ private final class InputItem : GeneralRowItem {
     override func viewClass() -> AnyClass {
         return InputView.self
     }
+
+    override var accessibilityLabel: String? {
+        return strings().paidMediaPlaceholder
+    }
 }
 
 
@@ -230,7 +234,7 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
     return entries
 }
 
-func MediaPaidSetterController(context: any AccountContextProtocol, callback:@escaping(Int64)->Void) -> InputDataModalController {
+func MediaPaidSetterController(context: any AccountContextProtocol, callback:@escaping(Int64)->Void, cancelled: (() -> Void)? = nil, dismissed: (() -> Void)? = nil) -> InputDataModalController {
 
     let actionsDisposable = DisposableSet()
 
@@ -238,6 +242,7 @@ func MediaPaidSetterController(context: any AccountContextProtocol, callback:@es
     
     var close:(()->Void)? = nil
     var getController:(()->InputDataController?)? = nil
+    var resolved = false
 
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
@@ -277,9 +282,11 @@ func MediaPaidSetterController(context: any AccountContextProtocol, callback:@es
     let controller = InputDataController(dataSignal: signal, title: strings().paidMediaTitle)
     
     controller.validateData = { _ in
+        guard !resolved else { return .fail(.none) }
         let value = stateValue.with { $0.inputState.string }
         if let amount = Int64(value) {
-            if amount != 0, amount <= limit {
+            if amount > 0, amount <= limit {
+                resolved = true
                 callback(amount)
                 return .success(.custom({
                     close?()
@@ -287,6 +294,11 @@ func MediaPaidSetterController(context: any AccountContextProtocol, callback:@es
             }
         }
         return .fail(.fields([_id_input: .shake]))
+    }
+
+    controller.afterDisappear = {
+        resolved = true
+        dismissed?()
     }
     
     controller.onDeinit = {
@@ -304,6 +316,9 @@ func MediaPaidSetterController(context: any AccountContextProtocol, callback:@es
     let modalController = InputDataModalController(controller, modalInteractions: modalInteractions)
     
     controller.leftModalHeader = ModalHeaderData(image: theme.icons.modalClose, handler: { [weak modalController] in
+        guard !resolved else { return }
+        resolved = true
+        cancelled?()
         modalController?.close()
     })
     

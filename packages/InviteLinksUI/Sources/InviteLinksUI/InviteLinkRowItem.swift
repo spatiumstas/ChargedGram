@@ -72,6 +72,32 @@ class InviteLinkRowItem: GeneralRowItem {
     override func menuItems(in location: NSPoint) -> Signal<[ContextMenuItem], NoError> {
         return _menuItems(link)
     }
+
+    override var accessibilityLabel: String? {
+        return link.title ?? link.link.replacingOccurrences(of: "https://", with: "")
+    }
+
+    override var accessibilityValue: String? {
+        var parts: [String] = [strings().inviteLinkJoinedNewOther(Int(link.count ?? 0))]
+        if link.isRevoked {
+            parts.append(strings().inviteLinkStickerRevoked)
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        _action(link)
+        return true
+    }
+
     override func viewClass() -> AnyClass {
         return InviteLinkRowView.self
     }
@@ -92,6 +118,7 @@ private final class ProgressView : View {
 
         circle.isEventLess = true
         imageView.isEventLess = true
+        imageView.isAccessibilityDecorative = true
         progressView.isEventLess = true
     }
 
@@ -206,6 +233,7 @@ private final class InviteLinkTokenView : Control {
         addSubview(titleView)
         addSubview(countView)
         addSubview(progressView)
+        actions.setAccessibilityLabel(strings().voiceOverCommonMore)
         layer?.cornerRadius = 10
         titleView.userInteractionEnabled = false
         titleView.isSelectable = false
@@ -353,6 +381,7 @@ private final class InviteLinkTokenView : Control {
                 current = view
             } else {
                 current = ImageView()
+                current.isAccessibilityDecorative = true
                 addSubview(current)
                 self.paidLinkView = current
             }

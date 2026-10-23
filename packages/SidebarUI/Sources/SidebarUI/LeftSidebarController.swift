@@ -116,6 +116,7 @@ public final class LeftSidebarView: LiquidGlassView {
 
         edit.autohighlight = false
         edit.scaleOnClick = true
+        edit.setAccessibilityLabel(strings().chatListFilterEditFilters)
 
         updateLocalizationAndTheme(theme: theme)
     }

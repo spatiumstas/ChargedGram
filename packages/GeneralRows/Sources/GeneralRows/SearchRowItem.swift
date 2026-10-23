@@ -1,5 +1,6 @@
 import Cocoa
 import TGUIKit
+import Localization
 #if SHARE
 import TelegramThemeShare
 #else
@@ -15,6 +16,10 @@ open class SearchRowItem: GeneralRowItem {
     
     open override var height: CGFloat {
         return 50
+    }
+
+    open override var accessibilityLabel: String? {
+        return strings().voiceOverCommonSearch
     }
     
     

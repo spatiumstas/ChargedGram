@@ -343,6 +343,7 @@ public class SVideoController: GenericViewController<SVideoView>, PictureInPictu
     
     public override func viewDidDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        super.viewDidDisappear(animated)
         hideOnIdleDisposable.set(nil)
         _ = screenSleep.enableScreenSleep()
         NSCursor.unhide()

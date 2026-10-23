@@ -112,6 +112,10 @@ public class AccentColorRowItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return AccentColorRowView.self
     }
+    
+    public override var accessibilityLabel: String? {
+        return strings().voiceOverCommonColor
+    }
 }
 
 
@@ -232,6 +236,7 @@ public final class AccentColorRowView : TableRowView {
         
         selectedImageView.image = generateSelectedRing(backgroundColor: theme.colors.background)
         selectedImageView.setFrameSize(NSMakeSize(32, 32))
+        selectedImageView.isAccessibilityDecorative = true
         selectedImageView.removeFromSuperview()
         let colorList: [AppearanceAccentColor] = item.list
         
@@ -248,6 +253,7 @@ public final class AccentColorRowView : TableRowView {
             custom.animates = false
             custom.set(image: generateCustomSwatchImage(), for: .Normal)
             custom.setImageContentGravity(.resize)
+            custom.setAccessibilityLabel(strings().voiceOverCommonCustomColor)
             custom.set(handler: { _ in
                 item.selectAccentColor(nil)
             }, for: .Click)
@@ -262,6 +268,8 @@ public final class AccentColorRowView : TableRowView {
             button.animates = false
             button.layer?.cornerRadius = button.frame.height / 2
             button.set(background: theme.colors.accent, for: .Normal)
+            button.setAccessibilityLabel(strings().voiceOverCommonColor)
+            button.setAccessibilityValue(strings().voiceOverCommonSelected)
             button.addSubview(selectedImageView)
             selectedImageView.center()
             x += button.frame.width + insetWidth
@@ -298,8 +306,10 @@ public final class AccentColorRowView : TableRowView {
             button.set(handler: { _ in
                 item.selectAccentColor(accent)
             }, for: .Click)
+            button.setAccessibilityLabel(accent.cloudTheme?.title ?? strings().voiceOverCommonColor)
             if accent.accent.accent == theme.colors.accent {
                 if accent.cloudTheme?.id == theme.cloudTheme?.id {
+                    button.setAccessibilityValue(strings().voiceOverCommonSelected)
                     button.addSubview(selectedImageView)
                     selectedImageView.center()
                 }

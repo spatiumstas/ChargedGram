@@ -133,6 +133,7 @@ private final class FloatingHeaderView : Control {
         
         dismiss.set(image: theme.icons.glass_close, for: .Normal)
         dismiss.setGlassEffect(size: NSMakeSize(36, 36))
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
         dismiss.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
         dismiss.layer?.masksToBounds = false
         dismiss.autohighlight = false
@@ -302,6 +303,19 @@ private final class BalanceItem : GeneralRowItem {
             height += (giftPremiumLayout.layoutSize.height + 10)
         }
         return  height
+    }
+    
+    override var accessibilityLabel: String? {
+        return strings().starListYourBalance
+    }
+    
+    override var accessibilityValue: String? {
+        switch currency {
+        case .stars:
+            return "\(myBalanceLayout.attributedString.string) \(strings().voiceOverCommonStars)"
+        case .ton:
+            return "\(myBalanceLayout.attributedString.string) TON, \(infoLayout.attributedString.string)"
+        }
     }
     
     public override func viewClass() -> AnyClass {
@@ -587,6 +601,15 @@ private final class HeaderItem : GeneralRowItem {
         return 150 + header.layoutSize.height + 10 + headerText.layoutSize.height
     }
     
+    override var accessibilityLabel: String? {
+        return header.attributedString.string
+    }
+    
+    override var accessibilityValue: String? {
+        let value = headerText.attributedString.string
+        return value.isEmpty ? nil : value
+    }
+    
     public override func viewClass() -> AnyClass {
         return HeaderView.self
     }
@@ -709,6 +732,27 @@ private final class Star_Item : GeneralRowItem {
     
     public override var height: CGFloat {
         return 40
+    }
+    
+    override var accessibilityLabel: String? {
+        return textLayout.attributedString.string
+    }
+    
+    override var accessibilityValue: String? {
+        return price.attributedString.string
+    }
+    
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+    
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+    
+    override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
     }
     
     public override func viewClass() -> AnyClass {
@@ -1249,9 +1293,11 @@ public func showStarsTopup(context: (any AccountContextProtocol), currency: Curr
     showModal(with: Star_ListScreen(context: context, currency: currency, source: source), for: window)
 }
 
+
 public func Star_ListScreen(context: (any AccountContextProtocol), currency: CurrencyAmount.Currency = .stars, source: Star_ListScreenSource) -> InputDataModalController {
 
-    let actionsDisposable = DisposableSet()
+    let screen = StarsScreenContext(context: context, source: source)
+    let actionsDisposable = screen.disposables
     let paymentDisposable = MetaDisposable()
     actionsDisposable.add(paymentDisposable)
     let inAppPurchaseManager = context.inAppPurchaseManager
@@ -1298,12 +1344,13 @@ public func Star_ListScreen(context: (any AccountContextProtocol), currency: Cur
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
     let updateState: ((State) -> State) -> Void = { f in
+        guard screen.isOpen else { return }
         statePromise.set(stateValue.modify (f))
     }
     
     switch source {
     case let .gift(peer):
-        actionsDisposable.add(combineLatest(context.engine.payments.starsGiftOptions(peerId: peer.id), products).startStrict(next: { value, products in
+        actionsDisposable.add(screen.preserving(combineLatest(context.engine.payments.starsGiftOptions(peerId: peer.id), products) |> deliverOnMainQueue).start(next: { value, products in
             let options:[State.Option] = value.compactMap { value in
                 let product = products.first(where: { $0.id == value.storeProductId })
                 return .init(amount: value.count, price: value.amount, currency: value.currency, id: "\(value.count)", storeProduct: product)
@@ -1316,7 +1363,7 @@ public func Star_ListScreen(context: (any AccountContextProtocol), currency: Cur
             }
         }))
     default:
-        actionsDisposable.add(combineLatest(context.engine.payments.starsTopUpOptions(), products).startStrict(next: { value, products in
+        actionsDisposable.add(screen.preserving(combineLatest(context.engine.payments.starsTopUpOptions(), products) |> deliverOnMainQueue).start(next: { value, products in
             
             let options:[State.Option] = value.compactMap { value in
                 let product = products.first(where: { $0.id == value.storeProductId })
@@ -1334,7 +1381,7 @@ public func Star_ListScreen(context: (any AccountContextProtocol), currency: Cur
     
     let starsRevenue = context.engine.payments.peerStarsRevenueContext(peerId: context.peerId, ton: currency == .ton)
     
-    actionsDisposable.add(combineLatest(starsContext.state, starsSubscriptionsContext.state, transactions.state, starsRevenue.state).startStrict(next: { state, subscriptionState, transactions, starsRevenue in
+    actionsDisposable.add(screen.preserving(combineLatest(starsContext.state, starsSubscriptionsContext.state, transactions.state, starsRevenue.state) |> deliverOnMainQueue).start(next: { state, subscriptionState, transactions, starsRevenue in
         updateState { current in
             var current = current
             current.myBalance = state?.balance
@@ -1396,7 +1443,7 @@ public func Star_ListScreen(context: (any AccountContextProtocol), currency: Cur
         }
     }))
     
-    actionsDisposable.add(context.engine.peers.checkStarsRevenueWithdrawalAvailability().start(error: { error in
+    actionsDisposable.add(screen.preserving(context.engine.peers.checkStarsRevenueWithdrawalAvailability() |> deliverOnMainQueue).start(error: { error in
         updateState { current in
             var current = current
             current.withdrawError = error
@@ -1414,12 +1461,14 @@ public func Star_ListScreen(context: (any AccountContextProtocol), currency: Cur
     let invoiceTopupDisabled = starsSpendTopupInvoiceDisabled(context: context, source: source)
 
     let buyNonStore:(State.Option)->Void = { option in
+        guard screen.isOpen else { return }
 
         if invoiceTopupDisabled {
             showModalText(for: window, text: strings().starListSpendTopupUnavailable)
             return
         }
 
+        guard let attempt = screen.purchase.begin() else { return }
         let invoiceSource: BotPaymentInvoiceSource
         switch source {
         case let .gift(peer):
@@ -1428,12 +1477,19 @@ public func Star_ListScreen(context: (any AccountContextProtocol), currency: Cur
             invoiceSource = .stars(option: option.native, peerId: commercialPeerId)
         }
         
+        let request = MetaDisposable()
+        paymentDisposable.set(request)
         let signal = showModalProgress(signal: context.engine.payments.fetchBotPaymentInvoice(source: invoiceSource), for: window)
 
-        _ = signal.start(next: { invoice in
-            if let controller = FeatureNavigationHooks.shared.makePaymentsCheckoutController(context, invoiceSource, invoice, { status in
+        var receivedInvoice = false
+        request.set(screen.preserving(signal |> take(1) |> deliverOnMainQueue).start(next: { invoice in
+            receivedInvoice = true
+            guard screen.purchase.isCurrent(attempt) else { return }
+            if let controller = FeatureNavigationHooks.shared.makePaymentsCheckoutObserved(context, invoiceSource, invoice, completion: { status in
+                guard screen.purchase.isCurrent(attempt) else { return }
                 switch status {
                 case .paid:
+                    guard screen.purchase.finish(attempt, paid: true) else { return }
                     PlayConfetti(for: window, stars: true)
                     showModalText(for: window, text: strings().starListBuySuccessOther(Int(option.amount)).replacingOccurrences(of: "\(option.amount)", with: option.amount.formattedWithSeparator))
                     close?()
@@ -1442,13 +1498,27 @@ public func Star_ListScreen(context: (any AccountContextProtocol), currency: Cur
                 case .failed:
                     break
                 }
-            }) { showModal(with: controller, for: window) }
+            }) {
+                let onDeinit = controller.onDeinit
+                controller.onDeinit = {
+                    onDeinit?()
+                    screen.purchase.finish(attempt)
+                }
+                guard screen.purchase.isCurrent(attempt) else { return }
+                showModal(with: controller, for: window)
+            } else {
+                screen.purchase.finish(attempt)
+            }
         }, error: { error in
+            guard screen.purchase.finish(attempt) else { return }
             showModalText(for: window, text: strings().paymentsInvoiceNotExists)
-        })
+        }, completed: {
+            if !receivedInvoice { screen.purchase.finish(attempt) }
+        }))
     }
     
     let buyAppStore:(State.Option)->Void = { option in
+        guard screen.isOpen else { return }
         
         let storeProduct = option.storeProduct
 
@@ -1457,11 +1527,15 @@ public func Star_ListScreen(context: (any AccountContextProtocol), currency: Cur
             return
         }
         
+        guard let attempt = screen.purchase.begin() else { return }
+        let attemptDisposable = DisposableSet()
+        paymentDisposable.set(attemptDisposable)
         let lockModal = PremiumLockModalController()
+        attemptDisposable.add(ActionDisposable { lockModal.close() })
         
         var needToShow = true
         delay(0.2, closure: {
-            if needToShow {
+            if needToShow && screen.isOpen {
                 showModal(with: lockModal, for: window)
             }
         })
@@ -1474,16 +1548,22 @@ public func Star_ListScreen(context: (any AccountContextProtocol), currency: Cur
             purpose = .stars(count: option.amount, currency: storeProduct.priceCurrencyAndAmount.currency, amount: storeProduct.priceCurrencyAndAmount.amount, peerId: commercialPeerId)
         }
         
-        let _ = (context.engine.payments.canPurchasePremium(purpose: purpose)
-                 |> deliverOnMainQueue).start(next: { [weak lockModal] available in
+        var checkedEligibility = false
+        attemptDisposable.add(screen.preserving(context.engine.payments.canPurchasePremium(purpose: purpose)
+                 |> take(1) |> deliverOnMainQueue).start(next: { [weak lockModal] available in
+            checkedEligibility = true
+            guard screen.purchase.isCurrent(attempt) else { return }
             if available {
-                paymentDisposable.set((inAppPurchaseManager.buyProduct(storeProduct, purpose: purpose)
-                |> deliverOnMainQueue).start(next: { [weak lockModal] status in
-
+                let request = MetaDisposable()
+                attemptDisposable.add(request)
+                let signal = inAppPurchaseManager.buyProduct(storeProduct, purpose: purpose) |> take(1) |> deliverOnMainQueue
+                guard screen.purchase.isCurrent(attempt) else { return }
+                request.set(screen.preserving(signal).start(next: { [weak lockModal] status in
+                    guard screen.purchase.finish(attempt, paid: true) else { return }
                     lockModal?.close()
                     needToShow = false
-                    close?()
                     inAppPurchaseManager.finishAllTransactions()
+                    close?()
                     
                     
                     delay(0.2, closure: {
@@ -1492,6 +1572,8 @@ public func Star_ListScreen(context: (any AccountContextProtocol), currency: Cur
                     })
                     
                 }, error: { [weak lockModal] error in
+                    guard screen.purchase.finish(attempt) else { return }
+                    needToShow = false
                     let errorText: String
                     switch error {
                         case .generic:
@@ -1508,14 +1590,26 @@ public func Star_ListScreen(context: (any AccountContextProtocol), currency: Cur
                             errorText = strings().premiumBoardingAppStoreCancelled
                     }
                     lockModal?.close()
-                    showModalText(for: window, text: errorText)
                     inAppPurchaseManager.finishAllTransactions()
+                    showModalText(for: window, text: errorText)
+                }, completed: {
+                    if screen.purchase.finish(attempt) {
+                        needToShow = false
+                        lockModal?.close()
+                    }
                 }))
             } else {
+                screen.purchase.finish(attempt)
                 lockModal?.close()
                 needToShow = false
             }
-        })
+        }, completed: {
+            if !checkedEligibility {
+                screen.purchase.finish(attempt)
+                needToShow = false
+                lockModal.close()
+            }
+        }))
         
     }
     
@@ -1575,53 +1669,57 @@ public func Star_ListScreen(context: (any AccountContextProtocol), currency: Cur
     }
 
 
-    let arguments = Arguments(context: context, currency: currency, source: source, reveal: {
+    let arguments = Arguments(context: context, currency: currency, source: source, reveal: screen.action({
         updateState { current in
             var current = current
             current.revealed = !current.revealed
             return current
         }
-    }, openLink: { link in
+    }), openLink: screen.action({ link in
         LinkHooks.shared.openExternalLink(link, false)
-    }, buyMore: {
+    }), buyMore: screen.action({
         switch currency {
         case .stars:
             showModal(with: Star_ListScreen(context: context, source: .buy(suffix: nil, amount: nil)), for: window)
         case .ton:
             LinkHooks.shared.openExternalLink(strings().fragmentTonAddFundsLink, false)
         }
-    }, giftStars: {
+    }), giftStars: screen.action({
         StarsHooks.shared.openMultigift(context, true)
-    }, toggleFilterMode: { mode in
+    }), toggleFilterMode: screen.action({ mode in
         updateState { current in
             var current = current
             current.transactionMode = mode
             return current
         }
-    }, buy: { option in
+    }), buy: screen.action({ option in
         #if APP_STORE
         buyAppStore(option)
         #else
         buyNonStore(option)
         #endif
-    }, loadMoreTransactions: {
+    }), loadMoreTransactions: screen.action({
         transactions.loadMore()
-    }, loadMoreSubscriptions: {
+    }), loadMoreSubscriptions: screen.action({
         starsSubscriptionsContext.loadMore()
-    }, openTransaction: { transaction in
-        showModal(with: Star_TransactionScreen(context: context, fromPeerId: context.peerId, peer: transaction.peer, transaction: transaction.native, currency: transaction.currency), for: window, morphSource: {
-            ((getController?() as? InputDataController)?.tableView.item(stableId: InputDataEntryId.custom(_id_transaction(transaction)))?.view as? GeneralContainableRowView)?.containerView
+    }), openTransaction: screen.action({ transaction in
+        screen.showChild({ Star_TransactionScreen(context: context, fromPeerId: context.peerId, peer: transaction.peer, transaction: transaction.native, currency: transaction.currency) }, show: { child in
+            showModal(with: child, for: window, morphSource: {
+                ((getController?() as? InputDataController)?.tableView.item(stableId: InputDataEntryId.custom(_id_transaction(transaction)))?.view as? GeneralContainableRowView)?.containerView
+            })
         })
-    }, openSubscription: { subscription in
-        showModal(with: Star_SubscriptionScreen(context: context, subscription: subscription), for: window, morphSource: {
-            ((getController?() as? InputDataController)?.tableView.item(stableId: InputDataEntryId.custom(_id_subscription(subscription)))?.view as? GeneralContainableRowView)?.containerView
+    }), openSubscription: screen.action({ subscription in
+        screen.showChild({ Star_SubscriptionScreen(context: context, subscription: subscription) }, show: { child in
+            showModal(with: child, for: window, morphSource: {
+                ((getController?() as? InputDataController)?.tableView.item(stableId: InputDataEntryId.custom(_id_subscription(subscription)))?.view as? GeneralContainableRowView)?.containerView
+            })
         })
-    }, openRecommendedApps: {
-        showModal(with: Star_AppExamples(context: context), for: window)
-    }, openAffiliate: {
+    }), openRecommendedApps: screen.action({
+        screen.showChild({ Star_AppExamples(context: context) }, show: { showModal(with: $0, for: window) })
+    }), openAffiliate: screen.action({
         close?()
         StarsHooks.shared.openAffiliatePeer(context, context.peerId, false)
-    }, stats: { [weak starsRevenue] in
+    }), stats: screen.action({ [weak starsRevenue] in
         switch currency {
         case .stars:
             StarsHooks.shared.openStarMonetization(context, context.peerId, starsRevenue)
@@ -1629,30 +1727,31 @@ public func Star_ListScreen(context: (any AccountContextProtocol), currency: Cur
         case .ton:
             tonWithdrawal()
         }
-    })
+    }))
     
-    let signal = statePromise.get() |> deliverOnPrepareQueue |> map { state in
+    let signal = screen.preserving(statePromise.get() |> deliverOnPrepareQueue) |> map { state in
         return InputDataSignalValue(entries: entries(state, arguments: arguments))
     }
     
     let controller = InputDataController(dataSignal: signal, title: "")
-    
     getController = { [weak controller] in
         return controller
     }
     
-    controller.onDeinit = {
-        actionsDisposable.dispose()
-    }
+    controller.onDeinit = { screen.close() }
     
     
     controller.contextObject_second = (starsContext, starsRevenue)
 
     
-    let modalController = InputDataModalController(controller, modalInteractions: nil, size: NSMakeSize(360, 300))
+    let modalController = InputDataModalController(controller, modalInteractions: nil, closeHandler: { close in
+        screen.close()
+        close()
+    }, size: NSMakeSize(360, 300))
     
     
     close = { [weak modalController] in
+        screen.close()
         modalController?.modal?.close()
     }
     

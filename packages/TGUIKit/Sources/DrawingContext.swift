@@ -321,10 +321,11 @@ public class DrawingContext {
         self.scale = scale
         self.scaledSize = CGSize(width: size.width * actualScale, height: size.height * actualScale)
         
-        self.bytesPerRow = DeviceGraphicsContextSettings.shared.bytesPerRow(forWidth: Int(scaledSize.width))
+        let settings = DeviceGraphicsContextSettings.shared
+        self.bytesPerRow = settings.bytesPerRow(forWidth: Int(scaledSize.width))
         self.length = self.bytesPerRow * Int(scaledSize.height)
 
-        self.bitmapInfo = DeviceGraphicsContextSettings.shared.opaqueBitmapInfo
+        self.bitmapInfo = settings.opaqueBitmapInfo
 
         self.bytes = malloc(length)!
         
@@ -332,9 +333,9 @@ public class DrawingContext {
             data: self.bytes,
              width: Int(self.scaledSize.width),
              height: Int(self.scaledSize.height),
-             bitsPerComponent: DeviceGraphicsContextSettings.shared.bitsPerComponent,
+             bitsPerComponent: settings.bitsPerComponent,
              bytesPerRow: self.bytesPerRow,
-             space: DeviceGraphicsContextSettings.shared.colorSpace,
+             space: settings.colorSpace,
              bitmapInfo: self.bitmapInfo.rawValue,
              releaseCallback: nil,
              releaseInfo: nil
@@ -366,7 +367,7 @@ public class DrawingContext {
                                bitsPerComponent: self.context.bitsPerComponent,
                                bitsPerPixel: self.context.bitsPerPixel,
                                bytesPerRow: self.context.bytesPerRow,
-                               space: DeviceGraphicsContextSettings.shared.colorSpace,
+                               space: self.context.colorSpace!,
                                bitmapInfo: self.context.bitmapInfo,
                                provider: provider!,
                                decode: nil,

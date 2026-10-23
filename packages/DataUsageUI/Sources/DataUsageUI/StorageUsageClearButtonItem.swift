@@ -1,4 +1,5 @@
 import Foundation
+import Cocoa
 import TGUIKit
 import InputDataUI
 import GeneralRows
@@ -23,6 +24,30 @@ public final class StorageUsageClearButtonItem : GeneralRowItem {
         super.init(initialSize, height: 40 + viewType.innerInset.top + viewType.innerInset.bottom, stableId: stableId, viewType: viewType, action: action, enabled: enabled)
     }
     
+    public override var accessibilityLabel: String? {
+        return text
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    public override var accessibilityIsEnabled: Bool {
+        return enabled
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        guard enabled else {
+            return false
+        }
+        action()
+        return true
+    }
+
     public override func viewClass() -> AnyClass {
         return StorageUsageClearButtonView.self
     }

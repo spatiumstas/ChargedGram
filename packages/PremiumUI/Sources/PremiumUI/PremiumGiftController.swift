@@ -261,6 +261,7 @@ private final class PremiumBoardingView : View {
             dismiss.autohighlight = false
             
             dismiss.set(image: theme.icons.glass_close, for: .Normal)
+            dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
             dismiss.setGlassEffect(size: NSMakeSize(36, 36))
             dismiss.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
             

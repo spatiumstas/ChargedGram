@@ -38,6 +38,30 @@ public final class ChatListFolderUpdatedRowItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return ChatListFolderUpdatedRowItemView.self
     }
+    
+    public override var accessibilityLabel: String? {
+        return title.attributedString.string
+    }
+    
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+    
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+    
+    public override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
+    }
+    
+    public override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        return [NSAccessibilityCustomAction(name: strings().voiceOverCommonClose, handler: { [weak self] in
+            self?.hide()
+            return true
+        })]
+    }
 }
 
 private final class ChatListFolderUpdatedRowItemView : TableRowView {
@@ -58,6 +82,7 @@ private final class ChatListFolderUpdatedRowItemView : TableRowView {
         
         control.border = [.Bottom]
         next.scaleOnClick = true
+        next.setAccessibilityLabel(strings().voiceOverCommonClose)
         
         control.set(handler: { [weak self] control in
             if let item = self?.item as? GeneralRowItem {
@@ -94,6 +119,7 @@ private final class ChatListFolderUpdatedRowItemView : TableRowView {
             return
         }
         title.update(item.title)
+        control.setAccessibilityLabel(item.title.attributedString.string)
         
         control.set(background: theme.colors.background, for: .Normal)
         control.set(background: theme.colors.grayTransparent, for: .Highlight)

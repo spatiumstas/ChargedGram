@@ -180,6 +180,14 @@ extension DocumentCanvasView {
     /// the chat input's entity payload — custom emoji, formatting); falls back to plain text otherwise
     /// (newlines split into paragraphs via the fragment path, or flattened when only plain text is available).
     func pasteFromPasteboard() {
+        if let withPasteContext {
+            withPasteContext { insertContentFromPasteboard() }
+        } else {
+            insertContentFromPasteboard()
+        }
+    }
+
+    private func insertContentFromPasteboard() {
         if let data = pasteboard.richFragment, let document = try? DocumentCodec.decode(data), !document.blocks.isEmpty {
             insertFragment(document.blocks, downgradeUnsupportedActions: true)
             return

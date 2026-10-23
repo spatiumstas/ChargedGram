@@ -47,6 +47,14 @@ private final class BusinessBotRowItem : GeneralRowItem {
     override var height: CGFloat {
         return 44
     }
+
+    override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    override var accessibilityValue: String? {
+        return statusLayout.attributedString.string
+    }
     
     override func viewClass() -> AnyClass {
         return BusinessBotRowView.self
@@ -104,6 +112,7 @@ private final class BusinessBotRowView: GeneralContainableRowView {
             } else {
                 current = ImageButton()
                 current.scaleOnClick = true
+                current.setAccessibilityLabel(strings().voiceOverCommonRemove)
                 addSubview(current)
                 self.remove = current
                 

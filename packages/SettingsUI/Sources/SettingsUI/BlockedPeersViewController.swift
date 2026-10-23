@@ -20,6 +20,27 @@ import ShortPeerRow
 import LocalAnimations
 
 
+private struct BlockedPeersEditingState: Equatable {
+    var editing = false
+    var removingPeerIds = Set<PeerId>()
+
+    func withUpdatedEditing(_ editing: Bool) -> BlockedPeersEditingState {
+        var state = self
+        state.editing = editing
+        return state
+    }
+
+    func withUpdatedRemoval(_ peerId: PeerId, removing: Bool) -> BlockedPeersEditingState {
+        var state = self
+        if removing {
+            state.removingPeerIds.insert(peerId)
+        } else {
+            state.removingPeerIds.remove(peerId)
+        }
+        return state
+    }
+}
+
 private final class BlockedPeerControllerArguments {
     public let context: any AccountContextProtocol
     
@@ -105,14 +126,14 @@ private enum BlockedPeerEntry: Identifiable, Comparable {
         }
     }
     
-    public var index: Int32 {
+    public var index: (Int32, Int32) {
         switch self {
         case .empty:
-            return 0
+            return (0, 0)
         case let .peerItem(sectionId, index, _, _, _, _):
-            return (sectionId * 1000) + index
+            return (sectionId, index)
         case let .section(sectionId):
-            return (sectionId * 1000) + sectionId
+            return (sectionId, -1)
         }
     }
     
@@ -154,17 +175,17 @@ private enum BlockedPeerEntry: Identifiable, Comparable {
     }
 }
 
-private func blockedPeersControllerEntries(state: PeerListEditingState, blockedState: BlockedPeersContextState) -> [BlockedPeerEntry] {
+private func blockedPeersControllerEntries(state: BlockedPeersEditingState, blockedState: BlockedPeersContextState) -> [BlockedPeerEntry] {
     
     var entries: [BlockedPeerEntry] = []
     
     var index: Int32 = 0
     var sectionId: Int32 = 0
-    if !blockedState.peers.isEmpty {
+    let list = blockedState.peers.filter { $0.peer != nil }
+    if !list.isEmpty {
         entries.append(.section(sectionId))
         sectionId += 1
     }
-    let list = blockedState.peers.filter { $0.peer?.isDeleted == false }
     for rendered in list {
         if let peer = rendered.peer {
             var deleting:ShortPeerDeleting? = nil
@@ -172,16 +193,16 @@ private func blockedPeersControllerEntries(state: PeerListEditingState, blockedS
                 deleting = ShortPeerDeleting(editable: true)
             }
 
-            entries.append(.peerItem(sectionId, index, peer, deleting, state.removingPeerId != peer.id, bestGeneralViewType(list, for: rendered)))
+            entries.append(.peerItem(sectionId, index, peer, deleting, !state.removingPeerIds.contains(peer.id), bestGeneralViewType(list, for: rendered)))
             index += 1
         }
     }
     
-    if blockedState.peers.isEmpty {
+    if list.isEmpty {
         entries.append(.empty(blockedState.isLoadingMore))
     } else {
-        entries.append(.section(sectionId))
         sectionId += 1
+        entries.append(.section(sectionId))
     }
     
     return entries
@@ -200,9 +221,9 @@ fileprivate func prepareTransition(left:[AppearanceWrapperEntry<BlockedPeerEntry
 open class BlockedPeersViewController<Context: AccountContextProtocol>: EditableViewController<TableView, Context> {
     
     
-    private let statePromise = ValuePromise(PeerListEditingState(), ignoreRepeated: true)
-    private let stateValue = Atomic(value: PeerListEditingState())
-    private let removePeerDisposable:MetaDisposable = MetaDisposable()
+    private let statePromise = ValuePromise(BlockedPeersEditingState(), ignoreRepeated: true)
+    private let stateValue = Atomic(value: BlockedPeersEditingState())
+    private var removalDisposables: [PeerId: MetaDisposable] = [:]
     
     private let disposable:MetaDisposable = MetaDisposable()
     
@@ -216,29 +237,8 @@ open class BlockedPeersViewController<Context: AccountContextProtocol>: Editable
         
         let context = self.context
         
-        let updateState: ((PeerListEditingState) -> PeerListEditingState) -> Void = { [weak self] f in
-            if let strongSelf = self {
-                strongSelf.statePromise.set(strongSelf.stateValue.modify { f($0) })
-            }
-        }
-        
         let arguments = BlockedPeerControllerArguments(context: context, removePeer: { [weak self] memberId in
-            updateState {
-                return $0.withUpdatedRemovingPeerId(memberId)
-            }
-            self?.removePeerDisposable.set((context.blockedPeersContext.remove(peerId: memberId) |> deliverOnMainQueue).start(error: { error in
-                switch error {
-                case .generic:
-                    alert(for: context.window, info: strings().unknownError)
-                }
-                updateState {
-                    return $0.withUpdatedRemovingPeerId(nil)
-                }
-            }, completed: {
-                updateState {
-                    return $0.withUpdatedRemovingPeerId(nil)
-                }
-            }))
+            self?.removePeer(memberId)
         }, openPeer: { [weak self] peerId in
             guard let `self` = self else {return}
             if let navigation = self.navigationController {
@@ -277,9 +277,33 @@ open class BlockedPeersViewController<Context: AccountContextProtocol>: Editable
         }
     }
     
+    private func removePeer(_ peerId: PeerId) {
+        guard self.removalDisposables[peerId] == nil else { return }
+        let disposable = MetaDisposable()
+        self.removalDisposables[peerId] = disposable
+        self.statePromise.set(self.stateValue.modify { $0.withUpdatedRemoval(peerId, removing: true) })
+        disposable.set((self.context.blockedPeersContext.remove(peerId: peerId) |> deliverOnMainQueue).start(error: { [weak self, weak disposable] _ in
+            guard let self, let disposable else { return }
+            self.finishRemoval(peerId, disposable: disposable)
+            alert(for: self.context.window, info: strings().unknownError)
+        }, completed: { [weak self, weak disposable] in
+            guard let self, let disposable else { return }
+            self.finishRemoval(peerId, disposable: disposable)
+        }))
+    }
+
+    private func finishRemoval(_ peerId: PeerId, disposable: MetaDisposable) {
+        guard self.removalDisposables[peerId] === disposable else { return }
+        self.removalDisposables.removeValue(forKey: peerId)
+        self.statePromise.set(self.stateValue.modify { $0.withUpdatedRemoval(peerId, removing: false) })
+        disposable.dispose()
+    }
+
     deinit {
         disposable.dispose()
-        removePeerDisposable.dispose()
+        for disposable in self.removalDisposables.values {
+            disposable.dispose()
+        }
     }
     
     open override func update(with state: ViewControllerState) {

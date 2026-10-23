@@ -108,6 +108,14 @@ public final class ChatListAuctionInfoItem : GeneralRowItem {
         return ChatListAuctionInfoItemView.self
     }
     
+    public override var accessibilityLabel: String? {
+        return title.attributedString.string.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    
+    public override var accessibilityValue: String? {
+        return text.attributedString.string
+    }
+    
     public func invoke() {
         
         let context = self.context
@@ -150,6 +158,7 @@ private final class ChatListAuctionInfoItemView : TableRowView {
         text.isSelectable = false
         text.userInteractionEnabled = false
         text.isEventLess = true
+        text.isAccessibilityDecorative = true
         
         control.scaleOnClick = true
         control.autohighlight = false

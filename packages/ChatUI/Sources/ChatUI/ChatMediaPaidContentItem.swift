@@ -71,6 +71,7 @@ private func makePreviewItem(media: TelegramExtendedMedia, rect: CGRect, positio
 
 
 public final class ChatMediaPaidContentItem : ChatRowItem {
+    private let payment = ChatPaidMediaPurchase()
     fileprivate let media: TelegramMediaPaidContent
     fileprivate var data: PaidData!
     fileprivate let isPreview: Bool
@@ -392,11 +393,7 @@ public final class ChatMediaPaidContentItem : ChatRowItem {
         let count = StarPurchaseType.PaidMediaCount(photoCount: photosCount, videoCount: videoCount)
 
         
-        let signal = showModalProgress(signal: context.engine.payments.fetchBotPaymentInvoice(source: .message(messageId)), for: context.window)
-
-        _ = signal.startStandalone(next: { invoice in
-            showModal(with: Star_PurschaseInApp(context: context, invoice: invoice, source: .message(messageId), type: .paidMedia(image, count)), for: context.window)
-        })
+        payment.open(context: context, messageId: messageId, image: image, count: count)
         
     }
 }

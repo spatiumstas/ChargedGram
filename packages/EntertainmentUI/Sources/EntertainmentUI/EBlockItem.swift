@@ -16,24 +16,48 @@ public class EBlockItem: TableRowItem {
         return (CGFloat(lineAttr.count) * 34.0)
     }
     
-    public let lineAttr:[[NSAttributedString]]
+    public private(set) var lineAttr:[[NSAttributedString]]
+    private let symbols: [NSAttributedString]
     
     public let account: Account
     public var selectHandler:(String, NSRect)->Void = { _, _ in}
     public let segment: EmojiSegment
+    public internal(set) var selectedOrders: [String: Int]
+    public let selectionColor: NSColor?
     
-    public init(_ initialSize:NSSize, stableId: AnyHashable, attrLines:[[NSAttributedString]], segment: EmojiSegment, account: Account, selectHandler:@escaping(String, NSRect)->Void) {
+    public init(_ initialSize:NSSize, stableId: AnyHashable, attrLines:[[NSAttributedString]], segment: EmojiSegment, account: Account, selectHandler:@escaping(String, NSRect)->Void, selectedOrders: [String: Int] = [:], selectionColor: NSColor? = nil) {
         self.lineAttr = attrLines
+        self.symbols = attrLines.flatMap { $0 }
+        self.selectedOrders = selectedOrders
+        self.selectionColor = selectionColor
         self._stableId = stableId
         self.account = account
         self.segment = segment
         self.selectHandler = selectHandler
         
         super.init(initialSize)
+        _ = makeSize(initialSize.width)
+    }
+    
+    public override var instantlyResize: Bool {
+        return true
+    }
+    
+    public override func makeSize(_ width: CGFloat, oldWidth: CGFloat = 0) -> Bool {
+        _ = super.makeSize(width, oldWidth: oldWidth)
+        let perLine = max(1, Int(floor(max(300, width - 20) / 41)))
+        self.lineAttr = stride(from: 0, to: symbols.count, by: perLine).map {
+            Array(symbols[$0 ..< min($0 + perLine, symbols.count)])
+        }
+        return true
     }
     
     override open func viewClass() ->AnyClass {
         return EBlockRowView.self;
+    }
+    
+    public override var accessibilityLabel: String? {
+        return segment.localizedString
     }
     
     

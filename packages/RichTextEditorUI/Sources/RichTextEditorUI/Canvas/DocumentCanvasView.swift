@@ -236,6 +236,7 @@ final class DocumentCanvasView: NSView {
     /// fallback: lets the app convert its private pasteboard formats (e.g. the chat input's entity
     /// payload, carrying custom emoji/formatting) into a `[Block]` fragment. Return nil/empty to decline.
     var hostPasteFragmentProvider: (() -> [Block]?)?
+    var withPasteContext: ((() -> Void) -> Void)?
 
     /// The overflowing (horizontally scrollable) table under `point` (canvas coords), if any. Also the
     /// predicate hosts use to make global horizontal-swipe handlers (navigation back) yield to the pan.

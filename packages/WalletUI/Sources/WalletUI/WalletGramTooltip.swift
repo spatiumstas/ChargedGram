@@ -172,7 +172,7 @@ private final class WalletGramTooltipView: View {
         let bodyHeight = layout.layoutSize.height + 12
         let width = layout.layoutSize.width + 22
         let cardFrame = overlayParent.convert(cardView.bounds, from: cardView)
-        let source = overlayParent.convert(cardView.gramIconFrame, from: cardView).offsetBy(dx: 0, dy: -4)
+        let source = overlayParent.convert(cardView.gramIconFrame, from: cardView).offsetBy(dx: 0, dy: 4)
         let x = max(cardFrame.minX + 10, min(source.midX - width / 2, cardFrame.maxX - 10 - width))
         let tooltipFrame = NSRect(x: x, y: source.minY - 10 - bodyHeight, width: width, height: bodyHeight)
         if frame != tooltipFrame {

@@ -112,6 +112,10 @@ private final class RowItem : GeneralRowItem {
     override func viewClass() -> AnyClass {
         return RowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return strings().fragmentAdsInfoTitle
+    }
 }
 
 private final class RowView: GeneralContainableRowView {
@@ -140,6 +144,7 @@ private final class RowView: GeneralContainableRowView {
         infoBlock.addSubview(infoView)
         addSubview(infoBlock)
         iconView.addSubview(stickerView)
+        stickerView.isAccessibilityDecorative = true
         
        
         
@@ -155,6 +160,7 @@ private final class RowView: GeneralContainableRowView {
         moreActions.scaleOnClick = true
         moreActions.set(image: TelegramThemeHooks.shared.image(.iconChatActionsActive).precomposed(theme.colors.grayIcon), for: .Normal)
         moreActions.sizeToFit()
+        moreActions.setAccessibilityLabel(strings().voiceOverCommonMore)
         
         addSubview(moreActions)
         
@@ -290,7 +296,6 @@ private func adsInfoController(context: any AccountContextProtocol, message: Mes
     }
     
     let controller = InputDataController(dataSignal: signal, title: "")
-    
     controller.onDeinit = {
         actionsDisposable.dispose()
     }

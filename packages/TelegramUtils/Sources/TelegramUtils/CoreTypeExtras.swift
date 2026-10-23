@@ -1,4 +1,5 @@
 import Foundation
+import CalendarUtils
 import TelegramCore
 import Postbox
 import SwiftSignalKit
@@ -139,12 +140,12 @@ public extension RenderedPeer {
 
 public extension Date {
     var birthday: TelegramBirthday {
-        let calendar = Calendar.current
+        let calendar = Calendar(identifier: .gregorian)
         let day = calendar.component(.day, from: self)
         let month = calendar.component(.month, from: self)
         let year = calendar.component(.year, from: self)
         
-        return TelegramBirthday(day: Int32(day), month: Int32(month), year: year == 1 ? nil : Int32(year))
+        return TelegramBirthday(day: Int32(day), month: Int32(month), year: CalendarUtils.isYearHidden(year) ? nil : Int32(year))
     }
 }
 

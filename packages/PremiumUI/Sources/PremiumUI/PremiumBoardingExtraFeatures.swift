@@ -45,6 +45,14 @@ public final class PremiumBoardingStoryRowItem : GeneralRowItem {
     public override var height: CGFloat {
         return title.layoutSize.height + 4 + info.layoutSize.height + 8
     }
+
+    public override var accessibilityLabel: String? {
+        return title.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return info.attributedString.string
+    }
     
     public override func makeSize(_ width: CGFloat, oldWidth: CGFloat = 0) -> Bool {
         _ = super.makeSize(width, oldWidth: oldWidth)
@@ -74,6 +82,7 @@ private final class PremiumBoardingStoriesRowView : TableRowView {
         addSubview(titleView)
         addSubview(infoView)
         addSubview(imageView)
+        imageView.isAccessibilityDecorative = true
         titleView.userInteractionEnabled = false
         infoView.userInteractionEnabled = false
         

@@ -45,6 +45,10 @@ public final class PremiumIncreaseLimitItem : GeneralRowItem {
     public override var height: CGFloat {
         return updatedHeight
     }
+
+    public override var accessibilityLabel: String? {
+        return limitType.titleText
+    }
     
     public override func viewClass() -> AnyClass {
         return PremiumIncreaseLimitView.self

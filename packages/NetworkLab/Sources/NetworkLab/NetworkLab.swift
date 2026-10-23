@@ -1,9 +1,9 @@
+#if DEBUG
 import Foundation
 import AppKit
 import SwiftSignalKit
 import Postbox
 import TelegramCore
-import TelegramApi
 import TelegramContext
 import PerfLab
 
@@ -226,7 +226,7 @@ private final class NetworkLabSession {
         self.disposables.add((account.postbox.transaction { transaction -> [Peer] in
             let peers = transaction.getChatListPeers(groupId: .root, filterPredicate: nil, additionalFilter: nil)
             let ranked = peers.compactMap { peer -> (Peer, Int32)? in
-                guard inputPeer(peer) != nil, let top = transaction.getTopPeerMessageIndex(peerId: peer.id, namespace: Namespaces.Message.Cloud) else {
+                guard networkBenchmarkCanRequestHistory(peer: peer), let top = transaction.getTopPeerMessageIndex(peerId: peer.id, namespace: Namespaces.Message.Cloud) else {
                     return nil
                 }
                 return (peer, top.id.id)
@@ -329,27 +329,18 @@ private final class NetworkLabSession {
             return
         }
         let recorder = LatencyRecorder()
-        let requests: [Signal<Api.messages.Dialogs?, NoError>] = (0 ..< 3).flatMap { _ -> [Signal<Api.messages.Dialogs?, NoError>] in
+        let requests: [Signal<Int?, NoError>] = (0 ..< 3).flatMap { _ -> [Signal<Int?, NoError>] in
             [
-                self.timed(account.network.request(Api.functions.messages.getDialogs(flags: 0, folderId: nil, offsetDate: 0, offsetId: 0, offsetPeer: .inputPeerEmpty, limit: 100, hash: 0)), recorder: recorder),
-                self.timed(account.network.request(Api.functions.messages.getDialogs(flags: 1 << 1, folderId: 1, offsetDate: 0, offsetId: 0, offsetPeer: .inputPeerEmpty, limit: 100, hash: 0)), recorder: recorder),
-                self.timed(account.network.request(Api.functions.messages.getPinnedDialogs(folderId: 0)), recorder: recorder) |> map { _ in Optional<Api.messages.Dialogs>.none },
+                self.timed(networkBenchmarkRequestDialogs(network: account.network, list: .main), recorder: recorder),
+                self.timed(networkBenchmarkRequestDialogs(network: account.network, list: .archive), recorder: recorder),
+                self.timed(networkBenchmarkRequestDialogs(network: account.network, list: .pinned), recorder: recorder) |> map { _ in Optional<Int>.none },
             ]
         }
         self.disposables.add((combineLatest(requests) |> deliverOnMainQueue).start(next: { [weak self] results in
             guard let self else {
                 return
             }
-            let dialogs = results.compactMap { $0 }.reduce(0) { count, result in
-                switch result {
-                case let .dialogs(data):
-                    return count + data.dialogs.count
-                case let .dialogsSlice(data):
-                    return count + data.dialogs.count
-                case .dialogsNotModified:
-                    return count
-                }
-            }
+            let dialogs = results.compactMap { $0 }.reduce(0, +)
             var metrics = self.latencyMetrics(recorder, prefix: "dialogs")
             metrics["dialogs"] = Double(dialogs)
             done(metrics, [:])
@@ -363,7 +354,7 @@ private final class NetworkLabSession {
         let recorder = LatencyRecorder()
         let pages = Int(self.configuration.double("-PerfLabPages", 6))
         let perPeer: [Signal<Int, NoError>] = self.heavyPeers.compactMap { peer -> Signal<Int, NoError>? in
-            guard let input = inputPeer(peer) else {
+            guard networkBenchmarkCanRequestHistory(peer: peer) else {
                 return nil
             }
             var chain: Signal<(Int32, Int), NoError> = .single((0, 0))
@@ -372,10 +363,10 @@ private final class NetworkLabSession {
                     if offsetId < 0 {
                         return .single((offsetId, total))
                     }
-                    return self.timed(account.network.request(Api.functions.messages.getHistory(peer: input, offsetId: offsetId, offsetDate: 0, addOffset: 0, limit: 100, maxId: 0, minId: 0, hash: 0), automaticFloodWait: false), recorder: recorder, tag: "history \(peer.id.id._internalGetInt64Value()) offset \(offsetId)")
+                    return self.timed(networkBenchmarkRequestHistory(network: account.network, peer: peer, offsetId: offsetId, limit: 100, automaticFloodWait: false), recorder: recorder, tag: "history \(peer.id.id._internalGetInt64Value()) offset \(offsetId)")
                     |> map { result -> (Int32, Int) in
-                        let messages = result.map(apiMessages) ?? []
-                        let last = messages.compactMap(apiMessageId).min() ?? -1
+                        let messages = result ?? []
+                        let last = messages.map(\.id).min() ?? -1
                         return (messages.isEmpty ? -1 : last, total + messages.count)
                     }
                 }
@@ -527,22 +518,22 @@ private final class NetworkLabSession {
         }
         |> take(1)
         |> mapToSignal { peer -> Signal<MessageId?, NoError> in
-            guard let peer, let input = inputPeer(peer._asPeer()) else {
+            guard let peer, networkBenchmarkCanRequestHistory(peer: peer._asPeer()) else {
                 return .single(nil)
             }
-            return account.network.request(Api.functions.messages.getHistory(peer: input, offsetId: 0, offsetDate: 0, addOffset: 0, limit: 30, maxId: 0, minId: 0, hash: 0), automaticFloodWait: false)
+            return networkBenchmarkRequestHistory(network: account.network, peer: peer._asPeer(), offsetId: 0, limit: 30, automaticFloodWait: false)
             |> map(Optional.init)
-            |> `catch` { _ -> Signal<Api.messages.Messages?, NoError> in
+            |> `catch` { _ -> Signal<[NetworkBenchmarkHistoryMessage]?, NoError> in
                 return .single(nil)
             }
             |> map { result -> MessageId? in
                 var best: (id: Int32, size: Int64)?
-                for message in result.map(apiMessages) ?? [] {
-                    guard case let .message(data) = message, case let .messageMediaDocument(mediaData)? = data.media, case let .document(document)? = mediaData.document else {
+                for message in result ?? [] {
+                    guard let size = message.documentSize else {
                         continue
                     }
-                    if document.size <= maxSize && document.size > (best?.size ?? 0) {
-                        best = (data.id, document.size)
+                    if size <= maxSize && size > (best?.size ?? 0) {
+                        best = (message.id, size)
                     }
                 }
                 return best.flatMap { MessageId(peerId: peer.id, namespace: Namespaces.Message.Cloud, id: $0.id) }
@@ -807,46 +798,4 @@ private final class NetworkLabSession {
         }))
     }
 }
-
-private func inputPeer(_ peer: Peer) -> Api.InputPeer? {
-    switch peer {
-    case let user as TelegramUser:
-        guard let accessHash = user.accessHash else {
-            return nil
-        }
-        return .inputPeerUser(.init(userId: user.id.id._internalGetInt64Value(), accessHash: accessHash.value))
-    case let group as TelegramGroup:
-        return .inputPeerChat(.init(chatId: group.id.id._internalGetInt64Value()))
-    case let channel as TelegramChannel:
-        guard let accessHash = channel.accessHash else {
-            return nil
-        }
-        return .inputPeerChannel(.init(channelId: channel.id.id._internalGetInt64Value(), accessHash: accessHash.value))
-    default:
-        return nil
-    }
-}
-
-private func apiMessages(_ result: Api.messages.Messages) -> [Api.Message] {
-    switch result {
-    case let .messages(data):
-        return data.messages
-    case let .messagesSlice(data):
-        return data.messages
-    case let .channelMessages(data):
-        return data.messages
-    case .messagesNotModified:
-        return []
-    }
-}
-
-private func apiMessageId(_ message: Api.Message) -> Int32? {
-    switch message {
-    case let .message(data):
-        return data.id
-    case let .messageService(data):
-        return data.id
-    case let .messageEmpty(data):
-        return data.id
-    }
-}
+#endif

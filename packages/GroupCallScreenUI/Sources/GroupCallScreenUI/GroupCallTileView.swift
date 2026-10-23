@@ -176,6 +176,7 @@ private final class LimitView : View {
         addSubview(effectView)
         addSubview(textView)
         addSubview(thumbView)
+        thumbView.isAccessibilityDecorative = true
         effectView.wantsLayer = true
         effectView.material = .dark
         effectView.blendingMode = .withinWindow

@@ -129,6 +129,24 @@ public class AccountInfoItem: GeneralRowItem {
         return success
     }
     
+    public override var accessibilityLabel: String? {
+        return peer.displayTitle
+    }
+    
+    public override var accessibilityValue: String? {
+        let text = textLayout.attributedString.string
+        return text.isEmpty ? nil : text
+    }
+    
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+    
+    public override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
+    }
+    
     public override func viewClass() -> AnyClass {
         return AccountInfoView.self
     }
@@ -164,12 +182,15 @@ private class AccountInfoView : GeneralContainableRowView {
         avatarView.animated = true
         
         avatarContainer.scaleOnClick = true
+        actionView.isAccessibilityDecorative = true
         
         textView.userInteractionEnabled = false
         textView.isSelectable = false
+        textView.isAccessibilityDecorative = true
         
         titleView.userInteractionEnabled = false
         titleView.isSelectable = false
+        titleView.isAccessibilityDecorative = true
         
         avatarContainer.addSubview(avatarView)
         addSubview(avatarContainer)
@@ -329,6 +350,8 @@ private class AccountInfoView : GeneralContainableRowView {
         super.set(item: item)
         
         if let item = item as? AccountInfoItem {
+            
+            avatarContainer.setAccessibilityLabel(strings().voiceOverCommonPhotoOf(item.peer.displayTitle))
             
             var interactiveStatus: Reactions.InteractiveStatus? = nil
             if visibleRect != .zero, window != nil, let interactive = item.context.reactions.interactiveStatus, !item.context.isLite(.emoji_effects) {

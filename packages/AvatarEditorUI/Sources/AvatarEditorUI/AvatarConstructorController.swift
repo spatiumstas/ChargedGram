@@ -434,6 +434,7 @@ private final class AvatarLeftView: View {
                     current = view
                 } else {
                     current = ImageView(frame: imageView.bounds)
+                    current.isAccessibilityDecorative = true
                     self.backgroundColorView = current
                     self.imageView.addSubview(current, positioned: .below, relativeTo: foregroundView ?? foregroundTextView)
                 }
@@ -707,6 +708,7 @@ private final class AvatarRightView: View {
             super.init(frame: frameRect)
             addSubview(segment.view)
             addSubview(dismiss)
+            dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
             self.border = [.Bottom]
             borderColor = theme.colors.border
             backgroundColor = theme.colors.background

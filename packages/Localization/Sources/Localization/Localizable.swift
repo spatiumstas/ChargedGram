@@ -873,6 +873,10 @@ public final class L10n {
   public static var audioRecordHelpPlain: String  { return L10n.tr("Localizable", "AudioRecord.Help.Plain") }
   /// Log in with Passkey
   public static var authLoginWithPasskey: String  { return L10n.tr("Localizable", "Auth.LoginWithPasskey") }
+  /// SMS Fee
+  public static var authControllerSmsFeeHeader: String  { return L10n.tr("Localizable", "Auth.Controller.SmsFeeHeader") }
+  /// Telecom providers charge very high prices for SMS to this number, so Telegram can't send a login code here. Log in from Telegram on your phone or another device, for example by scanning the QR code.
+  public static var authControllerSmsFeeInfo: String  { return L10n.tr("Localizable", "Auth.Controller.SmsFeeInfo") }
   /// Is %@ your phone number?
   public static func authLoginConfirmPhone(_ p1: String) -> String {
     return L10n.tr("Localizable", "Auth.Login.ConfirmPhone", p1)
@@ -3623,6 +3627,14 @@ public final class L10n {
   public static var chatControllerViewInExplorer: String  { return L10n.tr("Localizable", "Chat.Controller.ViewInExplorer") }
   /// Copy Link to Proxy
   public static var chatCopyProxyConfiguration: String  { return L10n.tr("Localizable", "Chat.Copy.ProxyConfiguration") }
+  /// %d photo or video
+  public static func chatDatePhotosAndVideosOne(_ p1: Int) -> String {
+    return L10n.tr("Localizable", "Chat.Date.PhotosAndVideos_one", p1)
+  }
+  /// %d photos and videos
+  public static func chatDatePhotosAndVideosOther(_ p1: Int) -> String {
+    return L10n.tr("Localizable", "Chat.Date.PhotosAndVideos_other", p1)
+  }
   /// Scheduled for %@
   public static func chatDateScheduledFor(_ p1: String) -> String {
     return L10n.tr("Localizable", "Chat.Date.ScheduledFor", p1)
@@ -4019,6 +4031,22 @@ public final class L10n {
   public static var chatInputAutoDelete1Day: String  { return L10n.tr("Localizable", "Chat.Input.AutoDelete.1Day") }
   /// Messages in this chat are automatically deleted 1 week after they have been sent.
   public static var chatInputAutoDelete7Days: String  { return L10n.tr("Localizable", "Chat.Input.AutoDelete.7Days") }
+  /// Dictate
+  public static var chatInputDictationStart: String  { return L10n.tr("Localizable", "Chat.Input.Dictation.Start") }
+  /// Stop Dictation
+  public static var chatInputDictationStop: String  { return L10n.tr("Localizable", "Chat.Input.Dictation.Stop") }
+  /// Dictation is not available for your current input language.
+  public static var chatInputDictationErrorLanguage: String  { return L10n.tr("Localizable", "Chat.Input.Dictation.Error.Language") }
+  /// Telegram needs access to your microphone to dictate messages. You can allow it in System Settings → Privacy & Security → Microphone.
+  public static var chatInputDictationErrorMicrophone: String  { return L10n.tr("Localizable", "Chat.Input.Dictation.Error.Microphone") }
+  /// No microphone found. Connect a microphone and try again.
+  public static var chatInputDictationErrorNoInput: String  { return L10n.tr("Localizable", "Chat.Input.Dictation.Error.NoInput") }
+  /// Telegram needs Speech Recognition access to turn your voice into text. You can allow it in System Settings → Privacy & Security → Speech Recognition.
+  public static var chatInputDictationErrorSpeech: String  { return L10n.tr("Localizable", "Chat.Input.Dictation.Error.Speech") }
+  /// Speech recognition is not available right now. Please try again later.
+  public static var chatInputDictationErrorUnavailable: String  { return L10n.tr("Localizable", "Chat.Input.Dictation.Error.Unavailable") }
+  /// Automatic
+  public static var chatInputDictationLanguageAutomatic: String  { return L10n.tr("Localizable", "Chat.Input.Dictation.Language.Automatic") }
   /// Your message is too long to be saved. Please remove %d characters.
   public static func chatInputErrorMessageTooLongOther(_ p1: Int) -> String {
     return L10n.tr("Localizable", "Chat.Input.Error.MessageTooLong_other", p1)
@@ -4363,6 +4391,10 @@ public final class L10n {
   public static var chatReactionEditTagPlaceholder: String  { return L10n.tr("Localizable", "Chat.Reaction.EditTag.Placeholder") }
   /// Are you sure you want to stop recording and discard\nyour voice message?
   public static var chatRecordingCancel: String  { return L10n.tr("Localizable", "Chat.Recording.Cancel") }
+  /// Transcribing. Click anywhere to stop.
+  public static var chatRecordingTranscribeActive: String  { return L10n.tr("Localizable", "Chat.Recording.Transcribe.Active") }
+  /// ← Swipe to transcribe
+  public static var chatRecordingTranscribeSwipe: String  { return L10n.tr("Localizable", "Chat.Recording.Transcribe.Swipe") }
   /// This chat helps you keep track of replies to your comments in Channels.
   public static var chatRepliesDesc: String  { return L10n.tr("Localizable", "Chat.Replies.Desc") }
   /// Expired Story
@@ -5285,6 +5317,14 @@ public final class L10n {
   public static var chatTopicHeaderEmpty: String  { return L10n.tr("Localizable", "Chat.TopicHeader.Empty") }
   /// Topic started
   public static var chatTopicHeaderFull: String  { return L10n.tr("Localizable", "Chat.TopicHeader.Full") }
+  /// Cancel
+  public static var chatTranscriptionCancel: String  { return L10n.tr("Localizable", "Chat.Transcription.Cancel") }
+  /// Edit
+  public static var chatTranscriptionEdit: String  { return L10n.tr("Localizable", "Chat.Transcription.Edit") }
+  /// Listening…
+  public static var chatTranscriptionListening: String  { return L10n.tr("Localizable", "Chat.Transcription.Listening") }
+  /// Send
+  public static var chatTranscriptionSend: String  { return L10n.tr("Localizable", "Chat.Transcription.Send") }
   /// Show Original
   public static var chatTranslateShowOriginal: String  { return L10n.tr("Localizable", "Chat.Translate.ShowOriginal") }
   /// Translate to %1$@
@@ -5575,6 +5615,8 @@ public final class L10n {
   public static var chatHeaderRestartTopic: String  { return L10n.tr("Localizable", "ChatHeader.RestartTopic") }
   /// Tone
   public static var chatHeaderTone: String  { return L10n.tr("Localizable", "ChatHeader.Tone") }
+  /// Set Profile Photo
+  public static var chatHeaderControllerSetProfilePhoto: String  { return L10n.tr("Localizable", "ChatHeader.Controller.SetProfilePhoto") }
   /// Add Tags
   public static var chatHeaderSearchAddTags: String  { return L10n.tr("Localizable", "ChatHeader.Search.AddTags") }
   /// to your Saved Messages
@@ -7429,6 +7471,48 @@ public final class L10n {
   public static var createBotUsernameEndBot: String  { return L10n.tr("Localizable", "CreateBot.UsernameEndBot") }
   /// Choose a username for your bot. It must end in 'bot'. Like this, for example: TetrisBot or tetris_bot.
   public static var createBotUsernameHint: String  { return L10n.tr("Localizable", "CreateBot.UsernameHint") }
+  /// %1$@ [Subscribe >]()
+  public static func createBotModalControllerPremiumRequiredSubscribe(_ p1: String) -> String {
+    return L10n.tr("Localizable", "CreateBot.ModalController.PremiumRequiredSubscribe", p1)
+  }
+  /// Discard
+  public static var createBotModalControllerUnsavedChangesDiscard: String  { return L10n.tr("Localizable", "CreateBot.ModalController.UnsavedChangesDiscard") }
+  /// Unsaved Changes
+  public static var createBotModalControllerUnsavedChangesHeader: String  { return L10n.tr("Localizable", "CreateBot.ModalController.UnsavedChangesHeader") }
+  /// You have not finished creating a bot.
+  public static var createBotModalControllerUnsavedChangesInfo: String  { return L10n.tr("Localizable", "CreateBot.ModalController.UnsavedChangesInfo") }
+  /// A username can't be longer than %1$d characters.
+  public static func createBotModalControllerUsernameTooLongOther(_ p1: Int) -> String {
+    return L10n.tr("Localizable", "CreateBot.ModalController.UsernameTooLong_other", p1)
+  }
+  /// %1$d username
+  public static func createBotUsernameCountOne(_ p1: Int) -> String {
+    return L10n.tr("Localizable", "CreateBot.Username.Count_one", p1)
+  }
+  /// %1$d usernames
+  public static func createBotUsernameCountOther(_ p1: Int) -> String {
+    return L10n.tr("Localizable", "CreateBot.Username.Count_other", p1)
+  }
+  /// %1$@ or %2$@
+  public static func createBotUsernameEndingsOr(_ p1: String, _ p2: String) -> String {
+    return L10n.tr("Localizable", "CreateBot.Username.EndingsOr", p1, p2)
+  }
+  /// Telegram Premium
+  public static var createBotUsernamePremium: String  { return L10n.tr("Localizable", "CreateBot.Username.Premium") }
+  /// Must end in %1$@ – or %2$@ with %3$@.
+  public static func createBotUsernamePremiumHint(_ p1: String, _ p2: String, _ p3: String) -> String {
+    return L10n.tr("Localizable", "CreateBot.Username.PremiumHint", p1, p2, p3)
+  }
+  /// [Telegram Premium]()
+  public static var createBotUsernamePremiumLink: String  { return L10n.tr("Localizable", "CreateBot.Username.PremiumLink") }
+  /// Usernames ending in %1$@ require Telegram Premium.
+  public static func createBotUsernamePremiumRequired(_ p1: String) -> String {
+    return L10n.tr("Localizable", "CreateBot.Username.PremiumRequired", p1)
+  }
+  /// You can only have %1$@ ending in %2$@ across all your bots.
+  public static func createBotUsernameSuffixLimit(_ p1: String, _ p2: String) -> String {
+    return L10n.tr("Localizable", "CreateBot.Username.SuffixLimit", p1, p2)
+  }
   /// Topics must be enabled.
   public static var createChannelForumError: String  { return L10n.tr("Localizable", "CreateChannel.Forum.Error") }
   /// Sorry, you have reserved too many public usernames. You can revoke the link from one of your older groups or channels.
@@ -7865,6 +7949,66 @@ public final class L10n {
   public static var editAvatarPhotoOrVideo: String  { return L10n.tr("Localizable", "EditAvatar.PhotoOrVideo") }
   /// Sticker or GIF
   public static var editAvatarStickerOrGif: String  { return L10n.tr("Localizable", "EditAvatar.StickerOrGif") }
+  /// BLUE
+  public static var editImageCanvasColorPickerBlue: String  { return L10n.tr("Localizable", "EditImage.CanvasColorPicker.Blue") }
+  /// GREEN
+  public static var editImageCanvasColorPickerGreen: String  { return L10n.tr("Localizable", "EditImage.CanvasColorPicker.Green") }
+  /// Grid
+  public static var editImageCanvasColorPickerGrid: String  { return L10n.tr("Localizable", "EditImage.CanvasColorPicker.Grid") }
+  /// Hex Color #
+  public static var editImageCanvasColorPickerHexColor: String  { return L10n.tr("Localizable", "EditImage.CanvasColorPicker.HexColor") }
+  /// OPACITY
+  public static var editImageCanvasColorPickerOpacity: String  { return L10n.tr("Localizable", "EditImage.CanvasColorPicker.Opacity") }
+  /// RED
+  public static var editImageCanvasColorPickerRed: String  { return L10n.tr("Localizable", "EditImage.CanvasColorPicker.Red") }
+  /// Sliders
+  public static var editImageCanvasColorPickerSliders: String  { return L10n.tr("Localizable", "EditImage.CanvasColorPicker.Sliders") }
+  /// Spectrum
+  public static var editImageCanvasColorPickerSpectrum: String  { return L10n.tr("Localizable", "EditImage.CanvasColorPicker.Spectrum") }
+  /// Colors
+  public static var editImageCanvasColorPickerTitle: String  { return L10n.tr("Localizable", "EditImage.CanvasColorPicker.Title") }
+  /// Clear All
+  public static var editImageCanvasControllerClearAll: String  { return L10n.tr("Localizable", "EditImage.CanvasController.ClearAll") }
+  /// Clear all drawings, text and stickers?
+  public static var editImageCanvasControllerClearAllConfirm: String  { return L10n.tr("Localizable", "EditImage.CanvasController.ClearAllConfirm") }
+  /// Cut Out
+  public static var editImageCanvasControllerCutOut: String  { return L10n.tr("Localizable", "EditImage.CanvasController.CutOut") }
+  /// Duplicate
+  public static var editImageCanvasControllerDuplicate: String  { return L10n.tr("Localizable", "EditImage.CanvasController.Duplicate") }
+  /// Flip
+  public static var editImageCanvasControllerFlip: String  { return L10n.tr("Localizable", "EditImage.CanvasController.Flip") }
+  /// Move Forward
+  public static var editImageCanvasControllerMoveForward: String  { return L10n.tr("Localizable", "EditImage.CanvasController.MoveForward") }
+  /// Arrow
+  public static var editImageCanvasControllerShapeArrow: String  { return L10n.tr("Localizable", "EditImage.CanvasController.ShapeArrow") }
+  /// Bubble
+  public static var editImageCanvasControllerShapeBubble: String  { return L10n.tr("Localizable", "EditImage.CanvasController.ShapeBubble") }
+  /// Ellipse
+  public static var editImageCanvasControllerShapeEllipse: String  { return L10n.tr("Localizable", "EditImage.CanvasController.ShapeEllipse") }
+  /// Rectangle
+  public static var editImageCanvasControllerShapeRectangle: String  { return L10n.tr("Localizable", "EditImage.CanvasController.ShapeRectangle") }
+  /// Star
+  public static var editImageCanvasControllerShapeStar: String  { return L10n.tr("Localizable", "EditImage.CanvasController.ShapeStar") }
+  /// Clear All
+  public static var editImageCanvasControlsClearAll: String  { return L10n.tr("Localizable", "EditImage.CanvasControls.ClearAll") }
+  /// Draw
+  public static var editImageCanvasControlsDraw: String  { return L10n.tr("Localizable", "EditImage.CanvasControls.Draw") }
+  /// Sticker
+  public static var editImageCanvasControlsSticker: String  { return L10n.tr("Localizable", "EditImage.CanvasControls.Sticker") }
+  /// Text
+  public static var editImageCanvasControlsText: String  { return L10n.tr("Localizable", "EditImage.CanvasControls.Text") }
+  /// Zoom Out
+  public static var editImageCanvasControlsZoomOut: String  { return L10n.tr("Localizable", "EditImage.CanvasControls.ZoomOut") }
+  /// Cut Out an Object
+  public static var editImageControlsCutOutObject: String  { return L10n.tr("Localizable", "EditImage.Controls.CutOutObject") }
+  /// Add Outline
+  public static var editImageCutoutControllerAddOutline: String  { return L10n.tr("Localizable", "EditImage.CutoutController.AddOutline") }
+  /// Cut Out an Object
+  public static var editImageCutoutControllerCutOutObject: String  { return L10n.tr("Localizable", "EditImage.CutoutController.CutOutObject") }
+  /// Click on an object to cut it out
+  public static var editImageCutoutControllerHint: String  { return L10n.tr("Localizable", "EditImage.CutoutController.Hint") }
+  /// Remove Outline
+  public static var editImageCutoutControllerRemoveOutline: String  { return L10n.tr("Localizable", "EditImage.CutoutController.RemoveOutline") }
   /// RESET
   public static var editImageControlReset: String  { return L10n.tr("Localizable", "EditImageControl.Reset") }
   /// Are you sure you want to discard all changes?
@@ -7935,6 +8079,40 @@ public final class L10n {
   public static var editThemeSlugErrorAlreadyExists: String  { return L10n.tr("Localizable", "EditTheme.SlugError.AlreadyExists") }
   /// Sorry, invalid format
   public static var editThemeSlugErrorFormat: String  { return L10n.tr("Localizable", "EditTheme.SlugError.Format") }
+  /// Sound is now muted, so the video will autoplay and loop like a GIF.
+  public static var editVideoControllerMutedTooltip: String  { return L10n.tr("Localizable", "EditVideo.Controller.MutedTooltip") }
+  /// Quality
+  public static var editVideoControllerQuality: String  { return L10n.tr("Localizable", "EditVideo.Controller.Quality") }
+  /// Tools
+  public static var editVideoControllerTools: String  { return L10n.tr("Localizable", "EditVideo.Controller.Tools") }
+  /// Brightness
+  public static var editVideoExportBrightness: String  { return L10n.tr("Localizable", "EditVideo.Export.Brightness") }
+  /// Contrast
+  public static var editVideoExportContrast: String  { return L10n.tr("Localizable", "EditVideo.Export.Contrast") }
+  /// Enhance
+  public static var editVideoExportEnhance: String  { return L10n.tr("Localizable", "EditVideo.Export.Enhance") }
+  /// Fade
+  public static var editVideoExportFade: String  { return L10n.tr("Localizable", "EditVideo.Export.Fade") }
+  /// Highlights
+  public static var editVideoExportHighlights: String  { return L10n.tr("Localizable", "EditVideo.Export.Highlights") }
+  /// Saturation
+  public static var editVideoExportSaturation: String  { return L10n.tr("Localizable", "EditVideo.Export.Saturation") }
+  /// Shadows
+  public static var editVideoExportShadows: String  { return L10n.tr("Localizable", "EditVideo.Export.Shadows") }
+  /// Vignette
+  public static var editVideoExportVignette: String  { return L10n.tr("Localizable", "EditVideo.Export.Vignette") }
+  /// Warmth
+  public static var editVideoExportWarmth: String  { return L10n.tr("Localizable", "EditVideo.Export.Warmth") }
+  /// Highlights
+  public static var editVideoToolsControllerHighlights: String  { return L10n.tr("Localizable", "EditVideo.ToolsController.Highlights") }
+  /// Original
+  public static var editVideoToolsControllerOriginal: String  { return L10n.tr("Localizable", "EditVideo.ToolsController.Original") }
+  /// Shadows
+  public static var editVideoToolsControllerShadows: String  { return L10n.tr("Localizable", "EditVideo.ToolsController.Shadows") }
+  /// Tint
+  public static var editVideoToolsControllerTint: String  { return L10n.tr("Localizable", "EditVideo.ToolsController.Tint") }
+  /// Tools
+  public static var editVideoToolsControllerTools: String  { return L10n.tr("Localizable", "EditVideo.ToolsController.Tools") }
   /// Code expired, please start over.
   public static var emailCodeExpiredError: String  { return L10n.tr("Localizable", "Email.CodeExpiredError") }
   /// Too many attempts, please try again later.
@@ -8959,6 +9137,16 @@ public final class L10n {
   public static var giftContextWear: String  { return L10n.tr("Localizable", "Gift.Context.Wear") }
   /// Set as Theme in...
   public static var giftContextMenuSetAsTheme: String  { return L10n.tr("Localizable", "Gift.ContextMenu.SetAsTheme") }
+  /// Gift Deleted
+  public static var giftDeleteSuccess: String  { return L10n.tr("Localizable", "Gift.Delete.Success") }
+  /// Do you want to delete this gift?\n\nIt will disappear from your profile and can't be restored.
+  public static var giftDeleteText: String  { return L10n.tr("Localizable", "Gift.Delete.Text") }
+  /// Delete Gift
+  public static var giftDeleteTitle: String  { return L10n.tr("Localizable", "Gift.Delete.Title") }
+  /// The gift is now shown on your Page.
+  public static var giftDisplayedNewText: String  { return L10n.tr("Localizable", "Gift.Displayed.NewText") }
+  /// The gift is removed from your Page.
+  public static var giftHiddenNewText: String  { return L10n.tr("Localizable", "Gift.Hidden.NewText") }
   /// No Matching Gifts
   public static var giftMarketplaceEmptyFilters: String  { return L10n.tr("Localizable", "Gift.Marketplace.EmptyFilters") }
   /// Select All
@@ -8995,6 +9183,22 @@ public final class L10n {
   public static var giftMarketplaceSortNumber: String  { return L10n.tr("Localizable", "Gift.Marketplace.Sort.Number") }
   /// Sort by Price
   public static var giftMarketplaceSortPrice: String  { return L10n.tr("Localizable", "Gift.Marketplace.Sort.Price") }
+  /// Gift moved to your account.
+  public static var giftMoveToGiftsSuccess: String  { return L10n.tr("Localizable", "Gift.MoveToGifts.Success") }
+  /// Transfer this collectible off-chain to your Telegram account?
+  public static var giftMoveToGiftsText: String  { return L10n.tr("Localizable", "Gift.MoveToGifts.Text") }
+  /// Move to My Gifts
+  public static var giftMoveToGiftsTitle: String  { return L10n.tr("Localizable", "Gift.MoveToGifts.Title") }
+  /// It will appear in
+  public static var giftMoveToWalletLocation: String  { return L10n.tr("Localizable", "Gift.MoveToWallet.Location") }
+  /// Move
+  public static var giftMoveToWalletMove: String  { return L10n.tr("Localizable", "Gift.MoveToWallet.Move") }
+  /// Gift moved to your wallet.
+  public static var giftMoveToWalletSuccess: String  { return L10n.tr("Localizable", "Gift.MoveToWallet.Success") }
+  /// Transfer this gift to your blockchain wallet?
+  public static var giftMoveToWalletText: String  { return L10n.tr("Localizable", "Gift.MoveToWallet.Text") }
+  /// Move to My Wallet
+  public static var giftMoveToWalletTitle: String  { return L10n.tr("Localizable", "Gift.MoveToWallet.Title") }
   /// You've already reached limit to send this gift.
   public static var giftOptionsGiftBuyLimitReached: String  { return L10n.tr("Localizable", "Gift.Options.Gift.BuyLimitReached") }
   /// Buy yourself a gift to add to your profile or reserve for later.\n\nLimited-edition gifts upgraded to collectibles can be gifted to others.
@@ -9061,6 +9265,10 @@ public final class L10n {
   public static var giftTooltipPinned: String  { return L10n.tr("Localizable", "Gift.Tooltip.Pinned") }
   /// Gift Unpinned
   public static var giftTooltipUnpinned: String  { return L10n.tr("Localizable", "Gift.Tooltip.Unpinned") }
+  /// Move to My Gifts
+  public static var giftTransferMoveToGifts: String  { return L10n.tr("Localizable", "Gift.Transfer.MoveToGifts") }
+  /// Move to My Wallet
+  public static var giftTransferMoveToWallet: String  { return L10n.tr("Localizable", "Gift.Transfer.MoveToWallet") }
   /// unlocks in %@
   public static func giftTransferSendUnlocks(_ p1: String) -> String {
     return L10n.tr("Localizable", "Gift.Transfer.SendUnlocks", p1)
@@ -9099,6 +9307,10 @@ public final class L10n {
   public static var giftTransferUpdateRequiredText: String  { return L10n.tr("Localizable", "Gift.Transfer.UpdateRequired.Text") }
   /// Update Required
   public static var giftTransferUpdateRequiredTitle: String  { return L10n.tr("Localizable", "Gift.Transfer.UpdateRequired.Title") }
+  /// FREQUENT CONTACTS
+  public static var giftTransferControllerFrequentContacts: String  { return L10n.tr("Localizable", "Gift.TransferController.FrequentContacts") }
+  /// Choose Recipient
+  public static var giftTransferControllerTitle: String  { return L10n.tr("Localizable", "Gift.TransferController.Title") }
   /// Proceed
   public static var giftTransferTonOK: String  { return L10n.tr("Localizable", "Gift.TransferTon.OK") }
   /// Only %@ of such collectibles have this attribute.
@@ -9213,6 +9425,12 @@ public final class L10n {
   }
   /// Status
   public static var giftViewStatus: String  { return L10n.tr("Localizable", "Gift.View.Status") }
+  /// Delete Gift
+  public static var giftViewContextDelete: String  { return L10n.tr("Localizable", "Gift.View.Context.Delete") }
+  /// Hide from Profile
+  public static var giftViewContextHideFromProfile: String  { return L10n.tr("Localizable", "Gift.View.Context.HideFromProfile") }
+  /// Show on Profile
+  public static var giftViewContextShowOnProfile: String  { return L10n.tr("Localizable", "Gift.View.Context.ShowOnProfile") }
   /// Your channel can add this gift to its profile or convert it to %@. [More About Stars >](https://telegram.org)
   public static func giftViewKeepOrConvertDescriptionChannel(_ p1: String) -> String {
     return L10n.tr("Localizable", "Gift.View.KeepOrConvertDescription.Channel", p1)
@@ -9245,8 +9463,16 @@ public final class L10n {
   public static var giftWearProofText: String  { return L10n.tr("Localizable", "Gift.Wear.Proof.Text") }
   /// Proof of Ownership
   public static var giftWearProofTitle: String  { return L10n.tr("Localizable", "Gift.Wear.Proof.Title") }
+  /// \n\nPlease come back later.
+  public static var giftWithdrawComeBackLater: String  { return L10n.tr("Localizable", "Gift.Withdraw.ComeBackLater") }
   /// Open Fragment
   public static var giftWithdrawProceed: String  { return L10n.tr("Localizable", "Gift.Withdraw.Proceed") }
+  /// Security Check
+  public static var giftWithdrawSecurityCheck: String  { return L10n.tr("Localizable", "Gift.Withdraw.SecurityCheck") }
+  /// Gift withdrawals are available if:\n\n• 2-Step verification was enabled for your account more than **7 days** ago.\n\n• You have logged in on this device more than **24 hours** ago.
+  public static var giftWithdrawSecurityRequirements: String  { return L10n.tr("Localizable", "Gift.Withdraw.SecurityRequirements") }
+  /// Enable 2-Step Verification
+  public static var giftWithdrawSetupTwoStepAuth: String  { return L10n.tr("Localizable", "Gift.Withdraw.SetupTwoStepAuth") }
   /// You can use Fragment, a third-party service, to transfer **%@** to the TON blockchain. After that, you can manage it as an NFT with any TON wallet application.\n\nYou can also move such NFTs back to your Telegram account via Fragment.
   public static func giftWithdrawText(_ p1: String) -> String {
     return L10n.tr("Localizable", "Gift.Withdraw.Text", p1)
@@ -9867,6 +10093,12 @@ public final class L10n {
   public static func inAppLinksBotManagementDisabled(_ p1: String) -> String {
     return L10n.tr("Localizable", "InAppLinks.BotManagementDisabled", p1)
   }
+  /// You can now message %1$@ for free.
+  public static func inAppLinksFreeMessageLinkApplied(_ p1: String) -> String {
+    return L10n.tr("Localizable", "InAppLinks.FreeMessageLinkApplied", p1)
+  }
+  /// This free message link is invalid or has expired.
+  public static var inAppLinksFreeMessageLinkInvalid: String  { return L10n.tr("Localizable", "InAppLinks.FreeMessageLinkInvalid") }
   /// This link may be deceptive.\nDisplayed: %1$@\nActual: %2$@
   public static func inAppLinksIDNWarning(_ p1: String, _ p2: String) -> String {
     return L10n.tr("Localizable", "InAppLinks.IDNWarning", p1, p2)
@@ -10149,8 +10381,24 @@ public final class L10n {
   public static func lastSeenHoursAgoOther(_ p1: Int) -> String {
     return L10n.tr("Localizable", "LastSeen.HoursAgo_other", p1)
   }
+  /// Chat deleted
+  public static var leaveChatActionsChatDeleted: String  { return L10n.tr("Localizable", "LeaveChat.Actions.ChatDeleted") }
+  /// Chat deleted for both sides
+  public static var leaveChatActionsChatDeletedForBothSides: String  { return L10n.tr("Localizable", "LeaveChat.Actions.ChatDeletedForBothSides") }
+  /// Deleted channel
+  public static var leaveChatActionsDeletedChannel: String  { return L10n.tr("Localizable", "LeaveChat.Actions.DeletedChannel") }
+  /// Deleted group
+  public static var leaveChatActionsDeletedGroup: String  { return L10n.tr("Localizable", "LeaveChat.Actions.DeletedGroup") }
   /// Delete for all subscribers
   public static var leaveChatActionsDeleteForAllSubscribers: String  { return L10n.tr("Localizable", "LeaveChat.Actions.DeleteForAllSubscribers") }
+  /// Left channel
+  public static var leaveChatActionsLeftChannel: String  { return L10n.tr("Localizable", "LeaveChat.Actions.LeftChannel") }
+  /// Left group
+  public static var leaveChatActionsLeftGroup: String  { return L10n.tr("Localizable", "LeaveChat.Actions.LeftGroup") }
+  /// Removed from your chat list.
+  public static var leaveChatActionsRemovedFromChatList: String  { return L10n.tr("Localizable", "LeaveChat.Actions.RemovedFromChatList") }
+  /// Secret Chat deleted
+  public static var leaveChatActionsSecretChatDeleted: String  { return L10n.tr("Localizable", "LeaveChat.Actions.SecretChatDeleted") }
   /// Welcome to the new super-fast and stable Telegram for macOS, fully rewritten in Swift 3.0.
   public static var legacyIntroDescription1: String  { return L10n.tr("Localizable", "Legacy.Intro.Description1") }
   /// Please note that your existing secret chats will be available in read-only mode. You can of course create new ones to continue chatting.
@@ -11303,6 +11551,14 @@ public final class L10n {
   public static var notificationLockedPreview: String  { return L10n.tr("Localizable", "Notification.LockedPreview") }
   /// Mark as Read
   public static var notificationMarkAsRead: String  { return L10n.tr("Localizable", "Notification.MarkAsRead") }
+  /// %@ used your link to message you for free
+  public static func notificationNoPaidMessagesTokenUsed(_ p1: String) -> String {
+    return L10n.tr("Localizable", "Notification.NoPaidMessagesTokenUsed", p1)
+  }
+  /// You used %@’s link to message for free
+  public static func notificationNoPaidMessagesTokenUsedYou(_ p1: String) -> String {
+    return L10n.tr("Localizable", "Notification.NoPaidMessagesTokenUsedYou", p1)
+  }
   /// %1$@ paid %2$@ to send a message
   public static func notificationPaidMessage(_ p1: String, _ p2: String) -> String {
     return L10n.tr("Localizable", "Notification.PaidMessage", p1, p2)
@@ -12303,6 +12559,12 @@ public final class L10n {
   public static var peerInfoActionVideoCall: String  { return L10n.tr("Localizable", "PeerInfo.Action.VideoCall") }
   /// Video Chat
   public static var peerInfoActionVoiceChat: String  { return L10n.tr("Localizable", "PeerInfo.Action.VoiceChat") }
+  /// Balance: %1$@
+  public static func peerInfoBalanceViewAccessibility(_ p1: String) -> String {
+    return L10n.tr("Localizable", "PeerInfo.BalanceView.Accessibility", p1)
+  }
+  /// Balance:
+  public static var peerInfoBalanceViewTitle: String  { return L10n.tr("Localizable", "PeerInfo.BalanceView.Title") }
   /// Block User
   public static var peerInfoBlockHeader: String  { return L10n.tr("Localizable", "PeerInfo.Block.Header") }
   /// Block
@@ -13903,6 +14165,60 @@ public final class L10n {
   public static var proxySettingsWebWarningText: String  { return L10n.tr("Localizable", "ProxySettings.Web.Warning.Text") }
   /// Enable WEB Proxy?
   public static var proxySettingsWebWarningTitle: String  { return L10n.tr("Localizable", "ProxySettings.Web.Warning.Title") }
+  /// Colors
+  public static var qrStudioColorsTabViewTitle: String  { return L10n.tr("Localizable", "QrStudio.ColorsTabView.Title") }
+  /// This code will expire in 1 minute.
+  public static var qrStudioControllerCodeExpiresInMinute: String  { return L10n.tr("Localizable", "QrStudio.Controller.CodeExpiresInMinute") }
+  /// Messages with this code are now free.
+  public static var qrStudioControllerCodeFree: String  { return L10n.tr("Localizable", "QrStudio.Controller.CodeFree") }
+  /// This code no longer expires.
+  public static var qrStudioControllerCodePermanent: String  { return L10n.tr("Localizable", "QrStudio.Controller.CodePermanent") }
+  /// New code created. The old one no longer works.
+  public static var qrStudioControllerCodeReset: String  { return L10n.tr("Localizable", "QrStudio.Controller.CodeReset") }
+  /// Your message fee applies again.
+  public static var qrStudioControllerFeeRestored: String  { return L10n.tr("Localizable", "QrStudio.Controller.FeeRestored") }
+  /// Link copied to clipboard.
+  public static var qrStudioControllerLinkCopied: String  { return L10n.tr("Localizable", "QrStudio.Controller.LinkCopied") }
+  /// Copy Link
+  public static var qrStudioControllerMenuCopyLink: String  { return L10n.tr("Localizable", "QrStudio.Controller.MenuCopyLink") }
+  /// Disable timer
+  public static var qrStudioControllerMenuDisableTimer: String  { return L10n.tr("Localizable", "QrStudio.Controller.MenuDisableTimer") }
+  /// Expire after 1 minute
+  public static var qrStudioControllerMenuExpireAfterMinute: String  { return L10n.tr("Localizable", "QrStudio.Controller.MenuExpireAfterMinute") }
+  /// Reset Code
+  public static var qrStudioControllerMenuResetCode: String  { return L10n.tr("Localizable", "QrStudio.Controller.MenuResetCode") }
+  /// Restore message fee
+  public static var qrStudioControllerMenuRestoreFee: String  { return L10n.tr("Localizable", "QrStudio.Controller.MenuRestoreFee") }
+  /// Save Image
+  public static var qrStudioControllerMenuSaveImage: String  { return L10n.tr("Localizable", "QrStudio.Controller.MenuSaveImage") }
+  /// Share…
+  public static var qrStudioControllerMenuShare: String  { return L10n.tr("Localizable", "QrStudio.Controller.MenuShare") }
+  /// Expires in %1$@
+  public static func qrStudioControllerPillExpiresIn(_ p1: String) -> String {
+    return L10n.tr("Localizable", "QrStudio.Controller.PillExpiresIn", p1)
+  }
+  /// Free
+  public static var qrStudioControllerPillFree: String  { return L10n.tr("Localizable", "QrStudio.Controller.PillFree") }
+  /// Permanent
+  public static var qrStudioControllerPillPermanent: String  { return L10n.tr("Localizable", "QrStudio.Controller.PillPermanent") }
+  /// Remove ⭐%1$@ fee
+  public static func qrStudioControllerPillRemoveFee(_ p1: String) -> String {
+    return L10n.tr("Localizable", "QrStudio.Controller.PillRemoveFee", p1)
+  }
+  /// Subscribe to Premium to use all emoji.
+  public static var qrStudioControllerPremiumEmoji: String  { return L10n.tr("Localizable", "QrStudio.Controller.PremiumEmoji") }
+  /// Something went wrong. Please try again.
+  public static var qrStudioControllerSomethingWentWrong: String  { return L10n.tr("Localizable", "QrStudio.Controller.SomethingWentWrong") }
+  /// Subscribe
+  public static var qrStudioControllerSubscribe: String  { return L10n.tr("Localizable", "QrStudio.Controller.Subscribe") }
+  /// Browse Gifts
+  public static var qrStudioGiftsTabViewBrowse: String  { return L10n.tr("Localizable", "QrStudio.GiftsTabView.Browse") }
+  /// Use any collectible gift you own\nto style your QR code.
+  public static var qrStudioGiftsTabViewEmptyText: String  { return L10n.tr("Localizable", "QrStudio.GiftsTabView.EmptyText") }
+  /// No gifts yet
+  public static var qrStudioGiftsTabViewEmptyTitle: String  { return L10n.tr("Localizable", "QrStudio.GiftsTabView.EmptyTitle") }
+  /// Collectibles
+  public static var qrStudioGiftsTabViewTitle: String  { return L10n.tr("Localizable", "QrStudio.GiftsTabView.Title") }
   /// Preview
   public static var quickLookPreview: String  { return L10n.tr("Localizable", "QuickLook.Preview") }
   /// You didn't create an away message. Exiting will remove it.
@@ -15269,6 +15585,8 @@ public final class L10n {
   public static var settingsSearchSynonymsStickersSuggestStickers: String  { return L10n.tr("Localizable", "SettingsSearch.Synonyms.Stickers.SuggestStickers") }
   ///  
   public static var settingsSearchSynonymsStickersTitle: String  { return L10n.tr("Localizable", "SettingsSearch.Synonyms.Stickers.Title") }
+  /// Sharing did not complete. Check the selected chats before trying again to avoid duplicates.
+  public static var shareIncompleteDelivery: String  { return L10n.tr("Localizable", "Share.IncompleteDelivery") }
   /// Copied to Clipboard
   public static var shareLinkCopied: String  { return L10n.tr("Localizable", "Share.Link.Copied") }
   /// You selected %1$@ who charge Stars for messages. Would you like to pay %2$@ to send %3$@?
@@ -16799,6 +17117,10 @@ public final class L10n {
   public static func statsGroupTopPosterCharsOther(_ p1: Int) -> String {
     return L10n.tr("Localizable", "Stats.GroupTopPosterChars_other", p1)
   }
+  /// %d message
+  public static func statsGroupTopPosterMessagesOne(_ p1: Int) -> String {
+    return L10n.tr("Localizable", "Stats.GroupTopPosterMessages_one", p1)
+  }
   /// %d messages
   public static func statsGroupTopPosterMessagesOther(_ p1: Int) -> String {
     return L10n.tr("Localizable", "Stats.GroupTopPosterMessages_other", p1)
@@ -16927,12 +17249,62 @@ public final class L10n {
   }
   /// Stickers Added
   public static var stickerPackAddedTitle: String  { return L10n.tr("Localizable", "StickerPack.Added.Title") }
+  /// Add to Sticker Set
+  public static var stickerPackEditingAddToSet: String  { return L10n.tr("Localizable", "StickerPack.Editing.AddToSet") }
+  /// Name
+  public static var stickerPackEditingNamePlaceholder: String  { return L10n.tr("Localizable", "StickerPack.Editing.NamePlaceholder") }
+  /// New Sticker Set
+  public static var stickerPackEditingNewSet: String  { return L10n.tr("Localizable", "StickerPack.Editing.NewSet") }
+  /// Choose a name for your sticker set.
+  public static var stickerPackEditingNewSetText: String  { return L10n.tr("Localizable", "StickerPack.Editing.NewSetText") }
+  /// Send Sticker
+  public static var stickerPackEditingSendSticker: String  { return L10n.tr("Localizable", "StickerPack.Editing.SendSticker") }
+  /// Sorry, you've reached the maximum number of stickers in this set. Try a different one.
+  public static var stickerPackEditingSetFull: String  { return L10n.tr("Localizable", "StickerPack.Editing.SetFull") }
+  /// Sticker added to **%1$@** sticker set.
+  public static func stickerPackEditingStickerAdded(_ p1: String) -> String {
+    return L10n.tr("Localizable", "StickerPack.Editing.StickerAdded", p1)
+  }
   /// Trending Stickers
   public static var stickerPackFeaturedTitle: String  { return L10n.tr("Localizable", "StickerPack.Featured.Title") }
   /// Remove Group Emoji Pack
   public static var stickerPackPreviewRemoveGroup: String  { return L10n.tr("Localizable", "StickerPack.Preview.RemoveGroup") }
   /// Set as Group Emoji Pack
   public static var stickerPackPreviewSetGroup: String  { return L10n.tr("Localizable", "StickerPack.Preview.SetGroup") }
+  /// Add an Existing Sticker
+  public static var stickerPackPreviewModalControllerAddExistingSticker: String  { return L10n.tr("Localizable", "StickerPack.PreviewModalController.AddExistingSticker") }
+  /// Add Sticker
+  public static var stickerPackPreviewModalControllerAddSticker: String  { return L10n.tr("Localizable", "StickerPack.PreviewModalController.AddSticker") }
+  /// Create a New Sticker
+  public static var stickerPackPreviewModalControllerCreateSticker: String  { return L10n.tr("Localizable", "StickerPack.PreviewModalController.CreateSticker") }
+  /// Delete for Everyone
+  public static var stickerPackPreviewModalControllerDeleteForEveryone: String  { return L10n.tr("Localizable", "StickerPack.PreviewModalController.DeleteForEveryone") }
+  /// Delete Sticker Set
+  public static var stickerPackPreviewModalControllerDeleteSetHeader: String  { return L10n.tr("Localizable", "StickerPack.PreviewModalController.DeleteSetHeader") }
+  /// This will delete the sticker set for all users.
+  public static var stickerPackPreviewModalControllerDeleteSetInfo: String  { return L10n.tr("Localizable", "StickerPack.PreviewModalController.DeleteSetInfo") }
+  /// Edit Name
+  public static var stickerPackPreviewModalControllerEditName: String  { return L10n.tr("Localizable", "StickerPack.PreviewModalController.EditName") }
+  /// Choose a new name for your set.
+  public static var stickerPackPreviewModalControllerEditNameText: String  { return L10n.tr("Localizable", "StickerPack.PreviewModalController.EditNameText") }
+  /// Edit Sticker Set Name
+  public static var stickerPackPreviewModalControllerEditNameTitle: String  { return L10n.tr("Localizable", "StickerPack.PreviewModalController.EditNameTitle") }
+  /// EDIT STICKERS
+  public static var stickerPackPreviewModalControllerEditStickers: String  { return L10n.tr("Localizable", "StickerPack.PreviewModalController.EditStickers") }
+  /// Remove for Me
+  public static var stickerPackPreviewModalControllerRemoveForMe: String  { return L10n.tr("Localizable", "StickerPack.PreviewModalController.RemoveForMe") }
+  /// Reorder
+  public static var stickerPackPreviewModalControllerReorder: String  { return L10n.tr("Localizable", "StickerPack.PreviewModalController.Reorder") }
+  /// Replace Sticker
+  public static var stickerPackPreviewModalControllerReplaceSticker: String  { return L10n.tr("Localizable", "StickerPack.PreviewModalController.ReplaceSticker") }
+  /// Sticker added to **%1$@** sticker set.
+  public static func stickerPackPreviewModalControllerStickerAdded(_ p1: String) -> String {
+    return L10n.tr("Localizable", "StickerPack.PreviewModalController.StickerAdded", p1)
+  }
+  /// Check @stickers bot for more options.
+  public static var stickerPackPreviewModalControllerStickersBotHint: String  { return L10n.tr("Localizable", "StickerPack.PreviewModalController.StickersBotHint") }
+  /// Sticker updated.
+  public static var stickerPackPreviewModalControllerStickerUpdated: String  { return L10n.tr("Localizable", "StickerPack.PreviewModalController.StickerUpdated") }
   /// %@ is no longer in your stickers.
   public static func stickerPackRemovedInfo(_ p1: String) -> String {
     return L10n.tr("Localizable", "StickerPack.Removed.Info", p1)
@@ -16989,6 +17361,8 @@ public final class L10n {
   public static func stickersSetCount1Other(_ p1: Int) -> String {
     return L10n.tr("Localizable", "Stickers.Set.Count1_other", p1)
   }
+  /// Create Sticker
+  public static var stickersViewControllerCreateSticker: String  { return L10n.tr("Localizable", "Stickers.ViewController.CreateSticker") }
   /// Clear %@
   public static func storageClear(_ p1: String) -> String {
     return L10n.tr("Localizable", "Storage.Clear", p1)
@@ -19287,6 +19661,730 @@ public final class L10n {
   public static var voiceChatVideoVideoSourceShare: String  { return L10n.tr("Localizable", "VoiceChat.Video.VideoSource.Share") }
   /// Unable to share your camera, please grant access in [System Settings](camera).
   public static var voiceChatVideoShareUnavailable: String  { return L10n.tr("Localizable", "VoiceChat.VideoShare.Unavailable") }
+  /// Send media
+  public static var voiceOverAttachMedia: String  { return L10n.tr("Localizable", "VoiceOver.AttachMedia") }
+  /// Bot Commands
+  public static var voiceOverBotCommands: String  { return L10n.tr("Localizable", "VoiceOver.BotCommands") }
+  /// Bot Keyboard
+  public static var voiceOverBotKeyboard: String  { return L10n.tr("Localizable", "VoiceOver.BotKeyboard") }
+  /// Discard
+  public static var voiceOverDiscardPreparedContent: String  { return L10n.tr("Localizable", "VoiceOver.DiscardPreparedContent") }
+  /// Dismiss Context Menu
+  public static var voiceOverDismissContextMenu: String  { return L10n.tr("Localizable", "VoiceOver.DismissContextMenu") }
+  /// Gift Telegram Premium
+  public static var voiceOverGiftPremium: String  { return L10n.tr("Localizable", "VoiceOver.GiftPremium") }
+  /// Delete
+  public static var voiceOverMessageContextDelete: String  { return L10n.tr("Localizable", "VoiceOver.MessageContextDelete") }
+  /// Forward
+  public static var voiceOverMessageContextForward: String  { return L10n.tr("Localizable", "VoiceOver.MessageContextForward") }
+  /// Open message menu
+  public static var voiceOverMessageContextOpenMessageMenu: String  { return L10n.tr("Localizable", "VoiceOver.MessageContextOpenMessageMenu") }
+  /// Reply
+  public static var voiceOverMessageContextReply: String  { return L10n.tr("Localizable", "VoiceOver.MessageContextReply") }
+  /// Report
+  public static var voiceOverMessageContextReport: String  { return L10n.tr("Localizable", "VoiceOver.MessageContextReport") }
+  /// Send
+  public static var voiceOverMessageContextSend: String  { return L10n.tr("Localizable", "VoiceOver.MessageContextSend") }
+  /// Share
+  public static var voiceOverMessageContextShare: String  { return L10n.tr("Localizable", "VoiceOver.MessageContextShare") }
+  /// Tag
+  public static var voiceOverMessageSelectionButtonTag: String  { return L10n.tr("Localizable", "VoiceOver.MessageSelectionButtonTag") }
+  /// Scheduled Messages
+  public static var voiceOverScheduledMessages: String  { return L10n.tr("Localizable", "VoiceOver.ScheduledMessages") }
+  /// Row %1$@ of %2$@
+  public static func voiceOverScrollStatus(_ p1: String, _ p2: String) -> String {
+    return L10n.tr("Localizable", "VoiceOver.ScrollStatus", p1, p2)
+  }
+  /// Self-destruct Timer Off
+  public static var voiceOverSelfDestructTimerOff: String  { return L10n.tr("Localizable", "VoiceOver.SelfDestructTimerOff") }
+  /// Self-destruct Timer: %@
+  public static func voiceOverSelfDestructTimerOn(_ p1: String) -> String {
+    return L10n.tr("Localizable", "VoiceOver.SelfDestructTimerOn", p1)
+  }
+  /// Silent Broadcast Off
+  public static var voiceOverSilentPostOff: String  { return L10n.tr("Localizable", "VoiceOver.SilentPostOff") }
+  /// Silent Broadcast On
+  public static var voiceOverSilentPostOn: String  { return L10n.tr("Localizable", "VoiceOver.SilentPostOn") }
+  /// Stickers
+  public static var voiceOverStickers: String  { return L10n.tr("Localizable", "VoiceOver.Stickers") }
+  /// Suggest Post
+  public static var voiceOverSuggestPost: String  { return L10n.tr("Localizable", "VoiceOver.SuggestPost") }
+  /// %@ Theme
+  public static func voiceOverAppearanceTheme(_ p1: String) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Appearance.Theme", p1)
+  }
+  /// Current Session
+  public static var voiceOverAuthSessionsCurrentSession: String  { return L10n.tr("Localizable", "VoiceOver.AuthSessions.CurrentSession") }
+  /// Minimize Call
+  public static var voiceOverCallMinimize: String  { return L10n.tr("Localizable", "VoiceOver.Call.Minimize") }
+  /// Cancelled Video Call
+  public static var voiceOverCallVideoCallCanceled: String  { return L10n.tr("Localizable", "VoiceOver.Call.VideoCallCanceled") }
+  /// Incoming Video Call
+  public static var voiceOverCallVideoCallIncoming: String  { return L10n.tr("Localizable", "VoiceOver.Call.VideoCallIncoming") }
+  /// Missed Video Call
+  public static var voiceOverCallVideoCallMissed: String  { return L10n.tr("Localizable", "VoiceOver.Call.VideoCallMissed") }
+  /// Outgoing Video Call
+  public static var voiceOverCallVideoCallOutgoing: String  { return L10n.tr("Localizable", "VoiceOver.Call.VideoCallOutgoing") }
+  /// Cancelled Voice Call
+  public static var voiceOverCallVoiceCallCanceled: String  { return L10n.tr("Localizable", "VoiceOver.Call.VoiceCallCanceled") }
+  /// Incoming Voice Call
+  public static var voiceOverCallVoiceCallIncoming: String  { return L10n.tr("Localizable", "VoiceOver.Call.VoiceCallIncoming") }
+  /// Missed Voice Call
+  public static var voiceOverCallVoiceCallMissed: String  { return L10n.tr("Localizable", "VoiceOver.Call.VoiceCallMissed") }
+  /// Outgoing Voice Call
+  public static var voiceOverCallVoiceCallOutgoing: String  { return L10n.tr("Localizable", "VoiceOver.Call.VoiceCallOutgoing") }
+  /// %d Star
+  public static func voiceOverCallsRatingStarsOne(_ p1: Int) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Calls.RatingStars_one", p1)
+  }
+  /// %d Stars
+  public static func voiceOverCallsRatingStarsOther(_ p1: Int) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Calls.RatingStars_other", p1)
+  }
+  /// Animated sticker
+  public static var voiceOverChatAnimatedSticker: String  { return L10n.tr("Localizable", "VoiceOver.Chat.AnimatedSticker") }
+  /// Animated sticker, from: %@
+  public static func voiceOverChatAnimatedStickerFrom(_ p1: String) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.AnimatedStickerFrom", p1)
+  }
+  /// Anonymous poll
+  public static var voiceOverChatAnonymousPoll: String  { return L10n.tr("Localizable", "VoiceOver.Chat.AnonymousPoll") }
+  /// Anonymous poll, from: %@
+  public static func voiceOverChatAnonymousPollFrom(_ p1: String) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.AnonymousPollFrom", p1)
+  }
+  /// Caption: %@
+  public static func voiceOverChatCaption(_ p1: String) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.Caption", p1)
+  }
+  /// Channel Info
+  public static var voiceOverChatChannelInfo: String  { return L10n.tr("Localizable", "VoiceOver.Chat.ChannelInfo") }
+  /// Shared contact
+  public static var voiceOverChatContact: String  { return L10n.tr("Localizable", "VoiceOver.Chat.Contact") }
+  /// Email
+  public static var voiceOverChatContactEmail: String  { return L10n.tr("Localizable", "VoiceOver.Chat.ContactEmail") }
+  /// %d email address
+  public static func voiceOverChatContactEmailCountOne(_ p1: Int) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.ContactEmailCount_one", p1)
+  }
+  /// %d email addresses
+  public static func voiceOverChatContactEmailCountOther(_ p1: Int) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.ContactEmailCount_other", p1)
+  }
+  /// Shared contact, from: %@
+  public static func voiceOverChatContactFrom(_ p1: String) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.ContactFrom", p1)
+  }
+  /// Organization: %@
+  public static func voiceOverChatContactOrganization(_ p1: String) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.ContactOrganization", p1)
+  }
+  /// Phone number
+  public static var voiceOverChatContactPhoneNumber: String  { return L10n.tr("Localizable", "VoiceOver.Chat.ContactPhoneNumber") }
+  /// %d phone number
+  public static func voiceOverChatContactPhoneNumberCountOne(_ p1: Int) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.ContactPhoneNumberCount_one", p1)
+  }
+  /// %d phone numbers
+  public static func voiceOverChatContactPhoneNumberCountOther(_ p1: Int) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.ContactPhoneNumberCount_other", p1)
+  }
+  /// Duration: %@
+  public static func voiceOverChatDuration(_ p1: String) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.Duration", p1)
+  }
+  /// Editor
+  public static var voiceOverChatEditor: String  { return L10n.tr("Localizable", "VoiceOver.Chat.Editor") }
+  /// Failed to send
+  public static var voiceOverChatFailed: String  { return L10n.tr("Localizable", "VoiceOver.Chat.Failed") }
+  /// File
+  public static var voiceOverChatFile: String  { return L10n.tr("Localizable", "VoiceOver.Chat.File") }
+  /// File, from: %@
+  public static func voiceOverChatFileFrom(_ p1: String) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.FileFrom", p1)
+  }
+  /// Forwarded from: %@
+  public static func voiceOverChatForwardedFrom(_ p1: String) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.ForwardedFrom", p1)
+  }
+  /// Forwarded from you
+  public static var voiceOverChatForwardedFromYou: String  { return L10n.tr("Localizable", "VoiceOver.Chat.ForwardedFromYou") }
+  /// Go to message
+  public static var voiceOverChatGoToOriginalMessage: String  { return L10n.tr("Localizable", "VoiceOver.Chat.GoToOriginalMessage") }
+  /// Group Info
+  public static var voiceOverChatGroupInfo: String  { return L10n.tr("Localizable", "VoiceOver.Chat.GroupInfo") }
+  /// Media Results
+  public static var voiceOverChatMediaResults: String  { return L10n.tr("Localizable", "VoiceOver.Chat.MediaResults") }
+  /// Message
+  public static var voiceOverChatMessage: String  { return L10n.tr("Localizable", "VoiceOver.Chat.Message") }
+  /// %d message selected
+  public static func voiceOverChatMessagesSelectedOne(_ p1: Int) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.MessagesSelected_one", p1)
+  }
+  /// %d messages selected
+  public static func voiceOverChatMessagesSelectedOther(_ p1: Int) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.MessagesSelected_other", p1)
+  }
+  /// Music message
+  public static var voiceOverChatMusic: String  { return L10n.tr("Localizable", "VoiceOver.Chat.Music") }
+  /// Music file, from: %@
+  public static func voiceOverChatMusicFrom(_ p1: String) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.MusicFrom", p1)
+  }
+  /// %1$@, by %2$@
+  public static func voiceOverChatMusicTitle(_ p1: String, _ p2: String) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.MusicTitle", p1, p2)
+  }
+  /// Not played by recipient
+  public static var voiceOverChatNotPlayedByRecipient: String  { return L10n.tr("Localizable", "VoiceOver.Chat.NotPlayedByRecipient") }
+  /// Not played by recipients
+  public static var voiceOverChatNotPlayedByRecipients: String  { return L10n.tr("Localizable", "VoiceOver.Chat.NotPlayedByRecipients") }
+  /// Press to open
+  public static var voiceOverChatOpenHint: String  { return L10n.tr("Localizable", "VoiceOver.Chat.OpenHint") }
+  /// Press to open link
+  public static var voiceOverChatOpenLinkHint: String  { return L10n.tr("Localizable", "VoiceOver.Chat.OpenLinkHint") }
+  /// selected
+  public static var voiceOverChatOptionSelected: String  { return L10n.tr("Localizable", "VoiceOver.Chat.OptionSelected") }
+  /// Page preview
+  public static var voiceOverChatPagePreview: String  { return L10n.tr("Localizable", "VoiceOver.Chat.PagePreview") }
+  /// Photo
+  public static var voiceOverChatPhoto: String  { return L10n.tr("Localizable", "VoiceOver.Chat.Photo") }
+  /// Photo, from: %@
+  public static func voiceOverChatPhotoFrom(_ p1: String) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.PhotoFrom", p1)
+  }
+  /// Played by recipient
+  public static var voiceOverChatPlayedByRecipient: String  { return L10n.tr("Localizable", "VoiceOver.Chat.PlayedByRecipient") }
+  /// Played by recipients
+  public static var voiceOverChatPlayedByRecipients: String  { return L10n.tr("Localizable", "VoiceOver.Chat.PlayedByRecipients") }
+  /// Press to play
+  public static var voiceOverChatPlayHint: String  { return L10n.tr("Localizable", "VoiceOver.Chat.PlayHint") }
+  /// Poll
+  public static var voiceOverChatPoll: String  { return L10n.tr("Localizable", "VoiceOver.Chat.Poll") }
+  /// Final results
+  public static var voiceOverChatPollFinalResults: String  { return L10n.tr("Localizable", "VoiceOver.Chat.PollFinalResults") }
+  /// Poll, from: %@
+  public static func voiceOverChatPollFrom(_ p1: String) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.PollFrom", p1)
+  }
+  /// No votes
+  public static var voiceOverChatPollNoVotes: String  { return L10n.tr("Localizable", "VoiceOver.Chat.PollNoVotes") }
+  /// %d option
+  public static func voiceOverChatPollOptionCountOne(_ p1: Int) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.PollOptionCount_one", p1)
+  }
+  /// %d options
+  public static func voiceOverChatPollOptionCountOther(_ p1: Int) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.PollOptionCount_other", p1)
+  }
+  /// Poll Votes
+  public static var voiceOverChatPollVotes: String  { return L10n.tr("Localizable", "VoiceOver.Chat.PollVotes") }
+  /// %d vote
+  public static func voiceOverChatPollVotesOne(_ p1: Int) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.PollVotes_one", p1)
+  }
+  /// %d votes
+  public static func voiceOverChatPollVotesOther(_ p1: Int) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.PollVotes_other", p1)
+  }
+  /// Profile
+  public static var voiceOverChatProfile: String  { return L10n.tr("Localizable", "VoiceOver.Chat.Profile") }
+  /// Record
+  public static var voiceOverChatRecord: String  { return L10n.tr("Localizable", "VoiceOver.Chat.Record") }
+  /// Press to switch between voice and video message. Use the Record action to start recording.
+  public static var voiceOverChatRecordModeHint: String  { return L10n.tr("Localizable", "VoiceOver.Chat.RecordModeHint") }
+  /// Video message
+  public static var voiceOverChatRecordModeVideoMessage: String  { return L10n.tr("Localizable", "VoiceOver.Chat.RecordModeVideoMessage") }
+  /// Voice message
+  public static var voiceOverChatRecordModeVoiceMessage: String  { return L10n.tr("Localizable", "VoiceOver.Chat.RecordModeVoiceMessage") }
+  /// Preview voice message
+  public static var voiceOverChatRecordPreviewVoiceMessage: String  { return L10n.tr("Localizable", "VoiceOver.Chat.RecordPreviewVoiceMessage") }
+  /// Reply to message
+  public static var voiceOverChatReply: String  { return L10n.tr("Localizable", "VoiceOver.Chat.Reply") }
+  /// Reply to message from: %@
+  public static func voiceOverChatReplyFrom(_ p1: String) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.ReplyFrom", p1)
+  }
+  /// In reply to message: %@
+  public static func voiceOverChatReplyingToMessage(_ p1: String) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.ReplyingToMessage", p1)
+  }
+  /// Reply to your message
+  public static var voiceOverChatReplyToYourMessage: String  { return L10n.tr("Localizable", "VoiceOver.Chat.ReplyToYourMessage") }
+  /// Search by Member
+  public static var voiceOverChatSearchByMember: String  { return L10n.tr("Localizable", "VoiceOver.Chat.SearchByMember") }
+  /// Seen by recipient
+  public static var voiceOverChatSeenByRecipient: String  { return L10n.tr("Localizable", "VoiceOver.Chat.SeenByRecipient") }
+  /// Seen by recipients
+  public static var voiceOverChatSeenByRecipients: String  { return L10n.tr("Localizable", "VoiceOver.Chat.SeenByRecipients") }
+  /// Selected
+  public static var voiceOverChatSelected: String  { return L10n.tr("Localizable", "VoiceOver.Chat.Selected") }
+  /// Sending
+  public static var voiceOverChatSending: String  { return L10n.tr("Localizable", "VoiceOver.Chat.Sending") }
+  /// Size: %@
+  public static func voiceOverChatSize(_ p1: String) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.Size", p1)
+  }
+  /// Stake Amounts
+  public static var voiceOverChatStakeAmounts: String  { return L10n.tr("Localizable", "VoiceOver.Chat.StakeAmounts") }
+  /// Sticker
+  public static var voiceOverChatSticker: String  { return L10n.tr("Localizable", "VoiceOver.Chat.Sticker") }
+  /// Sticker, from: %@
+  public static func voiceOverChatStickerFrom(_ p1: String) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.StickerFrom", p1)
+  }
+  /// Stop
+  public static var voiceOverChatStop: String  { return L10n.tr("Localizable", "VoiceOver.Chat.Stop") }
+  /// Switch Topics View
+  public static var voiceOverChatSwitchTopicsView: String  { return L10n.tr("Localizable", "VoiceOver.Chat.SwitchTopicsView") }
+  /// Title: %@
+  public static func voiceOverChatTitle(_ p1: String) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.Title", p1)
+  }
+  /// Unknown
+  public static var voiceOverChatUnknown: String  { return L10n.tr("Localizable", "VoiceOver.Chat.Unknown") }
+  /// %d unread message
+  public static func voiceOverChatUnreadMessagesOne(_ p1: Int) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.UnreadMessages_one", p1)
+  }
+  /// %d unread messages
+  public static func voiceOverChatUnreadMessagesOther(_ p1: Int) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.UnreadMessages_other", p1)
+  }
+  /// Video
+  public static var voiceOverChatVideo: String  { return L10n.tr("Localizable", "VoiceOver.Chat.Video") }
+  /// Video, from: %@
+  public static func voiceOverChatVideoFrom(_ p1: String) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.VideoFrom", p1)
+  }
+  /// Video message
+  public static var voiceOverChatVideoMessage: String  { return L10n.tr("Localizable", "VoiceOver.Chat.VideoMessage") }
+  /// Video message, from: %@
+  public static func voiceOverChatVideoMessageFrom(_ p1: String) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.VideoMessageFrom", p1)
+  }
+  /// Voice message
+  public static var voiceOverChatVoiceMessage: String  { return L10n.tr("Localizable", "VoiceOver.Chat.VoiceMessage") }
+  /// Voice message, from: %@
+  public static func voiceOverChatVoiceMessageFrom(_ p1: String) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Chat.VoiceMessageFrom", p1)
+  }
+  /// Your animated sticker
+  public static var voiceOverChatYourAnimatedSticker: String  { return L10n.tr("Localizable", "VoiceOver.Chat.YourAnimatedSticker") }
+  /// Your anonymous poll
+  public static var voiceOverChatYourAnonymousPoll: String  { return L10n.tr("Localizable", "VoiceOver.Chat.YourAnonymousPoll") }
+  /// Your shared contact
+  public static var voiceOverChatYourContact: String  { return L10n.tr("Localizable", "VoiceOver.Chat.YourContact") }
+  /// Your file
+  public static var voiceOverChatYourFile: String  { return L10n.tr("Localizable", "VoiceOver.Chat.YourFile") }
+  /// Your message
+  public static var voiceOverChatYourMessage: String  { return L10n.tr("Localizable", "VoiceOver.Chat.YourMessage") }
+  /// Your music message
+  public static var voiceOverChatYourMusic: String  { return L10n.tr("Localizable", "VoiceOver.Chat.YourMusic") }
+  /// Your photo
+  public static var voiceOverChatYourPhoto: String  { return L10n.tr("Localizable", "VoiceOver.Chat.YourPhoto") }
+  /// Your poll
+  public static var voiceOverChatYourPoll: String  { return L10n.tr("Localizable", "VoiceOver.Chat.YourPoll") }
+  /// Your sticker
+  public static var voiceOverChatYourSticker: String  { return L10n.tr("Localizable", "VoiceOver.Chat.YourSticker") }
+  /// Your video
+  public static var voiceOverChatYourVideo: String  { return L10n.tr("Localizable", "VoiceOver.Chat.YourVideo") }
+  /// Your video message
+  public static var voiceOverChatYourVideoMessage: String  { return L10n.tr("Localizable", "VoiceOver.Chat.YourVideoMessage") }
+  /// Your voice message
+  public static var voiceOverChatYourVoiceMessage: String  { return L10n.tr("Localizable", "VoiceOver.Chat.YourVoiceMessage") }
+  /// Message
+  public static var voiceOverChatListMessage: String  { return L10n.tr("Localizable", "VoiceOver.ChatList.Message") }
+  /// Empty
+  public static var voiceOverChatListMessageEmpty: String  { return L10n.tr("Localizable", "VoiceOver.ChatList.MessageEmpty") }
+  /// From: %@
+  public static func voiceOverChatListMessageFrom(_ p1: String) -> String {
+    return L10n.tr("Localizable", "VoiceOver.ChatList.MessageFrom", p1)
+  }
+  /// Read
+  public static var voiceOverChatListMessageRead: String  { return L10n.tr("Localizable", "VoiceOver.ChatList.MessageRead") }
+  /// Outgoing Message
+  public static var voiceOverChatListOutgoingMessage: String  { return L10n.tr("Localizable", "VoiceOver.ChatList.OutgoingMessage") }
+  /// Accept
+  public static var voiceOverCommonAccept: String  { return L10n.tr("Localizable", "VoiceOver.Common.Accept") }
+  /// Add
+  public static var voiceOverCommonAdd: String  { return L10n.tr("Localizable", "VoiceOver.Common.Add") }
+  /// Admins
+  public static var voiceOverCommonAdmins: String  { return L10n.tr("Localizable", "VoiceOver.Common.Admins") }
+  /// Amount
+  public static var voiceOverCommonAmount: String  { return L10n.tr("Localizable", "VoiceOver.Common.Amount") }
+  /// Apply
+  public static var voiceOverCommonApply: String  { return L10n.tr("Localizable", "VoiceOver.Common.Apply") }
+  /// Archive
+  public static var voiceOverCommonArchive: String  { return L10n.tr("Localizable", "VoiceOver.Common.Archive") }
+  /// Aspect Ratio
+  public static var voiceOverCommonAspectRatio: String  { return L10n.tr("Localizable", "VoiceOver.Common.AspectRatio") }
+  /// Back
+  public static var voiceOverCommonBack: String  { return L10n.tr("Localizable", "VoiceOver.Common.Back") }
+  /// Bot Menu
+  public static var voiceOverCommonBotMenu: String  { return L10n.tr("Localizable", "VoiceOver.Common.BotMenu") }
+  /// Calendar
+  public static var voiceOverCommonCalendar: String  { return L10n.tr("Localizable", "VoiceOver.Common.Calendar") }
+  /// Call
+  public static var voiceOverCommonCall: String  { return L10n.tr("Localizable", "VoiceOver.Common.Call") }
+  /// Camera
+  public static var voiceOverCommonCamera: String  { return L10n.tr("Localizable", "VoiceOver.Common.Camera") }
+  /// Cancel
+  public static var voiceOverCommonCancel: String  { return L10n.tr("Localizable", "VoiceOver.Common.Cancel") }
+  /// Cancel Download
+  public static var voiceOverCommonCancelDownload: String  { return L10n.tr("Localizable", "VoiceOver.Common.CancelDownload") }
+  /// Checked
+  public static var voiceOverCommonChecked: String  { return L10n.tr("Localizable", "VoiceOver.Common.Checked") }
+  /// Choose Icon
+  public static var voiceOverCommonChooseIcon: String  { return L10n.tr("Localizable", "VoiceOver.Common.ChooseIcon") }
+  /// Clear
+  public static var voiceOverCommonClear: String  { return L10n.tr("Localizable", "VoiceOver.Common.Clear") }
+  /// Close
+  public static var voiceOverCommonClose: String  { return L10n.tr("Localizable", "VoiceOver.Common.Close") }
+  /// Collapse
+  public static var voiceOverCommonCollapse: String  { return L10n.tr("Localizable", "VoiceOver.Common.Collapse") }
+  /// Color
+  public static var voiceOverCommonColor: String  { return L10n.tr("Localizable", "VoiceOver.Common.Color") }
+  /// Contact
+  public static var voiceOverCommonContact: String  { return L10n.tr("Localizable", "VoiceOver.Common.Contact") }
+  /// Copy
+  public static var voiceOverCommonCopy: String  { return L10n.tr("Localizable", "VoiceOver.Common.Copy") }
+  /// Crop
+  public static var voiceOverCommonCrop: String  { return L10n.tr("Localizable", "VoiceOver.Common.Crop") }
+  /// Currency
+  public static var voiceOverCommonCurrency: String  { return L10n.tr("Localizable", "VoiceOver.Common.Currency") }
+  /// Custom Color
+  public static var voiceOverCommonCustomColor: String  { return L10n.tr("Localizable", "VoiceOver.Common.CustomColor") }
+  /// Decline
+  public static var voiceOverCommonDecline: String  { return L10n.tr("Localizable", "VoiceOver.Common.Decline") }
+  /// Delete
+  public static var voiceOverCommonDelete: String  { return L10n.tr("Localizable", "VoiceOver.Common.Delete") }
+  /// Done
+  public static var voiceOverCommonDone: String  { return L10n.tr("Localizable", "VoiceOver.Common.Done") }
+  /// Down
+  public static var voiceOverCommonDown: String  { return L10n.tr("Localizable", "VoiceOver.Common.Down") }
+  /// Download
+  public static var voiceOverCommonDownload: String  { return L10n.tr("Localizable", "VoiceOver.Common.Download") }
+  /// Draw
+  public static var voiceOverCommonDraw: String  { return L10n.tr("Localizable", "VoiceOver.Common.Draw") }
+  /// Edit
+  public static var voiceOverCommonEdit: String  { return L10n.tr("Localizable", "VoiceOver.Common.Edit") }
+  /// Emoji
+  public static var voiceOverCommonEmoji: String  { return L10n.tr("Localizable", "VoiceOver.Common.Emoji") }
+  /// End Call
+  public static var voiceOverCommonEndCall: String  { return L10n.tr("Localizable", "VoiceOver.Common.EndCall") }
+  /// Exit Fullscreen
+  public static var voiceOverCommonExitFullscreen: String  { return L10n.tr("Localizable", "VoiceOver.Common.ExitFullscreen") }
+  /// Expand
+  public static var voiceOverCommonExpand: String  { return L10n.tr("Localizable", "VoiceOver.Common.Expand") }
+  /// File
+  public static var voiceOverCommonFile: String  { return L10n.tr("Localizable", "VoiceOver.Common.File") }
+  /// Filter
+  public static var voiceOverCommonFilter: String  { return L10n.tr("Localizable", "VoiceOver.Common.Filter") }
+  /// Flip
+  public static var voiceOverCommonFlip: String  { return L10n.tr("Localizable", "VoiceOver.Common.Flip") }
+  /// Font Size
+  public static var voiceOverCommonFontSize: String  { return L10n.tr("Localizable", "VoiceOver.Common.FontSize") }
+  /// Forward
+  public static var voiceOverCommonForward: String  { return L10n.tr("Localizable", "VoiceOver.Common.Forward") }
+  /// Fullscreen
+  public static var voiceOverCommonFullscreen: String  { return L10n.tr("Localizable", "VoiceOver.Common.Fullscreen") }
+  /// GIFs
+  public static var voiceOverCommonGIFs: String  { return L10n.tr("Localizable", "VoiceOver.Common.GIFs") }
+  /// Gift
+  public static var voiceOverCommonGift: String  { return L10n.tr("Localizable", "VoiceOver.Common.Gift") }
+  /// Help
+  public static var voiceOverCommonHelp: String  { return L10n.tr("Localizable", "VoiceOver.Common.Help") }
+  /// Hide
+  public static var voiceOverCommonHide: String  { return L10n.tr("Localizable", "VoiceOver.Common.Hide") }
+  /// Info
+  public static var voiceOverCommonInfo: String  { return L10n.tr("Localizable", "VoiceOver.Common.Info") }
+  /// Invite
+  public static var voiceOverCommonInvite: String  { return L10n.tr("Localizable", "VoiceOver.Common.Invite") }
+  /// Leave
+  public static var voiceOverCommonLeave: String  { return L10n.tr("Localizable", "VoiceOver.Common.Leave") }
+  /// Left
+  public static var voiceOverCommonLeft: String  { return L10n.tr("Localizable", "VoiceOver.Common.Left") }
+  /// Like
+  public static var voiceOverCommonLike: String  { return L10n.tr("Localizable", "VoiceOver.Common.Like") }
+  /// Link
+  public static var voiceOverCommonLink: String  { return L10n.tr("Localizable", "VoiceOver.Common.Link") }
+  /// Live
+  public static var voiceOverCommonLive: String  { return L10n.tr("Localizable", "VoiceOver.Common.Live") }
+  /// Loading
+  public static var voiceOverCommonLoading: String  { return L10n.tr("Localizable", "VoiceOver.Common.Loading") }
+  /// Location
+  public static var voiceOverCommonLocation: String  { return L10n.tr("Localizable", "VoiceOver.Common.Location") }
+  /// Lock
+  public static var voiceOverCommonLock: String  { return L10n.tr("Localizable", "VoiceOver.Common.Lock") }
+  /// Locked
+  public static var voiceOverCommonLocked: String  { return L10n.tr("Localizable", "VoiceOver.Common.Locked") }
+  /// Maximize
+  public static var voiceOverCommonMaximize: String  { return L10n.tr("Localizable", "VoiceOver.Common.Maximize") }
+  /// Members
+  public static var voiceOverCommonMembers: String  { return L10n.tr("Localizable", "VoiceOver.Common.Members") }
+  /// Mentions
+  public static var voiceOverCommonMentions: String  { return L10n.tr("Localizable", "VoiceOver.Common.Mentions") }
+  /// Menu
+  public static var voiceOverCommonMenu: String  { return L10n.tr("Localizable", "VoiceOver.Common.Menu") }
+  /// Microphone
+  public static var voiceOverCommonMicrophone: String  { return L10n.tr("Localizable", "VoiceOver.Common.Microphone") }
+  /// Minimize
+  public static var voiceOverCommonMinimize: String  { return L10n.tr("Localizable", "VoiceOver.Common.Minimize") }
+  /// More
+  public static var voiceOverCommonMore: String  { return L10n.tr("Localizable", "VoiceOver.Common.More") }
+  /// Music
+  public static var voiceOverCommonMusic: String  { return L10n.tr("Localizable", "VoiceOver.Common.Music") }
+  /// Mute
+  public static var voiceOverCommonMute: String  { return L10n.tr("Localizable", "VoiceOver.Common.Mute") }
+  /// Muted
+  public static var voiceOverCommonMuted: String  { return L10n.tr("Localizable", "VoiceOver.Common.Muted") }
+  /// New Group
+  public static var voiceOverCommonNewGroup: String  { return L10n.tr("Localizable", "VoiceOver.Common.NewGroup") }
+  /// New Message
+  public static var voiceOverCommonNewMessage: String  { return L10n.tr("Localizable", "VoiceOver.Common.NewMessage") }
+  /// Next
+  public static var voiceOverCommonNext: String  { return L10n.tr("Localizable", "VoiceOver.Common.Next") }
+  /// Noise Suppression
+  public static var voiceOverCommonNoiseSuppression: String  { return L10n.tr("Localizable", "VoiceOver.Common.NoiseSuppression") }
+  /// Notifications
+  public static var voiceOverCommonNotifications: String  { return L10n.tr("Localizable", "VoiceOver.Common.Notifications") }
+  /// Not Selected
+  public static var voiceOverCommonNotSelected: String  { return L10n.tr("Localizable", "VoiceOver.Common.NotSelected") }
+  /// Off
+  public static var voiceOverCommonOff: String  { return L10n.tr("Localizable", "VoiceOver.Common.Off") }
+  /// On
+  public static var voiceOverCommonOn: String  { return L10n.tr("Localizable", "VoiceOver.Common.On") }
+  /// Online
+  public static var voiceOverCommonOnline: String  { return L10n.tr("Localizable", "VoiceOver.Common.Online") }
+  /// Open
+  public static var voiceOverCommonOpen: String  { return L10n.tr("Localizable", "VoiceOver.Common.Open") }
+  /// Open in Safari
+  public static var voiceOverCommonOpenInSafari: String  { return L10n.tr("Localizable", "VoiceOver.Common.OpenInSafari") }
+  /// Options
+  public static var voiceOverCommonOptions: String  { return L10n.tr("Localizable", "VoiceOver.Common.Options") }
+  /// Pause
+  public static var voiceOverCommonPause: String  { return L10n.tr("Localizable", "VoiceOver.Common.Pause") }
+  /// Photo
+  public static var voiceOverCommonPhoto: String  { return L10n.tr("Localizable", "VoiceOver.Common.Photo") }
+  /// Photo of %@
+  public static func voiceOverCommonPhotoOf(_ p1: String) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Common.PhotoOf", p1)
+  }
+  /// Picture-in-Picture
+  public static var voiceOverCommonPictureInPicture: String  { return L10n.tr("Localizable", "VoiceOver.Common.PictureInPicture") }
+  /// Pin
+  public static var voiceOverCommonPin: String  { return L10n.tr("Localizable", "VoiceOver.Common.Pin") }
+  /// Pinned
+  public static var voiceOverCommonPinned: String  { return L10n.tr("Localizable", "VoiceOver.Common.Pinned") }
+  /// Play
+  public static var voiceOverCommonPlay: String  { return L10n.tr("Localizable", "VoiceOver.Common.Play") }
+  /// Playback Order
+  public static var voiceOverCommonPlaybackOrder: String  { return L10n.tr("Localizable", "VoiceOver.Common.PlaybackOrder") }
+  /// Playback Position
+  public static var voiceOverCommonPlaybackPosition: String  { return L10n.tr("Localizable", "VoiceOver.Common.PlaybackPosition") }
+  /// Playback Speed
+  public static var voiceOverCommonPlaybackSpeed: String  { return L10n.tr("Localizable", "VoiceOver.Common.PlaybackSpeed") }
+  /// Playlist
+  public static var voiceOverCommonPlaylist: String  { return L10n.tr("Localizable", "VoiceOver.Common.Playlist") }
+  /// Poll
+  public static var voiceOverCommonPoll: String  { return L10n.tr("Localizable", "VoiceOver.Common.Poll") }
+  /// Premium
+  public static var voiceOverCommonPremium: String  { return L10n.tr("Localizable", "VoiceOver.Common.Premium") }
+  /// Premium User
+  public static var voiceOverCommonPremiumUser: String  { return L10n.tr("Localizable", "VoiceOver.Common.PremiumUser") }
+  /// Previous
+  public static var voiceOverCommonPrevious: String  { return L10n.tr("Localizable", "VoiceOver.Common.Previous") }
+  /// Profile Photo
+  public static var voiceOverCommonProfilePhoto: String  { return L10n.tr("Localizable", "VoiceOver.Common.ProfilePhoto") }
+  /// QR Code
+  public static var voiceOverCommonQRCode: String  { return L10n.tr("Localizable", "VoiceOver.Common.QRCode") }
+  /// Raise Hand
+  public static var voiceOverCommonRaiseHand: String  { return L10n.tr("Localizable", "VoiceOver.Common.RaiseHand") }
+  /// Reactions
+  public static var voiceOverCommonReactions: String  { return L10n.tr("Localizable", "VoiceOver.Common.Reactions") }
+  /// Recording
+  public static var voiceOverCommonRecording: String  { return L10n.tr("Localizable", "VoiceOver.Common.Recording") }
+  /// Redo
+  public static var voiceOverCommonRedo: String  { return L10n.tr("Localizable", "VoiceOver.Common.Redo") }
+  /// Refresh
+  public static var voiceOverCommonRefresh: String  { return L10n.tr("Localizable", "VoiceOver.Common.Refresh") }
+  /// Remove
+  public static var voiceOverCommonRemove: String  { return L10n.tr("Localizable", "VoiceOver.Common.Remove") }
+  /// Reorder
+  public static var voiceOverCommonReorder: String  { return L10n.tr("Localizable", "VoiceOver.Common.Reorder") }
+  /// All
+  public static var voiceOverCommonRepeatAll: String  { return L10n.tr("Localizable", "VoiceOver.Common.RepeatAll") }
+  /// One
+  public static var voiceOverCommonRepeatOne: String  { return L10n.tr("Localizable", "VoiceOver.Common.RepeatOne") }
+  /// Report
+  public static var voiceOverCommonReport: String  { return L10n.tr("Localizable", "VoiceOver.Common.Report") }
+  /// Repost
+  public static var voiceOverCommonRepost: String  { return L10n.tr("Localizable", "VoiceOver.Common.Repost") }
+  /// Reset
+  public static var voiceOverCommonReset: String  { return L10n.tr("Localizable", "VoiceOver.Common.Reset") }
+  /// Resize
+  public static var voiceOverCommonResize: String  { return L10n.tr("Localizable", "VoiceOver.Common.Resize") }
+  /// Retry
+  public static var voiceOverCommonRetry: String  { return L10n.tr("Localizable", "VoiceOver.Common.Retry") }
+  /// Reversed
+  public static var voiceOverCommonReversed: String  { return L10n.tr("Localizable", "VoiceOver.Common.Reversed") }
+  /// Right
+  public static var voiceOverCommonRight: String  { return L10n.tr("Localizable", "VoiceOver.Common.Right") }
+  /// Rotate
+  public static var voiceOverCommonRotate: String  { return L10n.tr("Localizable", "VoiceOver.Common.Rotate") }
+  /// Save
+  public static var voiceOverCommonSave: String  { return L10n.tr("Localizable", "VoiceOver.Common.Save") }
+  /// Schedule
+  public static var voiceOverCommonSchedule: String  { return L10n.tr("Localizable", "VoiceOver.Common.Schedule") }
+  /// Scroll Down
+  public static var voiceOverCommonScrollDown: String  { return L10n.tr("Localizable", "VoiceOver.Common.ScrollDown") }
+  /// Scroll to Bottom
+  public static var voiceOverCommonScrollToBottom: String  { return L10n.tr("Localizable", "VoiceOver.Common.ScrollToBottom") }
+  /// Scroll Up
+  public static var voiceOverCommonScrollUp: String  { return L10n.tr("Localizable", "VoiceOver.Common.ScrollUp") }
+  /// Search
+  public static var voiceOverCommonSearch: String  { return L10n.tr("Localizable", "VoiceOver.Common.Search") }
+  /// Select
+  public static var voiceOverCommonSelect: String  { return L10n.tr("Localizable", "VoiceOver.Common.Select") }
+  /// Selected
+  public static var voiceOverCommonSelected: String  { return L10n.tr("Localizable", "VoiceOver.Common.Selected") }
+  /// Set Price
+  public static var voiceOverCommonSetPrice: String  { return L10n.tr("Localizable", "VoiceOver.Common.SetPrice") }
+  /// Settings
+  public static var voiceOverCommonSettings: String  { return L10n.tr("Localizable", "VoiceOver.Common.Settings") }
+  /// Share
+  public static var voiceOverCommonShare: String  { return L10n.tr("Localizable", "VoiceOver.Common.Share") }
+  /// Share Screen
+  public static var voiceOverCommonShareScreen: String  { return L10n.tr("Localizable", "VoiceOver.Common.ShareScreen") }
+  /// Show
+  public static var voiceOverCommonShow: String  { return L10n.tr("Localizable", "VoiceOver.Common.Show") }
+  /// Show Tips
+  public static var voiceOverCommonShowTips: String  { return L10n.tr("Localizable", "VoiceOver.Common.ShowTips") }
+  /// Shuffle
+  public static var voiceOverCommonShuffle: String  { return L10n.tr("Localizable", "VoiceOver.Common.Shuffle") }
+  /// Skin Tone
+  public static var voiceOverCommonSkinTone: String  { return L10n.tr("Localizable", "VoiceOver.Common.SkinTone") }
+  /// Sort
+  public static var voiceOverCommonSort: String  { return L10n.tr("Localizable", "VoiceOver.Common.Sort") }
+  /// Speaker
+  public static var voiceOverCommonSpeaker: String  { return L10n.tr("Localizable", "VoiceOver.Common.Speaker") }
+  /// Stars
+  public static var voiceOverCommonStars: String  { return L10n.tr("Localizable", "VoiceOver.Common.Stars") }
+  /// Sticker
+  public static var voiceOverCommonSticker: String  { return L10n.tr("Localizable", "VoiceOver.Common.Sticker") }
+  /// Stories
+  public static var voiceOverCommonStories: String  { return L10n.tr("Localizable", "VoiceOver.Common.Stories") }
+  /// Story
+  public static var voiceOverCommonStory: String  { return L10n.tr("Localizable", "VoiceOver.Common.Story") }
+  /// Tag Info
+  public static var voiceOverCommonTagInfo: String  { return L10n.tr("Localizable", "VoiceOver.Common.TagInfo") }
+  /// Text
+  public static var voiceOverCommonText: String  { return L10n.tr("Localizable", "VoiceOver.Common.Text") }
+  /// Theme
+  public static var voiceOverCommonTheme: String  { return L10n.tr("Localizable", "VoiceOver.Common.Theme") }
+  /// Toggle
+  public static var voiceOverCommonToggle: String  { return L10n.tr("Localizable", "VoiceOver.Common.Toggle") }
+  /// TON Amount
+  public static var voiceOverCommonTonAmount: String  { return L10n.tr("Localizable", "VoiceOver.Common.TonAmount") }
+  /// Translate
+  public static var voiceOverCommonTranslate: String  { return L10n.tr("Localizable", "VoiceOver.Common.Translate") }
+  /// Typing
+  public static var voiceOverCommonTyping: String  { return L10n.tr("Localizable", "VoiceOver.Common.Typing") }
+  /// Unchecked
+  public static var voiceOverCommonUnchecked: String  { return L10n.tr("Localizable", "VoiceOver.Common.Unchecked") }
+  /// Undo
+  public static var voiceOverCommonUndo: String  { return L10n.tr("Localizable", "VoiceOver.Common.Undo") }
+  /// Unlock
+  public static var voiceOverCommonUnlock: String  { return L10n.tr("Localizable", "VoiceOver.Common.Unlock") }
+  /// Unmute
+  public static var voiceOverCommonUnmute: String  { return L10n.tr("Localizable", "VoiceOver.Common.Unmute") }
+  /// Unpin
+  public static var voiceOverCommonUnpin: String  { return L10n.tr("Localizable", "VoiceOver.Common.Unpin") }
+  /// Unread
+  public static var voiceOverCommonUnread: String  { return L10n.tr("Localizable", "VoiceOver.Common.Unread") }
+  /// Unread Reactions
+  public static var voiceOverCommonUnreadReactions: String  { return L10n.tr("Localizable", "VoiceOver.Common.UnreadReactions") }
+  /// Up
+  public static var voiceOverCommonUp: String  { return L10n.tr("Localizable", "VoiceOver.Common.Up") }
+  /// Verified
+  public static var voiceOverCommonVerified: String  { return L10n.tr("Localizable", "VoiceOver.Common.Verified") }
+  /// Video
+  public static var voiceOverCommonVideo: String  { return L10n.tr("Localizable", "VoiceOver.Common.Video") }
+  /// Video Call
+  public static var voiceOverCommonVideoCall: String  { return L10n.tr("Localizable", "VoiceOver.Common.VideoCall") }
+  /// Voice Message
+  public static var voiceOverCommonVoiceMessage: String  { return L10n.tr("Localizable", "VoiceOver.Common.VoiceMessage") }
+  /// Volume
+  public static var voiceOverCommonVolume: String  { return L10n.tr("Localizable", "VoiceOver.Common.Volume") }
+  /// Wallpaper
+  public static var voiceOverCommonWallpaper: String  { return L10n.tr("Localizable", "VoiceOver.Common.Wallpaper") }
+  /// Zoom In
+  public static var voiceOverCommonZoomIn: String  { return L10n.tr("Localizable", "VoiceOver.Common.ZoomIn") }
+  /// Zoom Out
+  public static var voiceOverCommonZoomOut: String  { return L10n.tr("Localizable", "VoiceOver.Common.ZoomOut") }
+  /// Add Contact
+  public static var voiceOverContactsAddContact: String  { return L10n.tr("Localizable", "VoiceOver.Contacts.AddContact") }
+  /// Clear text
+  public static var voiceOverEditingClearText: String  { return L10n.tr("Localizable", "VoiceOver.Editing.ClearText") }
+  /// Delete
+  public static var voiceOverGalleryDelete: String  { return L10n.tr("Localizable", "VoiceOver.Gallery.Delete") }
+  /// Edit
+  public static var voiceOverGalleryEdit: String  { return L10n.tr("Localizable", "VoiceOver.Gallery.Edit") }
+  /// Fullscreen
+  public static var voiceOverGalleryFullscreen: String  { return L10n.tr("Localizable", "VoiceOver.Gallery.Fullscreen") }
+  /// Picture-in-Picture
+  public static var voiceOverGalleryPictureInPicture: String  { return L10n.tr("Localizable", "VoiceOver.Gallery.PictureInPicture") }
+  /// Share
+  public static var voiceOverGalleryShare: String  { return L10n.tr("Localizable", "VoiceOver.Gallery.Share") }
+  /// Stickers
+  public static var voiceOverGalleryStickers: String  { return L10n.tr("Localizable", "VoiceOver.Gallery.Stickers") }
+  /// Decrease Font Size
+  public static var voiceOverInstantPageDecreaseFontSize: String  { return L10n.tr("Localizable", "VoiceOver.InstantPage.DecreaseFontSize") }
+  /// Increase Font Size
+  public static var voiceOverInstantPageIncreaseFontSize: String  { return L10n.tr("Localizable", "VoiceOver.InstantPage.IncreaseFontSize") }
+  /// Reset Font Size
+  public static var voiceOverInstantPageResetFontSize: String  { return L10n.tr("Localizable", "VoiceOver.InstantPage.ResetFontSize") }
+  /// Password
+  public static var voiceOverLoginPassword: String  { return L10n.tr("Localizable", "VoiceOver.Login.Password") }
+  /// Phone country code
+  public static var voiceOverLoginPhoneCountryCode: String  { return L10n.tr("Localizable", "VoiceOver.Login.PhoneCountryCode") }
+  /// Phone number
+  public static var voiceOverLoginPhoneNumber: String  { return L10n.tr("Localizable", "VoiceOver.Login.PhoneNumber") }
+  /// QR code for login
+  public static var voiceOverLoginQRCode: String  { return L10n.tr("Localizable", "VoiceOver.Login.QRCode") }
+  /// Forward 15 Seconds
+  public static var voiceOverMediaForward15: String  { return L10n.tr("Localizable", "VoiceOver.Media.Forward15") }
+  /// Pause
+  public static var voiceOverMediaPlaybackPause: String  { return L10n.tr("Localizable", "VoiceOver.Media.PlaybackPause") }
+  /// Play
+  public static var voiceOverMediaPlaybackPlay: String  { return L10n.tr("Localizable", "VoiceOver.Media.PlaybackPlay") }
+  /// Playback rate
+  public static var voiceOverMediaPlaybackRate: String  { return L10n.tr("Localizable", "VoiceOver.Media.PlaybackRate") }
+  /// Fast
+  public static var voiceOverMediaPlaybackRateFast: String  { return L10n.tr("Localizable", "VoiceOver.Media.PlaybackRateFast") }
+  /// Normal
+  public static var voiceOverMediaPlaybackRateNormal: String  { return L10n.tr("Localizable", "VoiceOver.Media.PlaybackRateNormal") }
+  /// Stop playback
+  public static var voiceOverMediaPlaybackStop: String  { return L10n.tr("Localizable", "VoiceOver.Media.PlaybackStop") }
+  /// Rewind 15 Seconds
+  public static var voiceOverMediaRewind15: String  { return L10n.tr("Localizable", "VoiceOver.Media.Rewind15") }
+  /// Trimmed Range
+  public static var voiceOverMediaTrimmedRange: String  { return L10n.tr("Localizable", "VoiceOver.Media.TrimmedRange") }
+  /// Compose
+  public static var voiceOverNavigationCompose: String  { return L10n.tr("Localizable", "VoiceOver.Navigation.Compose") }
+  /// Proxy settings
+  public static var voiceOverNavigationProxySettings: String  { return L10n.tr("Localizable", "VoiceOver.Navigation.ProxySettings") }
+  /// Search
+  public static var voiceOverNavigationSearch: String  { return L10n.tr("Localizable", "VoiceOver.Navigation.Search") }
+  /// Stop and preview
+  public static var voiceOverRecordingStopAndPreview: String  { return L10n.tr("Localizable", "VoiceOver.Recording.StopAndPreview") }
+  /// Clear
+  public static var voiceOverSearchClear: String  { return L10n.tr("Localizable", "VoiceOver.Search.Clear") }
+  /// Word %d
+  public static func voiceOverWalletWord(_ p1: Int) -> String {
+    return L10n.tr("Localizable", "VoiceOver.Wallet.Word", p1)
+  }
   /// You can reduce motion for better performance.
   public static var voiecChatReduceMotionDesc: String  { return L10n.tr("Localizable", "VoiecChat.ReduceMotion.Desc") }
   /// REDUCE MOTION
@@ -19427,6 +20525,24 @@ public final class L10n {
   public static var walletCardViewGramsUnit: String  { return L10n.tr("Localizable", "Wallet.CardView.GramsUnit") }
   ///  Gram
   public static var walletCardViewGramUnit: String  { return L10n.tr("Localizable", "Wallet.CardView.GramUnit") }
+  /// Add to Card
+  public static var walletCollectablesAddToCard: String  { return L10n.tr("Localizable", "Wallet.Collectables.AddToCard") }
+  /// Apply Color
+  public static var walletCollectablesApplyColor: String  { return L10n.tr("Localizable", "Wallet.Collectables.ApplyColor") }
+  /// Remove Color
+  public static var walletCollectablesRemoveColor: String  { return L10n.tr("Localizable", "Wallet.Collectables.RemoveColor") }
+  /// Remove from Card
+  public static var walletCollectablesRemoveFromCard: String  { return L10n.tr("Localizable", "Wallet.Collectables.RemoveFromCard") }
+  /// also show in my gifts
+  public static var walletCollectibleAlsoShowInMyGifts: String  { return L10n.tr("Localizable", "Wallet.Collectible.AlsoShowInMyGifts") }
+  /// add to card
+  public static var walletCollectibleHeaderAddToCard: String  { return L10n.tr("Localizable", "Wallet.Collectible.Header.AddToCard") }
+  /// apply color
+  public static var walletCollectibleHeaderApplyColor: String  { return L10n.tr("Localizable", "Wallet.Collectible.Header.ApplyColor") }
+  /// remove color
+  public static var walletCollectibleHeaderRemoveColor: String  { return L10n.tr("Localizable", "Wallet.Collectible.Header.RemoveColor") }
+  /// remove from card
+  public static var walletCollectibleHeaderRemoveFromCard: String  { return L10n.tr("Localizable", "Wallet.Collectible.Header.RemoveFromCard") }
   /// sell
   public static var walletCollectibleDetailsControllerActionSell: String  { return L10n.tr("Localizable", "Wallet.CollectibleDetailsController.ActionSell") }
   /// transfer
@@ -19601,6 +20717,8 @@ public final class L10n {
   public static var walletControllerProtectAccount: String  { return L10n.tr("Localizable", "Wallet.Controller.ProtectAccount") }
   /// Unable to complete this request. Please try again.
   public static var walletControllerRequestFailed: String  { return L10n.tr("Localizable", "Wallet.Controller.RequestFailed") }
+  /// Couldn’t Save Card
+  public static var walletControllerSaveCardFailed: String  { return L10n.tr("Localizable", "Wallet.Controller.SaveCardFailed") }
   /// Secret Phrase Required
   public static var walletControllerSecretPhraseRequired: String  { return L10n.tr("Localizable", "Wallet.Controller.SecretPhraseRequired") }
   /// To send funds, you’ll need to enter your 12- or 24-word secret phrase to restore access to this wallet.
@@ -19619,6 +20737,16 @@ public final class L10n {
   public static func walletControllerSmallTransactionsHidden(_ p1: String) -> String {
     return L10n.tr("Localizable", "Wallet.Controller.SmallTransactionsHidden", p1)
   }
+  /// This gift can’t be set as your card’s background.
+  public static var walletControllerStickerBackgroundNotAllowedError: String  { return L10n.tr("Localizable", "Wallet.Controller.StickerBackgroundNotAllowedError") }
+  /// Hold a gift to peel it off and stick it on your card. Hold a sticker on the card to peel it again; use trackpad rotate and pinch gestures to turn and resize it.
+  public static var walletControllerStickerGridFooter: String  { return L10n.tr("Localizable", "Wallet.Controller.StickerGridFooter") }
+  /// One of these stickers can’t be used on the card. Only gifts owned by this wallet are supported.
+  public static var walletControllerStickerInvalidError: String  { return L10n.tr("Localizable", "Wallet.Controller.StickerInvalidError") }
+  /// A gift displayed on your profile can’t also be a card sticker. Hide it from your profile first.
+  public static var walletControllerStickerProfileError: String  { return L10n.tr("Localizable", "Wallet.Controller.StickerProfileError") }
+  /// Couldn’t Save Card
+  public static var walletControllerStickerSaveErrorTitle: String  { return L10n.tr("Localizable", "Wallet.Controller.StickerSaveErrorTitle") }
   /// The wallet is still syncing. Please try again in a moment.
   public static var walletControllerStillSyncing: String  { return L10n.tr("Localizable", "Wallet.Controller.StillSyncing") }
   /// By using this service, you agree to the [Terms](%1$@).
@@ -19849,6 +20977,14 @@ public final class L10n {
   public static func walletLogoutWarningBackupsWillBeDeleted(_ p1: String) -> String {
     return L10n.tr("Localizable", "Wallet.LogoutWarning.BackupsWillBeDeleted", p1)
   }
+  /// How does it work?
+  public static var walletPeerBalanceControllerHowDoesItWork: String  { return L10n.tr("Localizable", "Wallet.PeerBalanceController.HowDoesItWork") }
+  /// %1$@ owns %2$@ on the TON blockchain.
+  public static func walletPeerBalanceControllerPeerBalanceNotice(_ p1: String, _ p2: String) -> String {
+    return L10n.tr("Localizable", "Wallet.PeerBalanceController.PeerBalanceNotice", p1, p2)
+  }
+  /// Your balance is public due to blockchain transparency.
+  public static var walletPeerBalanceControllerPublicBalanceNotice: String  { return L10n.tr("Localizable", "Wallet.PeerBalanceController.PublicBalanceNotice") }
   /// ✓ Address copied
   public static var walletReceiveControllerAddressCopied: String  { return L10n.tr("Localizable", "Wallet.ReceiveController.AddressCopied") }
   /// Buy with cash or crypto
@@ -19857,6 +20993,10 @@ public final class L10n {
   public static var walletReceiveControllerCaption: String  { return L10n.tr("Localizable", "Wallet.ReceiveController.Caption") }
   /// Copy my address
   public static var walletReceiveControllerCopyAddress: String  { return L10n.tr("Localizable", "Wallet.ReceiveController.CopyAddress") }
+  /// Copy Address
+  public static var walletReceiveControllerCopyPeerAddress: String  { return L10n.tr("Localizable", "Wallet.ReceiveController.CopyPeerAddress") }
+  /// Send GRAM to this address\nor scan this QR code.
+  public static var walletReceiveControllerPeerCaption: String  { return L10n.tr("Localizable", "Wallet.ReceiveController.PeerCaption") }
   /// The purchase couldn’t be started. Please try again.
   public static var walletReceiveControllerPurchaseFailedInfo: String  { return L10n.tr("Localizable", "Wallet.ReceiveController.PurchaseFailedInfo") }
   /// Purchase Failed
@@ -19865,6 +21005,8 @@ public final class L10n {
   public static var walletReceiveControllerPurchaseUnavailableInfo: String  { return L10n.tr("Localizable", "Wallet.ReceiveController.PurchaseUnavailableInfo") }
   /// Purchase Unavailable
   public static var walletReceiveControllerPurchaseUnavailableTitle: String  { return L10n.tr("Localizable", "Wallet.ReceiveController.PurchaseUnavailableTitle") }
+  /// Show QR
+  public static var walletReceiveControllerShowPeerQr: String  { return L10n.tr("Localizable", "Wallet.ReceiveController.ShowPeerQr") }
   /// Show my QR
   public static var walletReceiveControllerShowQr: String  { return L10n.tr("Localizable", "Wallet.ReceiveController.ShowQr") }
   /// Name or wallet address
@@ -19937,6 +21079,8 @@ public final class L10n {
   public static var walletSendControllerDepositFunds: String  { return L10n.tr("Localizable", "Wallet.SendController.DepositFunds") }
   /// Deposit funds ›
   public static var walletSendControllerDepositFundsLink: String  { return L10n.tr("Localizable", "Wallet.SendController.DepositFundsLink") }
+  /// Discard this transfer?
+  public static var walletSendControllerDiscardTransfer: String  { return L10n.tr("Localizable", "Wallet.SendController.DiscardTransfer") }
   /// Edit Comment
   public static var walletSendControllerEditComment: String  { return L10n.tr("Localizable", "Wallet.SendController.EditComment") }
   /// Grams
@@ -20103,6 +21247,20 @@ public final class L10n {
   public static var walletSettingsControllerWalletImported: String  { return L10n.tr("Localizable", "Wallet.SettingsController.WalletImported") }
   /// Your wallet was restored from your secret phrase.
   public static var walletSettingsControllerWalletImportedInfo: String  { return L10n.tr("Localizable", "Wallet.SettingsController.WalletImportedInfo") }
+  /// Only %@ can be used to change the color of your card.
+  public static func walletStickerColorRestricted(_ p1: String) -> String {
+    return L10n.tr("Localizable", "Wallet.Sticker.ColorRestricted", p1)
+  }
+  /// %@s
+  public static func walletStickerColorRestrictedCollection(_ p1: String) -> String {
+    return L10n.tr("Localizable", "Wallet.Sticker.ColorRestrictedCollection", p1)
+  }
+  /// Drag this collectible here.
+  public static var walletStickerTutorialCard: String  { return L10n.tr("Localizable", "Wallet.StickerTutorial.Card") }
+  /// You can add multiple collectibles.
+  public static var walletStickerTutorialDone: String  { return L10n.tr("Localizable", "Wallet.StickerTutorial.Done") }
+  /// Drag this collectible onto your card to decorate it.
+  public static var walletStickerTutorialTile: String  { return L10n.tr("Localizable", "Wallet.StickerTutorial.Tile") }
   /// Retry
   public static var walletTonConnectRetry: String  { return L10n.tr("Localizable", "Wallet.TonConnect.Retry") }
   /// Binary content
@@ -20235,6 +21393,10 @@ public final class L10n {
   public static var walletTransactionRowItemIncomingTransfer: String  { return L10n.tr("Localizable", "Wallet.TransactionRowItem.IncomingTransfer") }
   /// Key Update
   public static var walletTransactionRowItemKeyUpdate: String  { return L10n.tr("Localizable", "Wallet.TransactionRowItem.KeyUpdate") }
+  /// moved from profile
+  public static var walletTransactionRowItemMovedFromProfile: String  { return L10n.tr("Localizable", "Wallet.TransactionRowItem.MovedFromProfile") }
+  /// moved to profile
+  public static var walletTransactionRowItemMovedToProfile: String  { return L10n.tr("Localizable", "Wallet.TransactionRowItem.MovedToProfile") }
   /// Outgoing collectible
   public static var walletTransactionRowItemOutgoingCollectible: String  { return L10n.tr("Localizable", "Wallet.TransactionRowItem.OutgoingCollectible") }
   /// –1 item
@@ -20243,6 +21405,8 @@ public final class L10n {
   public static var walletTransactionRowItemOutgoingTransfer: String  { return L10n.tr("Localizable", "Wallet.TransactionRowItem.OutgoingTransfer") }
   /// Sending
   public static var walletTransactionRowItemSending: String  { return L10n.tr("Localizable", "Wallet.TransactionRowItem.Sending") }
+  /// Telegram
+  public static var walletTransactionRowItemTelegram: String  { return L10n.tr("Localizable", "Wallet.TransactionRowItem.Telegram") }
   /// Telegram User
   public static var walletTransactionRowItemTelegramUser: String  { return L10n.tr("Localizable", "Wallet.TransactionRowItem.TelegramUser") }
   /// Unknown Address

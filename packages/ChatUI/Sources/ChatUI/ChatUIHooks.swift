@@ -37,6 +37,9 @@ public protocol ChatUIBadgeNode: AnyObject {
 protocol ChatControllerKind: ViewController {
     var chatInteraction: ChatInteraction { get }
     var genericView: ChatControllerView { get }
+    #if DEBUG
+    func debugRebuildFloatingAvatars()
+    #endif
 }
 
 protocol ChatAdditionControllerKind: ViewController {
@@ -51,6 +54,10 @@ public struct ChatUIHooks {
     public let updateEntertainment: (any AccountContextProtocol, ChatInteraction) -> Void
     public let showMessageEffectsWindow: (any AccountContextProtocol, PeerId, [ChatUIEmojiSelectedItem], @escaping (StickerPackItem, NSRect?) -> Void, NSView & StickerFramesCollector) -> Void
     public let makeForwardMessagesShareModal: (any AccountContextProtocol, [Message], @escaping ([MessageId], Bool) -> Signal<[Message], NoError>) -> ModalViewController
+    public var makeForwardMessagesShareModalWithContext: ((any AccountContextProtocol, [Message], @escaping ([MessageId], Bool) -> Signal<[Message], NoError>) -> ModalViewController)?
+    public func makeForwardMessagesShareModalObserved(_ context: any AccountContextProtocol, _ messages: [Message], _ getMessages: @escaping ([MessageId], Bool) -> Signal<[Message], NoError>) -> ModalViewController {
+        return makeForwardMessagesShareModal(context, messages, getMessages)
+    }
     public let makeReplyForwardShareModal: (any AccountContextProtocol, Message, EngineMessageReplySubject) -> ModalViewController
     public let navigateToChat: (NavigationViewController?, any AccountContextProtocol, ChatLocation) -> Void
     public let navigateToChatWithFocus: (NavigationViewController?, any AccountContextProtocol, ChatLocation, ChatFocusTarget?, ChatInitialAction?) -> Void
@@ -58,13 +65,60 @@ public struct ChatUIHooks {
     public let makeThreadPeerMediaController: (any AccountContextProtocol, PeerId, ThreadInfo?, Bool) -> ViewController
     public let makePeerMediaController: (any AccountContextProtocol, PeerId, Bool) -> ViewController
     public let pushPeerInfo: (NavigationViewController, any AccountContextProtocol, PeerId, ThreadInfo?, PeerExpiringStoryListContext?, PeerMediaCollectionMode?, Int32?) -> Void
+    public var navigateToChatWithContext: ((NavigationViewController?, any AccountContextProtocol, ChatLocation, ChatFocusTarget?, ChatInitialAction?, Bool) -> Void)?
+    public func navigateToChatObserved(_ navigation: NavigationViewController?, _ context: any AccountContextProtocol, _ location: ChatLocation, _ focus: ChatFocusTarget?, _ action: ChatInitialAction?, _ additional: Bool) {
+        if let navigateToChatWithContext {
+            navigateToChatWithContext(navigation, context, location, focus, action, additional)
+        } else if additional {
+            navigateToChatWithFocusAdditional(navigation, context, location, focus, action, additional)
+        } else {
+            navigateToChatWithFocus(navigation, context, location, focus, action)
+        }
+    }
+    public var pushPeerInfoWithContext: ((NavigationViewController, any AccountContextProtocol, PeerId, ThreadInfo?, PeerExpiringStoryListContext?, PeerMediaCollectionMode?, Int32?) -> Void)?
+    public func pushPeerInfoObserved(_ navigation: NavigationViewController, _ context: any AccountContextProtocol, _ peerId: PeerId, _ thread: ThreadInfo?, _ stories: PeerExpiringStoryListContext?, _ mode: PeerMediaCollectionMode?, _ album: Int32?) {
+        if let pushPeerInfoWithContext {
+            pushPeerInfoWithContext(navigation, context, peerId, thread, stories, mode, album)
+        } else {
+            pushPeerInfo(navigation, context, peerId, thread, stories, mode, album)
+        }
+    }
+    public var makePeerMediaControllerWithContext: ((any AccountContextProtocol, PeerId, ThreadInfo?, Bool) -> ViewController)?
+    public func makePeerMediaControllerObserved(_ context: any AccountContextProtocol, _ peerId: PeerId, threadInfo: ThreadInfo? = nil, isBot: Bool) -> ViewController {
+        let controller: ViewController
+        if let makePeerMediaControllerWithContext {
+            controller = makePeerMediaControllerWithContext(context, peerId, threadInfo, isBot)
+        } else if let threadInfo {
+            controller = makeThreadPeerMediaController(context, peerId, threadInfo, isBot)
+        } else {
+            controller = makePeerMediaController(context, peerId, isBot)
+        }
+        return controller
+    }
     public let showSingleStory: (any AccountContextProtocol, StoryId, StoryInitialIndex?, (() -> Void)?) -> Void
+    public var showSingleStoryWithContext: ((any AccountContextProtocol, StoryId, StoryInitialIndex?, (() -> Void)?) -> Void)?
+    public func showSingleStoryObserved(_ context: any AccountContextProtocol, _ storyId: StoryId, _ initialId: StoryInitialIndex?, _ emptyCallback: (() -> Void)?) {
+        if let showSingleStoryWithContext {
+            showSingleStoryWithContext(context, storyId, initialId, emptyCallback)
+        } else {
+            showSingleStory(context, storyId, initialId, emptyCallback)
+        }
+    }
+    public var showStoriesWithContext: ((any AccountContextProtocol, Bool, StoryInitialIndex?, Bool) -> Void)?
+    public func showStoriesObserved(_ context: any AccountContextProtocol, _ isHidden: Bool, _ initialId: StoryInitialIndex?, _ singlePeer: Bool) {
+        if let showStoriesWithContext {
+            showStoriesWithContext(context, isHidden, initialId, singlePeer)
+        } else {
+            showStories(context, isHidden, initialId, singlePeer)
+        }
+    }
     public let showStories: (any AccountContextProtocol, Bool, StoryInitialIndex?, Bool) -> Void
     public let showInlineAudioPlayer: (APController, any AccountContextProtocol, TableView?) -> Void
     public let getAudioPlayer: (any AccountContextProtocol) -> APController?
     public let makeInlineAudioPlayerContextObject: (APController, any AccountContextProtocol, TableView?) -> Any
     public let makeSendAudioModal: (any AccountContextProtocol, ChatInteraction) -> ModalViewController
     public let makePreviewSender: ([URL], ChatInteraction, Bool, NSAttributedString?) -> ModalViewController
+    public var bindPreviewSendValidation: (ModalViewController, @escaping () -> Bool) -> Bool = { _, _ in false }
     public let removeChatInteractively: (any AccountContextProtocol, PeerId, PeerId?) -> Signal<Bool, NoError>
     public let removeThreadInteractively: (any AccountContextProtocol, PeerId, Int64?, PeerId?) -> Signal<Bool, NoError>
     public let joinChannel: (any AccountContextProtocol, PeerId) -> Void

@@ -21,6 +21,12 @@ import TelegramCallsCore
 import StarsUI
 import BoostUI
 import AudioPlayerCore
+import ShortPeerRow
+
+struct ChatMediaReplacementRequest {
+    fileprivate let id: UUID
+    fileprivate let messageId: MessageId
+}
 
 public final class ReplyMarkupInteractions {
     public let context: any AccountContextProtocol
@@ -48,6 +54,9 @@ public final class ChatInteraction : InterfaceObserver  {
         if (self.presentation.isTopicMode && peerId == self.peerId) || mode.isSavedMessagesThread || self.presentation.monoforumState != nil {
             switch chatLocation {
             case let .thread(data):
+                if data.threadId == Message.newTopicThreadId {
+                    return nil
+                }
                 return .init(message: data, isChannelPost: false, isMonoforumPost: chatLocation.threadMessage?.isMonoforumPost == true, isEmpty: false, contextHolder: holder)
             default:
                 break
@@ -80,6 +89,98 @@ public final class ChatInteraction : InterfaceObserver  {
     public let isGlobalSearchMessage: Bool
     public let isPeerSavedMessages: Bool
     public let inputOverlayHeight: Atomic<CGFloat> = Atomic(value: ChatHistoryBottomRowItem.minimumInputOverlayHeight)
+    private var mediaReplacementId: UUID?
+    private var mediaEditSessionId = UUID()
+    private var mediaEditSubmissionId: UUID?
+    private var deferredSendRevision = UUID()
+    private let forwardSelection = ChatForwardSelection()
+    private let composerForwardPreparation = ChatForwardSendPreparation()
+    private let quickForwardAction = ChatQuickForwardAction()
+
+    func quickForward(_ object: ChatHistoryForwardMessagesObject, peerId: PeerId, threadId: Int64?, action: ChatDeferredSendAction) {
+        quickForwardAction.start(context: context, peerId: peerId, threadId: threadId, isCurrent: { action.takeIfCurrent() }, request: {
+            object.chatHistoryPerformObserved(to: peerId, threadId: threadId)
+        })
+    }
+
+    func invalidateDeferredSendActions() {
+        deferredSendRevision = UUID()
+        composerForwardPreparation.reset()
+    }
+
+    public func captureDeferredSendAction() -> ChatDeferredSendAction {
+        let revision = deferredSendRevision
+        let richDraftRevision = ChatInteraction.globalRichTextDrafts.captureRevision(for: richTextDraftKey)
+        return ChatDeferredSendAction { [weak self] in
+            guard let self else { return false }
+            return self.deferredSendRevision == revision && richDraftRevision.isValid
+        }
+    }
+
+    var isPreparingForwardSend: Bool { composerForwardPreparation.isPending }
+
+    func prepareForwardSend<Value>(onInvalidated: @escaping () -> Void, request: @escaping () -> Signal<Value, NoError>) -> Signal<Value, NoError> {
+        let action = captureDeferredSendAction()
+        return composerForwardPreparation.prepare(isCurrent: { action.isAvailable }, invalidated: onInvalidated, request: request)
+    }
+
+    func beginMediaReplacement() -> ChatMediaReplacementRequest? {
+        guard let state = presentation.interfaceState.editState else { return nil }
+        let id = UUID()
+        mediaReplacementId = id
+        if mediaEditSubmissionId != nil {
+            mediaEditSubmissionId = nil
+            editDisposable.set(nil)
+            update { $0.updatedInterfaceState { $0.updatedEditState { $0?.withUpdatedLoadingState(.none) } } }
+        }
+        return ChatMediaReplacementRequest(id: id, messageId: state.message.id)
+    }
+
+
+
+    func failMediaReplacement(_ request: ChatMediaReplacementRequest?) {
+        guard let request, isCurrentMediaReplacement(request) else { return }
+        mediaReplacementId = nil
+    }
+
+    func applyMediaReplacement(_ media: Media, request: ChatMediaReplacementRequest?) {
+        guard let request, isCurrentMediaReplacement(request) else { return }
+        mediaReplacementId = nil
+        update { $0.updatedInterfaceState { $0.updatedEditState { $0?.withUpdatedMedia(media) } } }
+    }
+
+    func isCurrentMediaReplacement(_ request: ChatMediaReplacementRequest?) -> Bool {
+        guard let request else { return false }
+        return request.id == mediaReplacementId && presentation.interfaceState.editState?.message.id == request.messageId
+    }
+
+    func cancelMediaReplacement(_ request: ChatMediaReplacementRequest?) {
+        guard let request, request.id == mediaReplacementId else { return }
+        mediaReplacementId = nil
+    }
+
+    func discardMediaReplacement(_ request: ChatMediaReplacementRequest?) {
+        guard let request, request.id == mediaReplacementId else { return }
+        mediaReplacementId = nil
+    }
+
+    func beginMediaEditSubmission() -> UUID {
+        let id = UUID()
+        mediaEditSubmissionId = id
+        mediaReplacementId = nil
+        return id
+    }
+
+    func isCurrentMediaEditSubmission(_ id: UUID) -> Bool {
+        return mediaEditSubmissionId == id
+    }
+
+
+
+
+
+
+
     private let modifyDisposable:MetaDisposable = MetaDisposable()
     private let mediaDisposable:MetaDisposable = MetaDisposable()
     private let startBotDisposable:MetaDisposable = MetaDisposable()
@@ -98,7 +199,7 @@ public final class ChatInteraction : InterfaceObserver  {
         self.isLogInteraction = isLogInteraction
         self.isGlobalSearchMessage = isGlobalSearchMessage
         self.isPeerSavedMessages = isPeerSavedMessages
-        self.presentation = ChatPresentationInterfaceState(chatLocation: chatLocation, chatMode: mode)
+        self._presentation = Atomic(value: ChatPresentationInterfaceState(chatLocation: chatLocation, chatMode: mode))
         super.init()
         
         let signal = mediaPromise.get() |> deliverOnMainQueue |> mapToQueue { [weak self] (media) -> Signal<Void, NoError> in
@@ -106,13 +207,31 @@ public final class ChatInteraction : InterfaceObserver  {
             return .single(Void())
         }
         mediaDisposable.set(signal.start())
+
     }
     
-    public private(set) var presentation:ChatPresentationInterfaceState
+    private let _presentation: Atomic<ChatPresentationInterfaceState>
+    public var presentation:ChatPresentationInterfaceState {
+        return _presentation.with { $0 }
+    }
     
     public func update(animated:Bool = true, _ f:(ChatPresentationInterfaceState)->ChatPresentationInterfaceState)->Void {
         let oldValue = self.presentation
-        self.presentation = f(presentation)
+        _ = _presentation.swap(f(oldValue))
+        if !chatHasSameDeferredSendState(oldValue, presentation) {
+            invalidateDeferredSendActions()
+        }
+        if oldValue.selectionState?.selectedIds != presentation.selectionState?.selectedIds || oldValue.chatLocation != presentation.chatLocation || oldValue.chatMode != presentation.chatMode || (oldValue.reportMode != nil) != (presentation.reportMode != nil) {
+            forwardSelection.reset()
+        }
+        if oldValue.interfaceState.editState?.message.id != presentation.interfaceState.editState?.message.id || oldValue.chatLocation != presentation.chatLocation || oldValue.chatMode != presentation.chatMode {
+            mediaEditSessionId = UUID()
+            mediaEditSubmissionId = nil
+            mediaReplacementId = nil
+        }
+        if oldValue.chatLocation != presentation.chatLocation || oldValue.chatMode != presentation.chatMode {
+            dateHeaderActions.reset()
+        }
         if oldValue != presentation {
             notifyObservers(value: presentation, oldValue:oldValue, animated:animated)
         }
@@ -145,9 +264,18 @@ public final class ChatInteraction : InterfaceObserver  {
     public var focusPinnedMessageId: (MessageId) -> Void = { _ in}
     public var sendMedia:([MediaSenderContainer]) -> Void = {_ in}
     public var sendAppFile:(TelegramMediaFile, Bool, String?, Bool, ItemCollectionId?, ChatTextInputState?, ChatInteraction.Schedule?) -> Void = { _,_, _, _, _, _, _ in}
+    public func sendAppFileObserved(_ file: TelegramMediaFile, _ silent: Bool, _ query: String?, _ scheduled: Bool, _ collectionId: ItemCollectionId?, _ caption: ChatTextInputState?, _ schedule: Schedule?) {
+        sendAppFile(file, silent, query, scheduled, collectionId, caption, schedule)
+    }
     public var sendMedias:([Media], ChatTextInputState, Bool, ChatTextInputState?, Bool, Schedule?, Bool, AvailableMessageEffects.MessageEffect?, Bool) -> Void = {_,_,_,_,_,_,_,_, _ in}
     public var focusInputField:()->Void = {}
     public var openInfo:(PeerId, Bool, MessageId?, ChatInitialAction?) -> Void = {_,_,_,_  in}
+    public func openInfoObserved(_ peerId: PeerId, _ toChat: Bool, _ postId: MessageId?, _ action: ChatInitialAction?) {
+        openInfo(peerId, toChat, postId, action)
+    }
+    public func openInfoFromMessage(_ peerId: PeerId, _ toChat: Bool, _ postId: MessageId?, _ action: ChatInitialAction?, message: Message?) {
+        openInfoObserved(peerId, toChat, postId, action)
+    }
     public var beginEditingMessage:(Message?) -> Void = {_ in}
     public var requestMessageActionCallback:(MessageId, Bool, (requiresPassword: Bool, data: MemoryBuffer)?) -> Void = {_,_,_  in}
     public var inlineAudioPlayer:(APController) -> Void = {_ in}
@@ -157,10 +285,13 @@ public final class ChatInteraction : InterfaceObserver  {
     public var shareSelfContact:(MessageId?)->Void = {_ in}
     public var shareLocation:()->Void = {}
     public var modalSearch:(String)->Void = {_ in }
-    public var sendCommand:(PeerCommand)->Void = {_ in }
+    public var sendCommand:(ChatInputCommand)->Void = {_ in }
     public var setNavigationAction:(NavigationModalAction)->Void = {_ in}
     public var switchInlinePeer:(PeerId, ChatInitialAction)->Void = {_,_  in}
-    public var showPreviewSender:([URL], Bool, NSAttributedString?)->Void = {_,_,_  in}
+    public var presentPreviewSender:([URL], Bool, NSAttributedString?)->Void = {_,_,_ in}
+    public func showPreviewSender(_ urls: [URL], _ asMedia: Bool, _ attributedString: NSAttributedString?) {
+        presentPreviewSender(urls, asMedia, attributedString)
+    }
     public var setChatMessageAutoremoveTimeout:(Int32?)->Void = {_ in}
     public var toggleNotifications:(Bool?)->Void = { _ in }
     public var removeAndCloseChat:()->Void = {}
@@ -174,6 +305,7 @@ public final class ChatInteraction : InterfaceObserver  {
     public var dismissRequestChat: ()->Void = {}
     public var toggleSidebar:()->Void = {}
     public var mentionPressed:()->Void = {}
+    let dateHeaderActions = ChatDateHeaderActions()
     public var jumpToDate:(Date)->Void = {_ in}
     public var showNextPost:()->Void = {}
     public var startRecording:(Bool, NSView?)->Void = {_,_ in}
@@ -209,6 +341,7 @@ public final class ChatInteraction : InterfaceObserver  {
     public var contextHolder:()->Atomic<ChatLocationContextHolder?> = { Atomic(value: nil) }
 
     var voiceSendFlight: ChatVoiceSendFlight?
+    var voiceTranscription: ChatVoiceTranscription?
     public var mediaSendFlight: ChatMediaSendFlight?
 
     private var walletTransferAnimationStorage: AnyObject?
@@ -249,6 +382,7 @@ public final class ChatInteraction : InterfaceObserver  {
     
     public var showEmojiUseTooltip:()->Void = { }
     public var restartTopic: ()->Void = { }
+    public var openSetPeerAvatar: ()->Void = { }
     public var revealMedia:(Message)->Void = { _ in }
     public var toggleTranslate:()->Void = { }
     public var hideTranslation:()->Void = { }
@@ -281,6 +415,9 @@ public final class ChatInteraction : InterfaceObserver  {
     public var toggleUnderMouseMessage:()->Void = { }
     
     public var openStory:(MessageId, StoryId)->Void = { _, _ in }
+    public func openStoryObserved(_ messageId: MessageId, _ storyId: StoryId) {
+        openStory(messageId, storyId)
+    }
     
     public var sendMessageShortcut:(ShortcutMessageList.Item)->Void = { _ in }
     
@@ -356,27 +493,30 @@ public final class ChatInteraction : InterfaceObserver  {
     // Backed by a process-global per-chat store so the draft survives the chat controller being torn down
     // and reopened (the `ChatInteraction` is recreated each time). (Full cross-launch/cross-device sync —
     // like iOS persisting it into the synchronizeable input state — is a follow-up.)
-    private static var globalRichTextDrafts: [String: InstantPage] = [:]
-    private var richTextDraftKey: String {
-        let suffix: String
+    private static let globalRichTextDrafts = ChatRichTextDraftStore<InstantPage>()
+    private var richTextDraftKey: ChatRichTextDraftKey {
+        let isWelcome: Bool
         if case .welcomeMessages = mode.customChatContents?.kind {
-            suffix = ":welcome"
+            isWelcome = true
         } else {
-            suffix = ""
+            isWelcome = false
         }
-        return "\(peerId.toInt64()):\(chatLocation.threadId ?? 0)\(suffix)"
+        return ChatRichTextDraftKey(accountId: context.account.id.int64, peerId: peerId.toInt64(), threadId: chatLocation.threadId, isWelcome: isWelcome)
     }
     private let richTextDraftPromise = ValuePromise<InstantPage?>(nil, ignoreRepeated: false)
-    public var richTextDraft: InstantPage? { ChatInteraction.globalRichTextDrafts[richTextDraftKey] }
+    public var richTextDraft: InstantPage? { ChatInteraction.globalRichTextDrafts.value(for: richTextDraftKey) }
     public var richTextDraftSignal: Signal<InstantPage?, NoError> { richTextDraftPromise.get() }
     public var flushRichTextDraft: (() -> Void)?
     public func setRichTextDraft(_ page: InstantPage?) {
-        ChatInteraction.globalRichTextDrafts[richTextDraftKey] = page
+        if ChatInteraction.globalRichTextDrafts.set(page, for: richTextDraftKey) {
+            invalidateDeferredSendActions()
+        }
         richTextDraftPromise.set(page)
     }
     public func reloadRichTextDraft() {
         richTextDraftPromise.set(richTextDraft)
     }
+
     
     public var hasSetDestructiveTimer: Bool {
         return presentation.hasSetDestructiveTimer
@@ -459,13 +599,13 @@ public final class ChatInteraction : InterfaceObserver  {
     }
     
     public func forwardSelectedMessages() {
-        if let ids = presentation.selectionState?.selectedIds {
-            let messages = context.account.postbox.messagesAtIds(Array(ids)) |> deliverOnMainQueue
-            _ = messages.start(next: { [weak self] messages in
-                self?.forwardMessages(messages)
-            })
-        }
-        
+        guard let ids = presentation.selectionState?.selectedIds, !ids.isEmpty else { return }
+        forwardSelection.load(ids: ids, request: {
+            context.account.postbox.messagesAtIds(Array(ids))
+        }, completion: { [weak self] messages in
+            guard let self, self.presentation.selectionState?.selectedIds == ids else { return }
+            self.forwardMessages(messages)
+        })
     }
     
     public func deleteSelectedMessages(morphSource: (() -> NSView?)? = nil) {
@@ -486,6 +626,10 @@ public final class ChatInteraction : InterfaceObserver  {
             self.update({$0.updatedInterfaceState({$0.withUpdatedInputState(state)})})
         }
     }
+    @discardableResult public func appendTextObserved(_ text: NSAttributedString, selectedRange: Range<Int>? = nil) -> Range<Int> {
+        return appendText(text, selectedRange: selectedRange)
+    }
+
     @discardableResult public func appendText(_ text: NSAttributedString, selectedRange:Range<Int>? = nil) -> Range<Int> {
         
         let text = text.mutableCopy() as! NSMutableAttributedString
@@ -536,6 +680,7 @@ public final class ChatInteraction : InterfaceObserver  {
     }
     
     public func cancelEditing(_ force: Bool = false) {
+        let sessionId = mediaEditSessionId
         if let editState = self.presentation.interfaceState.editState {
             let oldState = ChatEditState(message: editState.message)
             if force {
@@ -543,13 +688,15 @@ public final class ChatInteraction : InterfaceObserver  {
             } else {
                 switch editState.loadingState {
                 case .loading, .progress:
+                    mediaEditSubmissionId = nil
                     editDisposable.set(nil)
                     self.update({$0.updatedInterfaceState({$0.updatedEditState({$0?.withUpdatedLoadingState(.none)})})})
                     return
                 default:
                     if oldState.inputState.inputText != editState.inputState.inputText, !editState.inputState.inputText.isEmpty {
                         verifyAlert_button(for: context.window, information: strings().chatEditCancelText, ok: strings().alertDiscard, cancel: strings().alertNO, successHandler: { [weak self] _ in
-                            self?.update({$0.withoutEditMessage().updatedUrlPreview(nil)})
+                            guard let self, self.mediaEditSessionId == sessionId else { return }
+                            self.update({$0.withoutEditMessage().updatedUrlPreview(nil)})
                         })
                     } else {
                         self.update({$0.withoutEditMessage().updatedUrlPreview(nil)})
@@ -641,95 +788,19 @@ public final class ChatInteraction : InterfaceObserver  {
                     $0.withSelectionState().withoutInitialAction().withUpdatedRepotMode(reason)
                 })
             case let .attachBot(botname, payload, _):
-                update({
-                    $0.withoutInitialAction()
-                })
-                
                 let context = self.context
-                
-                let installed: Signal<Peer?, NoError> = context.engine.messages.attachMenuBots() |> map { items in
-                    for item in items {
-                        if item.peer.addressName?.lowercased() == botname.lowercased() {
-                            return item.peer._asPeer()
-                        }
-                    }
-                    return nil
-                } |> take(1) |> deliverOnMainQueue
-                
-                let replyId = presentation.interfaceState.replyMessageId?.messageId
                 let peerId = self.peerId
+                let replyId = presentation.interfaceState.replyMessageId?.messageId
                 let threadId = presentation.chatLocation.threadId
-                
-                let openAttach:(Peer)->Void = { peer in
-                    
-                    let open:()->Void = {
-                        let tab: ChatBrowserTab = .webapp(bot: .init(peer), peerId: peerId, buttonText: "", url: nil, payload: payload, threadId: threadId, replyTo: replyId, fromMenu: false)
-                        ChatNavigationHooks.shared.openBrowserTab(context, tab)
-                    }
-                    
-                    let invoke:()->Void = {
-                        _ = showModalProgress(signal: context.engine.messages.getAttachMenuBot(botId: peer.id, cached: true), for: context.window).start(next: { attach in
-                            if attach.flags.contains(.showInSettingsDisclaimer) || attach.flags.contains(.notActivated) {
-                                var options: [ModalAlertData.Option] = []
-                                options.append(.init(string: strings().webBotAccountDisclaimerThird, isSelected: false, mandatory: true))
-                                
-                                var description: ModalAlertData.Description? = nil
-                                let installBot = !attach.flags.contains(.notActivated) && attach.peer._asPeer().botInfo?.flags.contains(.canBeAddedToAttachMenu) == true && !attach.flags.contains(.showInAttachMenu)
-                                if installBot {
-                                    description = .init(string: strings().webBotAccountDesclaimerDesc(attach.shortName), onlyWhenEnabled: false)
-                                }
-                                
-                                
-                                let data = ModalAlertData(title: strings().webBotAccountDisclaimerTitle, info: strings().webBotAccountDisclaimerText, description: description, ok: strings().webBotAccountDisclaimerOK, options: options)
-                                showModalAlert(for: context.window, data: data, completion: { result in
-                                    _ = context.engine.messages.acceptAttachMenuBotDisclaimer(botId: peer.id).start()
-                                    ChatNavigationHooks.shared.installAttachMenuBot(context, peer, { value in
-                                        open()
-                                        if value {
-                                            showModalText(for: context.window, text: strings().webAppAttachSuccess(peer.displayTitle))
-                                        }
-                                    })
-                                })
-                            } else {
-                                let botInfo = attach.peer._asPeer().botInfo
-                                let installBot = botInfo?.flags.contains(.canBeAddedToAttachMenu) == true
-                                if installBot {
-                                    ChatNavigationHooks.shared.installAttachMenuBot(context, peer, { _ in
-                                        open()
-                                    })
-                                } else {
-                                    open()
-                                }
-                            }
-                            
-                        }, error: { _ in
-                            open()
-                        })
-                    }
-                    if peer.isVerified {
-                        invoke()
-                    } else if let _ = peer.botInfo {
-                        invoke()
-                    }
-                }
-                _ = installed.start(next: { peer in
-                    if let peer = peer {
-                        openAttach(peer)
-                    } else {
-                        _ = showModalProgress(signal: ChatInterfaceHooks.shared.resolveUsername(botname, context), for: context.window).start(next: { peer in
-                            if let peer = peer {
-                                openAttach(peer)
-                            } else {
-                                alert(for: context.window, info: strings().webAppAttachDoenstExist("@\(botname)"))
-                            }
-                        })
-                    }
-                })
+                update({ $0.withoutInitialAction() })
+                chatOpenAttachBot(context: context, peerId: peerId, threadId: threadId, replyId: replyId, botname: botname, payload: payload)
             case let .openWebview(botPeer, botApp, result):
+                let context = self.context
+                let peerId = self.peerId
                 update(animated: animated, {
                     $0.withoutInitialAction()
                 })
-                ChatNavigationHooks.shared.openBrowserTab(context, .straight(bot: .init(botPeer.peer), peerId: peerId, title: botApp.title, result: result))
+                ChatNavigationHooks.shared.openBrowserTabObserved(context, .straight(bot: .init(botPeer.peer), peerId: peerId, title: botApp.title, result: result))
             case .makeWebview:
                 update(animated: animated, {
                     $0.withoutInitialAction()
@@ -875,16 +946,7 @@ public final class ChatInteraction : InterfaceObserver  {
                         }
                     case .payment:
                         if let invoice = keyboardMessage.anyMedia as? TelegramMediaInvoice {
-                            let receiptMessageId = invoice.receiptMessageId
-                            if let receiptMessageId = receiptMessageId {
-                                ChatNavigationHooks.shared.showPaymentsReceipt(strongSelf.context, receiptMessageId, invoice, strongSelf.context.window)
-                            } else {
-                                if invoice.currency == XTR {
-                                    showModal(with: Star_PurschaseInApp(context: context, invoice: invoice, source: .message(keyboardMessage.id)), for: context.window)
-                                } else {
-                                    ChatNavigationHooks.shared.showPaymentsCheckout(strongSelf.context, keyboardMessage.id, invoice, strongSelf.context.window)
-                                }
-                            }
+                            openChatMessagePayment(context: context, messageId: keyboardMessage.id, invoice: invoice)
                         }
                     case let .urlAuth(url, buttonId):
                         let context = strongSelf.context
@@ -1096,6 +1158,10 @@ public final class ChatInteraction : InterfaceObserver  {
     }
     
     public func clean() {
+        invalidateDeferredSendActions()
+        dateHeaderActions.reset()
+        forwardSelection.reset()
+        quickForwardAction.reset()
 
         addContactDisposable.dispose()
         mediaDisposable.dispose()
@@ -1112,6 +1178,8 @@ public final class ChatInteraction : InterfaceObserver  {
     }
 
     public func nilAllHandlers() {
+        forwardSelection.reset()
+        quickForwardAction.reset()
         self.withToggledSelectedMessage = { _ in }
         self.setupReplyMessage = { _, _ in }
         self.beginMessageSelection = { _ in }
@@ -1139,7 +1207,7 @@ public final class ChatInteraction : InterfaceObserver  {
         self.sendCommand = { _ in }
         self.setNavigationAction = { _ in }
         self.switchInlinePeer = { _, _ in }
-        self.showPreviewSender = { _, _, _ in }
+        self.presentPreviewSender = { _, _, _ in }
         self.setChatMessageAutoremoveTimeout = { _ in }
         self.toggleNotifications = { _ in }
         self.removeAndCloseChat = { }
@@ -1184,6 +1252,8 @@ public final class ChatInteraction : InterfaceObserver  {
         self.openBank = { _ in }
         self.afterSentTransition = { }
         self.getGradientOffsetRect = { return .zero }
+        self.voiceTranscription?.dismiss(animated: false)
+        self.voiceTranscription = nil
         self.markAdAction = { _, _ in }
         self.contextHolder = { Atomic(value: nil) }
         self.freezeAccountAlert = { }
@@ -1204,6 +1274,7 @@ public final class ChatInteraction : InterfaceObserver  {
         self.showDeleterSetup = { _ in }
         self.showEmojiUseTooltip = { }
         self.restartTopic = { }
+        self.openSetPeerAvatar = { }
         self.revealMedia = { _ in }
         self.toggleTranslate = { }
         self.hideTranslation = { }
@@ -1285,7 +1356,9 @@ public final class ChatInteraction : InterfaceObserver  {
     
 }
 
+
 public func sendMessageMenuItems(chatInteraction: ChatInteraction, send: @escaping (Bool, ChatInteraction.Schedule?) -> Void) -> [ContextMenuItem]? {
+    let deferredSendAction = chatInteraction.captureDeferredSendAction()
     let presentation = chatInteraction.presentation
     let context = chatInteraction.context
 
@@ -1303,6 +1376,7 @@ public func sendMessageMenuItems(chatInteraction: ChatInteraction, send: @escapi
 
     if peer.id != context.account.peerId {
         items.append(ContextMenuItem(strings().chatSendWithoutSound, handler: {
+            guard deferredSendAction.takeIfCurrent() else { return }
             send(true, nil)
         }, itemImage: MenuAnimation.menu_mute.value))
     }
@@ -1312,6 +1386,7 @@ public func sendMessageMenuItems(chatInteraction: ChatInteraction, send: @escapi
         if !peer.isSecretChat {
             if peer.id != context.peerId, presentation.canScheduleWhenOnline, presentation.sendPaidMessageStars == nil {
                 items.append(ContextMenuItem(strings().chatSendSendWhenOnline, handler: {
+                    guard deferredSendAction.takeIfCurrent() else { return }
                     send(false, .init(date: scheduleWhenOnlineDate))
                 }, itemImage: MenuAnimation.menu_online.value))
             }
@@ -1319,7 +1394,9 @@ public func sendMessageMenuItems(chatInteraction: ChatInteraction, send: @escapi
             if presentation.sendPaidMessageStars == nil {
                 let text = peer.id == context.peerId ? strings().chatSendSetReminder : strings().chatSendScheduledMessage
                 items.append(ContextMenuItem(text, handler: {
+                    guard deferredSendAction.isAvailable else { return }
                     showModal(with: chatDateSelector(context: context, mode: .schedule(peer.id), selectedAt: { date, repeatPeriod in
+                        guard deferredSendAction.takeIfCurrent() else { return }
                         send(false, .init(date: date, repeatPeriod: repeatPeriod))
                     }), for: context.window)
                 }, itemImage: MenuAnimation.menu_schedule_message.value))

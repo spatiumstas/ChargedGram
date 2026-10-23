@@ -483,6 +483,8 @@ case "webm":
     webm(options)
 case "webm-sequence":
     webmSequence(options)
+case "webm-cache":
+    webmCache(options)
 default:
     print("usage: DecodeBench scan --input dir --output list.txt | decode --input list.txt --mode sw|hw [--concurrent 12 --frames 250 --threads 3] | compare --input list.txt [--snapshots dir]")
 }

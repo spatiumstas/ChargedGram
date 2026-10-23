@@ -101,6 +101,42 @@ public final class Star_SubscriptionRowItem : GeneralRowItem {
       
     }
     
+    public override var accessibilityLabel: String? {
+        return nameLayout.attributedString.string
+    }
+    
+    public override var accessibilityValue: String? {
+        let amount = amountLayout.attributedString.string.replacingOccurrences(of: clown, with: "").trimmingCharacters(in: .whitespaces)
+        var parts: [String] = []
+        if let product = productNameLayout?.attributedString.string {
+            parts.append(product)
+        }
+        switch subscription.state {
+        case .active:
+            parts.append("\(amount) \(strings().voiceOverCommonStars)")
+        default:
+            parts.append(amount)
+        }
+        if let perMonth = perMonthLayout?.attributedString.string {
+            parts.append(perMonth)
+        }
+        parts.append(dateLayout.attributedString.string)
+        return parts.joined(separator: ", ")
+    }
+    
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+    
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+    
+    public override func accessibilityPerformPress() -> Bool {
+        callback(subscription)
+        return true
+    }
+    
     public override func viewClass() -> AnyClass {
         return Star_SubscriptionRowView.self
     }

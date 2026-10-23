@@ -40,6 +40,18 @@ public class SwitchView: Control {
         }
     }
 
+    public override func isAccessibilityElement() -> Bool {
+        return TGUIKitAccessibility.isEnabled && !isAccessibilityDecorative && !isHidden
+    }
+
+    public override func accessibilityRole() -> NSAccessibility.Role? {
+        return .checkBox
+    }
+
+    public override func accessibilityValue() -> Any? {
+        return NSNumber(value: isOn ? 1 : 0)
+    }
+
     public func setIsOn(_ isOn:Bool, animated:Bool = true) {
         self.animates = animated
         self.isOn = isOn

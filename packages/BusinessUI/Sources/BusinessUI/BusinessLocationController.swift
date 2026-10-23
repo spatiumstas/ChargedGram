@@ -58,6 +58,7 @@ private final class MapRowItemView : GeneralContainableRowView, MKMapViewDelegat
         
         mapView.showsBuildings = false
         addSubview(overlay)
+        overlay.setAccessibilityLabel(strings().voiceOverCommonLocation)
         
         overlay.set(handler: { [weak self] _ in
             if let item = self?.item as? GeneralRowItem {

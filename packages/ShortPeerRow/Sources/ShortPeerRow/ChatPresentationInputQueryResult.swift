@@ -8,10 +8,20 @@ import TelegramUtilsShare
 import TelegramUtils
 #endif
 
+public struct ChatInputCommand: Equatable {
+    public let peer: EnginePeer
+    public let command: BotCommand
+
+    public init(peer: EnginePeer, command: BotCommand) {
+        self.peer = peer
+        self.command = command
+    }
+}
+
 public enum ChatPresentationInputQueryResult: Equatable {
     case hashtags(String, [String], EnginePeer?)
     case mentions([Peer])
-    case commands([PeerCommand])
+    case commands([ChatInputCommand])
     case shortcut([ShortcutMessageList.Item], String)
     case stickers([FoundStickerItem])
     case emoji([String], [TelegramMediaFile], Bool)

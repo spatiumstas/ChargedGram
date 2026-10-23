@@ -118,7 +118,10 @@ private final class SVideoPipControls : Control {
         self.backgroundColor = NSColor.blackTransparent
         
         volumeSlider.set(progress: CGFloat(status.volume))
+        volumeSlider.setAccessibilityLabel(strings().voiceOverCommonVolume)
+        volumeSlider.setAccessibilityValue("\(Int((status.volume * 100).rounded()))%")
         volumeToggle.set(image: status.volume.isZero ? theme.icons.gallery_pip_muted : theme.icons.gallery_pip_unmuted, for: .Normal)
+        volumeToggle.setAccessibilityLabel(status.volume.isZero ? strings().voiceOverCommonUnmute : strings().voiceOverCommonMute)
         
        
         playOrPause.isEnabled = status.duration > 0
@@ -128,16 +131,21 @@ private final class SVideoPipControls : Control {
         switch status.status {
         case .playing:
             playOrPause.set(image: theme.icons.gallery_pip_pause, for: .Normal)
+            playOrPause.setAccessibilityLabel(strings().voiceOverMediaPlaybackPause)
             progress.set(progress: status.duration == 0 ? 0 : CGFloat(status.timestamp / status.duration), animated: animated, duration: status.duration, beginTime: status.generationTimestamp, offset: status.timestamp, speed: Float(status.baseRate), seekId: status.seekId)
         case .paused:
             playOrPause.set(image: status.generationTimestamp == 0 ? theme.icons.gallery_pip_pause : theme.icons.videoPlayerPlay, for: .Normal)
+            playOrPause.setAccessibilityLabel(status.generationTimestamp == 0 ? strings().voiceOverMediaPlaybackPause : strings().voiceOverMediaPlaybackPlay)
             progress.set(progress: status.duration == 0 ? 0 : CGFloat(status.timestamp / status.duration), animated: false)
         case let .buffering(_, whilePlaying):
             playOrPause.set(image: whilePlaying ? theme.icons.gallery_pip_pause : theme.icons.gallery_pip_play, for: .Normal)
+            playOrPause.setAccessibilityLabel(whilePlaying ? strings().voiceOverMediaPlaybackPause : strings().voiceOverMediaPlaybackPlay)
             progress.set(progress: status.duration == 0 ? 0 : CGFloat(status.timestamp / status.duration), animated: false)
         }
         let currentTimeAttr: NSAttributedString = .initialize(string: status.timestamp == 0 && status.duration == 0 ? "--:--" : String.durationTransformed(elapsed: Int(status.timestamp)), color: .white, font: .medium(11))
         let durationTimeAttr: NSAttributedString = .initialize(string: status.duration == 0 ? "--:--" : String.durationTransformed(elapsed: Int(status.duration)), color: .white, font: .medium(11))
+        progress.setAccessibilityLabel(strings().voiceOverCommonPlaybackPosition)
+        progress.setAccessibilityValue("\(currentTimeAttr.string) / \(durationTimeAttr.string)")
         
         let currentTimeLayout = TextViewLayout(currentTimeAttr, alignment: .right)
         let durationLayout = TextViewLayout(durationTimeAttr, alignment: .center)
@@ -237,6 +245,10 @@ private final class SVideoPipControls : Control {
         close.sizeToFit()
         close.autohighlight = false
         close.scaleOnClick = true
+        close.setAccessibilityLabel(strings().voiceOverCommonClose)
+        fullscreen.setAccessibilityLabel(strings().voiceOverCommonExpand)
+        playOrPause.setAccessibilityLabel(strings().voiceOverMediaPlaybackPause)
+        volumeToggle.setAccessibilityLabel(strings().voiceOverCommonMute)
 
         
         _ = playOrPause.sizeToFit()
@@ -348,6 +360,7 @@ public enum SVideoControlsStyle : Equatable {
 }
 
 
+
 public final class SVideoInteractions {
     public let playOrPause: ()->Void
     public let rewind:(Double)->Void
@@ -385,6 +398,7 @@ private class AdMessageView : Control {
             addSubview(imageView)
             imageView.image = NSImage(named: "Icon_Search_Ad")!.precomposed(NSColor.white)
             imageView.sizeToFit()
+            imageView.isAccessibilityDecorative = true
             
             let layout = TextViewLayout(.initialize(string: strings().searchAd, color: NSColor.white, font: .normal(.small)))
             layout.measure(width: .greatestFiniteMagnitude)
@@ -450,6 +464,8 @@ private class AdMessageView : Control {
         
         progress.userInteractionEnabled = false
         close.isEventLess = true
+        close.isAccessibilityDecorative = true
+        progressContainer.setAccessibilityLabel(strings().voiceOverCommonClose)
         
         self.progressContainer.scaleOnClick = true
         self.scaleOnClick = true
@@ -711,6 +727,7 @@ private final class SVideoControlsView : Control {
             volumeContainer.isHidden = controlStyle.isCompact
             togglePip.set(image: controlStyle.isPip ? theme.icons.videoPlayerPIPOut : theme.icons.videoPlayerPIPIn, for: .Normal)
             toggleFullscreen.set(image: controlStyle.isPip ? theme.icons.videoPlayerClose : controlStyle.isFullScreen ? theme.icons.videoPlayerExitFullScreen : theme.icons.videoPlayerEnterFullScreen, for: .Normal)
+            toggleFullscreen.setAccessibilityLabel(controlStyle.isPip ? strings().voiceOverCommonClose : controlStyle.isFullScreen ? strings().voiceOverCommonExitFullscreen : strings().voiceOverCommonFullscreen)
             menuItems.isHidden = controlStyle.isPip || isControlsLimited || controlStyle.isCompact
 //            togglePip.isHidden = isControlsLimited || controlStyle.isCompact
             toggleFullscreen.isHidden = isControlsLimited || controlStyle.isCompact
@@ -798,7 +815,10 @@ private final class SVideoControlsView : Control {
     
     fileprivate func update(with status: MediaPlayerStatus, animated: Bool) {
         volumeSlider.set(progress: CGFloat(status.volume))
+        volumeSlider.setAccessibilityLabel(strings().voiceOverCommonVolume)
+        volumeSlider.setAccessibilityValue("\(Int((status.volume * 100).rounded()))%")
         volumeToggle.set(image: status.volume.isZero ? theme.icons.videoPlayerVolumeOff : theme.icons.videoPlayerVolume, for: .Normal)
+        volumeToggle.setAccessibilityLabel(status.volume.isZero ? strings().voiceOverCommonUnmute : strings().voiceOverCommonMute)
         
         rewindForward.isHidden = rewindForward.isHidden || frame.width < 450
         rewindBackward.isHidden = rewindBackward.isHidden || frame.width < 450
@@ -815,16 +835,21 @@ private final class SVideoControlsView : Control {
         switch status.status {
         case .playing:
             playOrPause.set(image: theme.icons.videoPlayerPause, for: .Normal)
+            playOrPause.setAccessibilityLabel(strings().voiceOverMediaPlaybackPause)
             progress.set(progress: status.duration == 0 ? 0 : CGFloat(status.timestamp / status.duration), animated: animated, duration: status.duration, beginTime: status.generationTimestamp, offset: status.timestamp, speed: Float(status.baseRate), seekId: status.seekId)
         case .paused:
             playOrPause.set(image: status.generationTimestamp == 0 ? theme.icons.videoPlayerPause : theme.icons.videoPlayerPlay, for: .Normal)
+            playOrPause.setAccessibilityLabel(status.generationTimestamp == 0 ? strings().voiceOverMediaPlaybackPause : strings().voiceOverMediaPlaybackPlay)
             progress.set(progress: status.duration == 0 ? 0 : CGFloat(status.timestamp / status.duration), animated: false)
         case let .buffering(_, whilePlaying):
             playOrPause.set(image: whilePlaying ? theme.icons.videoPlayerPause : theme.icons.videoPlayerPlay, for: .Normal)
+            playOrPause.setAccessibilityLabel(whilePlaying ? strings().voiceOverMediaPlaybackPause : strings().voiceOverMediaPlaybackPlay)
             progress.set(progress: status.duration == 0 ? 0 : CGFloat(status.timestamp / status.duration), animated: false)
         }
         let currentTimeAttr: NSAttributedString = .initialize(string: status.timestamp == 0 && status.duration == 0 ? "--:--" : String.durationTransformed(elapsed: Int(status.timestamp)), color: .white, font: .medium(11))
         let durationTimeAttr: NSAttributedString = .initialize(string: status.duration == 0 ? "--:--" : String.durationTransformed(elapsed: Int(status.duration)), color: .white, font: .medium(11))
+        progress.setAccessibilityLabel(strings().voiceOverCommonPlaybackPosition)
+        progress.setAccessibilityValue("\(currentTimeAttr.string) / \(durationTimeAttr.string)")
         
         let currentTimeLayout = TextViewLayout(currentTimeAttr, alignment: .right)
         let durationLayout = TextViewLayout(durationTimeAttr, alignment: .center)
@@ -964,6 +989,14 @@ private final class SVideoControlsView : Control {
         
         toggleFullscreen.set(image: theme.icons.videoPlayerEnterFullScreen, for: .Normal)
         togglePip.set(image: theme.icons.videoPlayerPIPIn, for: .Normal)
+        
+        rewindForward.setAccessibilityLabel(strings().voiceOverMediaForward15)
+        rewindBackward.setAccessibilityLabel(strings().voiceOverMediaRewind15)
+        playOrPause.setAccessibilityLabel(strings().voiceOverMediaPlaybackPause)
+        toggleFullscreen.setAccessibilityLabel(strings().voiceOverCommonFullscreen)
+        togglePip.setAccessibilityLabel(strings().voiceOverCommonPictureInPicture)
+        menuItems.setAccessibilityLabel(strings().voiceOverCommonOptions)
+        volumeToggle.setAccessibilityLabel(strings().voiceOverCommonMute)
 
         
         _ = rewindForward.sizeToFit()
@@ -1203,6 +1236,7 @@ private final class PreviewView : View {
         super.init(frame: frameRect)
         addSubview(imageView)
         addSubview(duration)
+        imageView.isAccessibilityDecorative = true
         background = .black
         duration.background = darkPalette.grayBackground.withAlphaComponent(0.85)
         duration.disableBackgroundDrawing = true
@@ -1752,6 +1786,7 @@ public class SVideoView: NSView {
         if live {
             if self.overlayPreview == nil {
                 self.overlayPreview = ImageView(frame: self.mediaPlayer.frame)
+                self.overlayPreview?.isAccessibilityDecorative = true
                 self.addSubview(overlayPreview!, positioned: .above, relativeTo: mediaPlayer)
                 self.overlayPreview?.background = theme.colors.blackTransparent
             }
@@ -1837,6 +1872,7 @@ public class SVideoView: NSView {
     public func showFrameStepImage(_ image: CGImage) {
         if frameStepOverlay == nil {
             frameStepOverlay = ImageView(frame: mediaPlayer.frame)
+            frameStepOverlay?.isAccessibilityDecorative = true
             addSubview(frameStepOverlay!, positioned: .above, relativeTo: mediaPlayer)
         }
         frameStepOverlay?.image = image

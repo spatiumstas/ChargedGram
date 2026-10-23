@@ -29,6 +29,24 @@ final class WalletInfoHeaderRowItem: GeneralRowItem {
     override func viewClass() -> AnyClass {
         return WalletInfoHeaderRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        let title = titleLayout.attributedString.string
+        return title.isEmpty ? nil : title
+    }
+
+    override var accessibilityValue: String? {
+        let text = textLayout.attributedString.string
+        return text.isEmpty ? nil : text
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .staticText
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 #if arch(arm64)

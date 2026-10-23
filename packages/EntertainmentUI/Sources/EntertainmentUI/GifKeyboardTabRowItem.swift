@@ -6,6 +6,7 @@ import TelegramContext
 import TelegramUtils
 import Cocoa
 import InlineStickerLayer
+import Localization
 
 
 public class GifKeyboardTabRowItem: TableRowItem {
@@ -26,8 +27,10 @@ public class GifKeyboardTabRowItem: TableRowItem {
     }
     public let context: any AccountContextProtocol
     public let theme: PresentationTheme
-    public init(_ initialSize: NSSize, stableId: AnyHashable, selected: Bool, context: any AccountContextProtocol, source: Source, select: @escaping()->Void, theme: PresentationTheme) {
+    public let title: String?
+    public init(_ initialSize: NSSize, stableId: AnyHashable, selected: Bool, context: any AccountContextProtocol, source: Source, title: String? = nil, select: @escaping()->Void, theme: PresentationTheme) {
         self.theme = theme
+        self.title = title
         self.selected = selected
         self.source = source
         self.select = select
@@ -45,6 +48,31 @@ public class GifKeyboardTabRowItem: TableRowItem {
     
     public override func viewClass() -> AnyClass {
         return GifKeyboardTabRowView.self
+    }
+    
+    public override var accessibilityLabel: String? {
+        if let title = title {
+            return title
+        }
+        switch source {
+        case let .file(file):
+            return file.customEmojiText ?? file.stickerText ?? strings().voiceOverCommonGIFs
+        case .icon:
+            return strings().voiceOverCommonGIFs
+        }
+    }
+    
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+    
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+    
+    public override func accessibilityPerformPress() -> Bool {
+        select()
+        return true
     }
 }
 
@@ -107,6 +135,8 @@ private final class GifKeyboardTabRowView: HorizontalRowView {
         guard let item = item as? GifKeyboardTabRowItem else {
             return
         }
+        
+        control.setAccessibilityLabel(item.accessibilityLabel)
         
         switch item.source {
         case let .file(file):

@@ -317,6 +317,7 @@ public final class WallpaperPlayRotateView : Control {
             layer?.cornerRadius = frameRect.height / 2
         }
         addSubview(imageView)
+        imageView.isAccessibilityDecorative = true
         scaleOnClick = true
         self.set(handler: { [weak self] _ in
             self?.onClick?()

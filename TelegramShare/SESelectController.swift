@@ -105,6 +105,7 @@ private final class AccountContainer : Control {
             self?.updateColors()
         }, for: .Normal)
         
+        name.isAccessibilityDecorative = true
         container.scaleOnClick = true
         container.layer?.cornerRadius = 5
     }
@@ -122,6 +123,7 @@ private final class AccountContainer : Control {
         let name = TextViewLayout(.initialize(string: info.peer.displayTitle, color: theme.colors.text, font: .normal(.text)), maximumNumberOfLines: 1)
         name.measure(width: maxWidth - 10 - avatar.frame.width - 10 - 10)
         self.name.update(name)
+        container.setAccessibilityLabel(info.peer.displayTitle)
         self.setFrameSize(NSMakeSize(max(150, avatar.frame.width + 10 + 10 + name.layoutSize.width + 10 + 15), 28))
         
         
@@ -131,6 +133,7 @@ private final class AccountContainer : Control {
                 current = view
             } else {
                 current = ImageView()
+                current.setAccessibilityLabel(L10n.voiceOverCommonSelected)
                 self.selected = current
                 container.addSubview(current)
             }
@@ -246,6 +249,9 @@ class ShareModalView : View {
         borderView.backgroundColor = theme.colors.border
         
         
+        sendButton.setAccessibilityLabel(L10n.voiceOverMessageContextSend)
+        control.isAccessibilityDecorative = true
+        actionsContainerView.isAccessibilityDecorative = true
         sendButton.autohighlight = false
         sendButton.scaleOnClick = true
 
@@ -276,11 +282,13 @@ class ShareModalView : View {
         
         
         cancelView.set(image: theme.icons.modalClose, for: .Normal)
+        cancelView.setAccessibilityLabel(L10n.voiceOverCommonClose)
         cancelView.autohighlight = false
         cancelView.scaleOnClick = true
         _ = cancelView.sizeToFit(.zero, NSMakeSize(30, 30), thatFit: true)
         
         backButton.set(image: theme.icons.chatNavigationBack, for: .Normal)
+        backButton.setAccessibilityLabel(L10n.voiceOverCommonBack)
         backButton.autohighlight = false
         backButton.scaleOnClick = true
         _ = backButton.sizeToFit(.zero, NSMakeSize(30, 30), thatFit: true)

@@ -118,6 +118,36 @@ public class ChatListRevealItem: TableStickItem {
     public override var height: CGFloat {
         return 30
     }
+    
+    static func accessibilityTabTitle(_ title: String, unreadCount: Int?) -> String {
+        if let count = unreadCount, count > 0 {
+            return title + ", " + strings().voiceOverChatUnreadMessagesOther(count)
+        }
+        return title
+    }
+
+    func accessibilityTabTitle(_ tab: ChatListFilter) -> String {
+        return ChatListRevealItem.accessibilityTabTitle(tab.title, unreadCount: counters.count(for: tab)?.count)
+    }
+    
+    public override var accessibilityLabel: String? {
+        return strings().chatListFilterListTitle
+    }
+    
+    public override var accessibilityValue: String? {
+        guard !tabs.isEmpty else {
+            return nil
+        }
+        return accessibilityTabTitle(selected) + ", " + strings().voiceOverCommonSelected
+    }
+    
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .tabGroup
+    }
+    
+    public override func accessibilityPerformPress() -> Bool {
+        return false
+    }
 }
 
 
@@ -240,7 +270,7 @@ public final class ChatListRevealView : TableStickView {
             let title: String = tab.title
             let selected = item.selected == tab
 
-            items.append(ScrollableSegmentItem(title: title, index: index, uniqueId: Int64(ChatListUIHooks.shared.chatListFilterId(tab)), selected: selected, insets: insets, icon: icon, theme: segmentTheme, equatable: UIEquatable(unreadCount), customTextView: {
+            let segmentItem = ScrollableSegmentItem(title: title, index: index, uniqueId: Int64(ChatListUIHooks.shared.chatListFilterId(tab)), selected: selected, insets: insets, icon: icon, theme: segmentTheme, equatable: UIEquatable(unreadCount), customTextView: {
                 
                 let attr = NSMutableAttributedString()
                 attr.append(string: title, color: selected ? segmentTheme.activeText : segmentTheme.inactiveText, font: segmentTheme.textFont)
@@ -255,7 +285,12 @@ public final class ChatListRevealView : TableStickView {
                 textView.set(text: layout, context: context)
                 
                 return textView
-            }))
+            })
+            let accessibilityUnreadCount = unreadCount?.count
+            segmentItem.accessibilityLabel = {
+                return ChatListRevealItem.accessibilityTabTitle(title, unreadCount: accessibilityUnreadCount)
+            }
+            items.append(segmentItem)
             index += 1
         }
         

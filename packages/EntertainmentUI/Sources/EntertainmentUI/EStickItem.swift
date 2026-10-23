@@ -1,6 +1,7 @@
 import Cocoa
 import TGUIKit
 import TelegramTheme
+import Localization
 public class EStickItem: TableRowItem {
     
     public override var height: CGFloat {
@@ -14,8 +15,10 @@ public class EStickItem: TableRowItem {
     
     public let layout:(TextNodeLayout, TextNode)
     fileprivate let clearCallback:(()->Void)?
+    private let segmentName: String
     public init(_ initialSize:NSSize, stableId: AnyHashable, segmentName:String, clearCallback:(()->Void)? = nil) {
         self._stableId = stableId
+        self.segmentName = segmentName
         self.clearCallback = clearCallback
         layout = TextNode.layoutText(maybeNode: nil,  .initialize(string: segmentName.uppercased(), color: theme.colors.grayText, font: .medium(.short)), nil, 1, .end, NSMakeSize(.greatestFiniteMagnitude, .greatestFiniteMagnitude), nil, false, .left)
         super.init(initialSize)
@@ -23,6 +26,10 @@ public class EStickItem: TableRowItem {
     
     public override func viewClass() -> AnyClass {
         return EStickView.self
+    }
+    
+    public override var accessibilityLabel: String? {
+        return segmentName.isEmpty ? nil : segmentName
     }
 }
 
@@ -66,6 +73,7 @@ private class EStickView: TableStickView {
                 current.scaleOnClick = true
                 current.set(image: theme.icons.wallpaper_color_close, for: .Normal)
                 current.sizeToFit()
+                current.setAccessibilityLabel(strings().voiceOverCommonClear)
                 addSubview(current)
                 self.button = current
             }

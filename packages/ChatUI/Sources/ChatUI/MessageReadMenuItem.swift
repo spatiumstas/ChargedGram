@@ -190,6 +190,11 @@ public final class MessageReadMenuRowItem : AppMenuRowItem {
     fileprivate var state: State = .loading
     private let availableReactions: AvailableReactions?
     private let reactions: EngineMessageReactionListContext
+
+    public override var accessibilityLabel: String? {
+        let text = state.text(message, context: context)
+        return text.isEmpty ? strings().voiceOverCommonLoading : text
+    }
     
     private let menu = ContextMenu()
     
@@ -1006,6 +1011,27 @@ private final class ReactionPeerMenuItem : AppMenuRowItem {
         }
     }
     
+    override var accessibilityValue: String? {
+        var parts: [String] = []
+        if let reaction {
+            switch reaction {
+            case let .builtin(file):
+                parts.append(file.customEmojiText ?? file.stickerText ?? strings().voiceOverCommonReactions)
+            case let .custom(_, file):
+                parts.append(file?.customEmojiText ?? file?.stickerText ?? strings().voiceOverCommonReactions)
+            case .stars:
+                parts.append(strings().voiceOverCommonStars)
+            }
+        }
+        if let readTimestamp {
+            parts.append(stringForRelativeTimestamp(relativeTimestamp: readTimestamp, relativeTo: context.timestamp))
+        }
+        if let value = super.accessibilityValue {
+            parts.append(value)
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
     override var textSize: CGFloat {
         if let readTimestamp = self.readTimestamp {
             let string = stringForRelativeTimestamp(relativeTimestamp: readTimestamp, relativeTo: context.timestamp)
@@ -1233,6 +1259,7 @@ private final class ReactionPeerMenuItemView : AppMenuRowView {
                 current = view
             } else {
                 current = ImageView()
+                current.isAccessibilityDecorative = true
                 addSubview(current)
                 self.afterNameImageView = current
             }
@@ -1436,6 +1463,15 @@ public final class MessageAuthorMenuRowItem : AppMenuRowItem {
     
     public override func viewClass() -> AnyClass {
         return MessageAuthorMenuItemView.self
+    }
+
+    public override var accessibilityLabel: String? {
+        switch state {
+        case .loading:
+            return strings().voiceOverCommonLoading
+        case .peer:
+            return super.accessibilityLabel
+        }
     }
 
 }

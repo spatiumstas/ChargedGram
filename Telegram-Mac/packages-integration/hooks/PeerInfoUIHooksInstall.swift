@@ -7,6 +7,7 @@ import WalletContext
 import AudioPlayerUI
 import AudioPlayerCore
 import PeerInfoUI
+import QrStudioUI
 
 extension PremiumConfiguration: PeerInfoPremiumConfiguration {
 
@@ -14,7 +15,7 @@ extension PremiumConfiguration: PeerInfoPremiumConfiguration {
 
 private func makePeerInfoWalletHooks() -> Any? {
     if #available(macOS 10.15, *) {
-        return PeerInfoWalletHooks(hasWallet: { context in
+        var hooks = PeerInfoWalletHooks(hasWallet: { context in
             return (context as! AccountContext).walletContext != nil
         }, sendMoney: { context, peer in
             let context = context as! AccountContext
@@ -22,7 +23,26 @@ private func makePeerInfoWalletHooks() -> Any? {
                 return
             }
             showWalletSendMoney(context: context, walletContext: walletContext, peer: peer)
+        }, preloadPeerCard: { context, card in
+            preloadWalletPeerCard(context: context as! AccountContext, card: card)
+        }, showPeerBalance: { context, peer, morphSource in
+            let context = context as! AccountContext
+            guard let walletContext = context.walletContext else {
+                return
+            }
+            showWalletPeerBalance(context: context, walletContext: walletContext, peer: peer, morphSource: morphSource)
         })
+        hooks.sendMoneyWithContext = { context, peer in
+            let context = context as! AccountContext
+            guard let walletContext = context.walletContext else { return }
+            showWalletSendMoney(context: context, walletContext: walletContext, peer: peer)
+        }
+        hooks.showPeerBalanceWithContext = { context, peer, morphSource in
+            let context = context as! AccountContext
+            guard let walletContext = context.walletContext else { return }
+            showWalletPeerBalance(context: context, walletContext: walletContext, peer: peer, morphSource: morphSource)
+        }
+        return hooks
     } else {
         return nil
     }
@@ -30,8 +50,20 @@ private func makePeerInfoWalletHooks() -> Any? {
 
 private func makePeerInfoNavigationHooks() -> PeerInfoNavigationHooks {
     var hooks = PeerInfoNavigationHooks()
+    hooks.openQrStudio = { context, peerId, morphSource in
+        showQrStudio(context: context, peerId: peerId, morphSource: morphSource)
+    }
+    hooks.openQrStudioWithContext = { context, peerId, morphSource in
+        showQrStudio(context: context, peerId: peerId, morphSource: morphSource)
+    }
+    hooks.prefetchQrStudio = { context, peer in
+        prefetchQrStudio(context: context, peer: peer)
+    }
     hooks.makeGroupsInCommonController = { context, peerId in
         return GroupsInCommonViewController(context: context as! AccountContext, peerId: peerId)
+    }
+    hooks.makeGroupsInCommonControllerWithContext = { context, peerId in
+        return GroupsInCommonViewController(context: context, peerId: peerId)
     }
     hooks.showTranslateModal = { context, fromLang, toLang, text in
         let context = context as! AccountContext
@@ -108,6 +140,12 @@ private func makePeerInfoNavigationHooks() -> PeerInfoNavigationHooks {
         let context = context as! AccountContext
         showModal(with: ChannelParticipantController(context: context, peerId: peerId, participant: participant), for: context.window)
     }
+    hooks.showRestrictMemberWithContext = { context, peerId, memberId, participant, updated in
+        showModal(with: RestrictedModalController(context, peerId: peerId, memberId: memberId, initialParticipant: participant, updated: updated), for: context.window)
+    }
+    hooks.showChannelParticipantWithContext = { context, peerId, participant in
+        showModal(with: ChannelParticipantController(context: context as! AccountContext, peerId: peerId, participant: participant), for: context.window)
+    }
     hooks.makeChannelMembersController = { context, peerId in
         return ChannelMembersViewController(context as! AccountContext, peerId: peerId)
     }
@@ -119,6 +157,10 @@ private func makePeerInfoNavigationHooks() -> PeerInfoNavigationHooks {
     }
     hooks.showUserTagInfo = { context, tag, authorName, groupName, badgeType, canEditRank in
         let context = context as! AccountContext
+        let configuration = UserTagInfoConfiguration(tag: tag, authorName: authorName, groupName: groupName, badgeType: badgeType, canEditRank: canEditRank)
+        showModal(with: UserTagInfoModalController(context: context, configuration: configuration), for: context.window)
+    }
+    hooks.showUserTagInfoWithContext = { context, tag, authorName, groupName, badgeType, canEditRank in
         let configuration = UserTagInfoConfiguration(tag: tag, authorName: authorName, groupName: groupName, badgeType: badgeType, canEditRank: canEditRank)
         showModal(with: UserTagInfoModalController(context: context, configuration: configuration), for: context.window)
     }
@@ -137,7 +179,7 @@ private func makePeerInfoNavigationHooks() -> PeerInfoNavigationHooks {
 func installPeerInfoUIHooks() {
     PeerInfoNavigationHooks.install(makePeerInfoNavigationHooks())
 
-    PeerInfoUIHooks.install(PeerInfoUIHooks(freezeAlert: { context in
+    var hooks = PeerInfoUIHooks(freezeAlert: { context in
         (context as! AccountContext).freezeAlert()
     }, formatPhoneNumber: { context, number in
         return formatPhoneNumber(context: context as! AccountContext, number: number)
@@ -161,5 +203,9 @@ func installPeerInfoUIHooks() {
         execute(inapp: .nft(link: link, slug: slug, context: context as! AccountContext))
     }, navigateToChat: { navigation, context, chatLocation, mode, focusTarget, chatLocationContextHolder in
         navigateToChat(navigation: navigation, context: context as! AccountContext, chatLocation: chatLocation, mode: mode, focusTarget: focusTarget, chatLocationContextHolder: chatLocationContextHolder)
-    }, wallet: makePeerInfoWalletHooks()))
+    }, wallet: makePeerInfoWalletHooks())
+    hooks.navigateToChatWithContext = { navigation, context, location, mode, focus, holder in
+        navigateToChat(navigation: navigation, context: context as! AccountContext, chatLocation: location, mode: mode, focusTarget: focus, chatLocationContextHolder: holder)
+    }
+    PeerInfoUIHooks.install(hooks)
 }

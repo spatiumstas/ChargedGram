@@ -48,6 +48,8 @@ public class VideoRecorderModalView: View {
         backgroundColor = .clear
         captureContainer.setFrameSize(frameRect.width - 36, frameRect.height - 36)
         placeholderView.animates = false
+        placeholderView.isAccessibilityDecorative = true
+        shadowView.isAccessibilityDecorative = true
         placeholderView.image = thumbnail ?? TelegramThemeHooks.shared.image(.videoMessagePlaceholder).precomposed()
         placeholderView.frame = bounds
         captureContainer.addSubview(placeholderView)

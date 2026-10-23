@@ -7,6 +7,14 @@ import TelegramContext
 
 public struct GroupsInCommonHooks {
     public let openChat: (any AccountContextProtocol, PeerId) -> Void
+    public var openChatWithContext: ((any AccountContextProtocol, PeerId) -> Void)?
+    public func openChatObserved(_ context: any AccountContextProtocol, _ peerId: PeerId) {
+        if let openChatWithContext {
+            openChatWithContext(context, peerId)
+        } else {
+            openChat(context, peerId)
+        }
+    }
 
     public init(openChat: @escaping (any AccountContextProtocol, PeerId) -> Void) {
         self.openChat = openChat

@@ -33,6 +33,13 @@ import InputView
 import InputTextView
 import InlineStickerLayer
 
+private func withGiftModalSource<Result>(for window: Window, perform action: () -> Result) -> Result {
+    guard let source = Control.currentEventSource, source.window === window else {
+        return action()
+    }
+    return ModalMorphContextSource.withSource({ [weak source] in source }, perform: action)
+}
+
 extension StarGift.UniqueGift.Attribute.Rarity {
     public var badgeText: String {
         switch self {
@@ -349,6 +356,14 @@ public final class TransferUniqueGiftHeaderItem : GeneralRowItem {
         super.init(initialSize, height: height, stableId: stableId)
     }
     
+    public override var accessibilityLabel: String? {
+        return layout.attributedString.string
+    }
+    
+    public override var accessibilityValue: String? {
+        return [gift.title + " #\(gift.number)", toPeer._asPeer().displayTitle].joined(separator: ", ")
+    }
+    
     public override func viewClass() -> AnyClass {
         return TransferHeaderView.self
     }
@@ -395,6 +410,7 @@ private final class TransferHeaderView : GeneralRowView {
         
         textView.userInteractionEnabled = false
         textView.isSelectable = false
+        chevron.isAccessibilityDecorative = true
         
         giftView.center()
     }
@@ -719,6 +735,11 @@ private final class RowItem : GeneralRowItem {
         
         return height
     }
+    
+    override var accessibilityLabel: String? {
+        return headerLayout?.attributedString.string ?? options.first?.header.attributedString.string
+    }
+    
     public override func viewClass() -> AnyClass {
         return RowView.self
     }
@@ -833,6 +854,9 @@ private final class RowView: GeneralContainableRowView {
         
         nameView.update(item.nameEnabledLayout)
         nameToggle.set(selected: item.nameEnabled, animated: animated)
+        nameToggle.isAccessibilityDecorative = true
+        nameControl.setAccessibilityLabel(item.nameEnabledLayout?.attributedString.string)
+        nameControl.setAccessibilityValue(item.nameEnabled ? strings().voiceOverCommonChecked : strings().voiceOverCommonUnchecked)
         
         nameControl.setSingle(handler: { [weak item] _ in
             item?.toggleName()
@@ -856,19 +880,19 @@ private final class HeaderItem : GeneralRowItem {
         public var size: NSSize = .zero
       
         
-        public init(context: (any AccountContextProtocol), title: String, image: CGImage, action: @escaping () -> Void, locked: Bool = false) {
+        public init(context: (any AccountContextProtocol), title: String, image: CGImage, action: @escaping () -> Void, locked: Bool = false, color: NSColor = .white) {
             self.context = context
             let attr = NSMutableAttributedString()
 
-            attr.append(string: title, color: NSColor.white.withAlphaComponent(0.8), font: .normal(.text))
+            attr.append(string: title, color: color.withAlphaComponent(0.8), font: .normal(.text))
 
             if locked {
                 attr.insert(.initialize(string: clown), at: 0)
-                attr.insertEmbedded(.embedded(name: "Icon_EmojiLock", color: NSColor.white.withAlphaComponent(0.8), resize: false), for: clown)
+                attr.insertEmbedded(.embedded(name: "Icon_EmojiLock", color: color.withAlphaComponent(0.8), resize: false), for: clown)
                 attr.append(string: " ")
             }
             self.title = .init(attr)
-            self.image = image
+            self.image = image.highlight(color: color)
             self.action = action
         }
         
@@ -992,20 +1016,21 @@ private final class HeaderItem : GeneralRowItem {
         switch source {
         case .quickLook(_, _):
             if let uniqueGift = uniqueGift, let owner = state.owner, owner.id == context.peerId || owner._asPeer().groupAccess.canManageGifts || owner.id == uniqueGift.hostPeerId {
+                let actionColor: NSColor = (uniqueGift.backdrop?.first?.lightness ?? 1.0) > 0.8 ? .black : .white
                 actions = [.init(context: context, title: strings().starNftTransfer, image: TelegramThemeHooks.shared.image(.iconNFTTransfer).precomposed(.white), action: {
                     arguments.transfer()
-                }, locked: uniqueGift.hostPeerId != nil), .init(context: context, title: state.weared ? strings().starNftTakeOff : strings().starNftWear, image: TelegramThemeHooks.shared.image(.iconNFTWear).precomposed(.white), action: {
+                }, locked: uniqueGift.hostPeerId != nil, color: actionColor), .init(context: context, title: state.weared ? strings().starNftTakeOff : strings().starNftWear, image: TelegramThemeHooks.shared.image(.iconNFTWear).precomposed(.white), action: {
                     arguments.toggleWear(uniqueGift)
-                })]
+                }, color: actionColor)]
 
                 if case .starGift = state.purpose {
                     actions.append(.init(context: context, title: uniqueGift.resellStars(context) != nil ? strings().starNftUnlist : strings().starNftSell, image: TelegramThemeHooks.shared.image(uniqueGift.resellStars(context) != nil ? .iconNftUnlist : .iconNftSell).precomposed(.white), action: {
                         arguments.sellNft(uniqueGift, false)
-                    }, locked: uniqueGift.hostPeerId != nil))
+                    }, locked: uniqueGift.hostPeerId != nil, color: actionColor))
                 } else {
                     actions.append(.init(context: context, title: strings().starNftShare, image: TelegramThemeHooks.shared.image(.iconNFTShare).precomposed(.white), action: {
                         arguments.shareNft(uniqueGift)
-                    }))
+                    }, color: actionColor))
                 }
                 
             }
@@ -1093,6 +1118,15 @@ private final class HeaderItem : GeneralRowItem {
         return HeaderView.self
     }
     
+    override var accessibilityLabel: String? {
+        return title.attributedString.string
+    }
+    
+    override var accessibilityValue: String? {
+        let value = (onSaleLayout ?? info)?.attributedString.string
+        return value?.isEmpty == false ? value : nil
+    }
+    
     public var backgroundContent: UniqueGiftBackgroundContent? {
         switch self.backdrops[self.backdropIndex] {
         case let .backdrop(_, _, inner, outer, patternColor, _, _):
@@ -1127,22 +1161,51 @@ private final class HeaderView : GeneralRowView {
     public class ActionView : Control {
         private let textView: InteractiveTextView = InteractiveTextView()
         private let imageView = ImageView()
+        private var glassView: LiquidGlassView?
         public required init(frame frameRect: NSRect) {
             super.init(frame: frameRect)
             textView.userInteractionEnabled = false
             textView.textView.isSelectable = false
             addSubview(textView)
             addSubview(imageView)
+            imageView.isAccessibilityDecorative = true
         }
 
         public required init?(coder: NSCoder) {
             fatalError("init(coder:) has not been implemented")
         }
 
-        public func set(item: HeaderItem.ActionItem) {
+        public func set(item: HeaderItem.ActionItem, glassTint: NSColor?, fill: NSColor) {
             self.textView.set(text: item.title, context: item.context)
+            self.setAccessibilityLabel(item.title.attributedString.string)
             self.imageView.image = item.image
             self.imageView.sizeToFit()
+
+            if let glassTint {
+                let glass: LiquidGlassView
+                if let current = self.glassView {
+                    glass = current
+                } else {
+                    glass = LiquidGlassView(frame: bounds, cornerRadius: 20, hasShadow: true, hasBorder: true, forceAppearance: .forceLight)
+                    addSubview(glass, positioned: .below, relativeTo: nil)
+                    self.glassView = glass
+                }
+                glass.customTint = glassTint
+                self.background = .clear
+                self.layer?.cornerRadius = 0
+                self.layer?.masksToBounds = false
+                self.scaleOnClick = false
+                self.stretchReferenceView = glass
+            } else {
+                if let glass = self.glassView {
+                    glass.removeFromSuperview()
+                    self.glassView = nil
+                }
+                self.stretchReferenceView = nil
+                self.background = fill
+                self.layer?.cornerRadius = 20
+                self.scaleOnClick = true
+            }
 
             setSingle(handler: { [weak item] _ in
                 item?.action()
@@ -1154,6 +1217,8 @@ private final class HeaderView : GeneralRowView {
         public override func layout() {
             super.layout()
 
+            glassView?.frame = bounds
+            glassView?.updateLayout(size: bounds.size, transition: .immediate)
             imageView.centerX(y: 5)
             textView.centerX(y: frame.height - textView.frame.height - 10)
         }
@@ -1226,8 +1291,10 @@ private final class HeaderView : GeneralRowView {
         dismiss.set(image: TelegramThemeHooks.shared.image(.iconPipClose).precomposed(iconColor), for: .Normal)
         dismiss.scaleOnClick = true
         dismiss.autohighlight = false
-        dismiss.setGlassEffect(size: NSMakeSize(36, 36), tintColor: item.uniqueGift?.backdrop?.first)
+        dismiss.setGlassEffect(size: NSMakeSize(36, 36), tintColor: item.uniqueGift?.backdrop?.first, forceAppearance: .forceLight)
+        dismiss.glassTintColor = item.uniqueGift?.backdrop?.first
         dismiss.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
 
         dismiss.setSingle(handler: { [weak item] _ in
             item?.arguments.dismiss()
@@ -1245,16 +1312,25 @@ private final class HeaderView : GeneralRowView {
                 self.actions = current
                 current.autohighlight = false
                 current.scaleOnClick = true
+                current.setAccessibilityLabel(strings().voiceOverCommonMore)
             }
             current.set(image: TelegramThemeHooks.shared.image(.iconChatActions).precomposed(iconColor), for: .Normal)
-            current.setGlassEffect(size: NSMakeSize(36, 36), tintColor: item.uniqueGift?.backdrop?.first)
+            current.setGlassEffect(size: NSMakeSize(36, 36), tintColor: item.uniqueGift?.backdrop?.first, forceAppearance: .forceLight)
 
+            current.glassTintColor = item.uniqueGift?.backdrop?.first
             current.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
 
             current.contextMenu = {
                 let menu = ContextMenu()
                 
                 
+                let owner = item.state.owner?._asPeer()
+                let visibility = item.state.profileVisibility
+
+                if case let .peerId(peerId) = uniqueGift.owner, peerId == item.arguments.context.peerId || owner?.groupAccess.isCreator == true, let pinnedInfo = item.state.pinnedInfo, visibility?.saved != false {
+                    menu.addItem(ContextMenuItem(pinnedInfo.pinnedInfo ? strings().messageContextUnpin : strings().messageContextPin, handler: item.arguments.togglePin, itemImage: pinnedInfo.pinnedInfo ? MenuAnimation.menu_unpin.value : MenuAnimation.menu_pin.value))
+                }
+
                 menu.addItem(ContextMenuItem(strings().contextCopy, handler: {
                     item.arguments.copyNftLink(uniqueGift)
                 }, itemImage: MenuAnimation.menu_copy_link.value))
@@ -1263,8 +1339,6 @@ private final class HeaderView : GeneralRowView {
                     item.arguments.shareNft(uniqueGift)
                 }, itemImage: MenuAnimation.menu_share.value))
                 
-                
-                let owner = item.state.owner?._asPeer()
                 
                 if case let .peerId(peerId) = uniqueGift.owner, peerId == item.arguments.context.peerId {
                     if uniqueGift.flags.contains(.isThemeAvailable) {
@@ -1281,8 +1355,8 @@ private final class HeaderView : GeneralRowView {
                 if case let .peerId(peerId) = uniqueGift.owner, peerId == item.arguments.context.peerId || owner?.groupAccess.isCreator == true {
                     
                     
-                    if let pinnedInfo = item.state.pinnedInfo {
-                        menu.addItem(ContextMenuItem(pinnedInfo.pinnedInfo ? strings().messageContextUnpin : strings().messageContextPin, handler: item.arguments.togglePin, itemImage: pinnedInfo.pinnedInfo ? MenuAnimation.menu_unpin.value : MenuAnimation.menu_pin.value))
+                    if let visibility {
+                        menu.addItem(ContextMenuItem(visibility.saved ? strings().giftViewContextHideFromProfile : strings().giftViewContextShowOnProfile, handler: item.arguments.toggleProfileVisibility, itemImage: visibility.saved ? MenuAnimation.menu_eye_slash.value : MenuAnimation.menu_eye.value))
                     }
                                         
                     menu.addItem(ContextMenuItem(strings().giftTransferConfirmationTransferFree, handler: {
@@ -1296,6 +1370,10 @@ private final class HeaderView : GeneralRowView {
                     }
                 }
                 
+                if let moveToGifts = StarsHooks.shared.giftMoveToGiftsAction(item.arguments.context, item.arguments.context.window, uniqueGift) {
+                    menu.addItem(ContextMenuItem(strings().giftTransferMoveToGifts, handler: moveToGifts, itemImage: MenuAnimation.menu_replace.value))
+                }
+
                 if !item.state.canManage, let peer = item.state.owner {
                     menu.addItem(ContextMenuItem(strings().starGiftNftOfferToBuy, handler: {
                         item.arguments.makeOffer(uniqueGift, peer)
@@ -1320,10 +1398,12 @@ private final class HeaderView : GeneralRowView {
                     self.craftButton = craftBtn
                     craftBtn.autohighlight = false
                     craftBtn.scaleOnClick = true
+                    craftBtn.setAccessibilityLabel(strings().starGiftCraftMenuItem)
                 }
-                let craftColor: NSColor = theme.colors.text
+                let craftColor: NSColor = iconColor
                 craftBtn.set(image: TelegramThemeHooks.shared.image(.iconNftAnvil).precomposed(craftColor), for: .Normal)
-                craftBtn.setGlassEffect(size: NSMakeSize(36, 36), tintColor: item.uniqueGift != nil ? NSColor.white.withAlphaComponent(0.25) : nil)
+                craftBtn.setGlassEffect(size: NSMakeSize(36, 36), tintColor: item.uniqueGift?.backdrop?.first, forceAppearance: .forceLight)
+                craftBtn.glassTintColor = item.uniqueGift?.backdrop?.first
 
                 craftBtn.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
                 craftBtn.removeAllHandlers()
@@ -1403,6 +1483,7 @@ private final class HeaderView : GeneralRowView {
                 current = view
             } else {
                 current = View()
+                current.layer?.masksToBounds = false
                 addSubview(current)
                 self.ownerActions = current
             }
@@ -1417,13 +1498,11 @@ private final class HeaderView : GeneralRowView {
             
             for (i, action) in item.actions.enumerated() {
                 let view = current.subviews[i] as! ActionView
-                view.layer?.cornerRadius = 20
-                view.scaleOnClick = true
 
                 let textColor = item.uniqueGift?.backdrop?.first?.lightness ?? 1.0 > 0.8 ? NSColor(0x000000) : NSColor(0xffffff)
+                let glassTint = System.liquidGlass ? item.uniqueGift?.backdrop?.first : nil
 
-                view.background = textColor.withAlphaComponent(0.2)
-                view.set(item: action)
+                view.set(item: action, glassTint: glassTint, fill: textColor.withAlphaComponent(0.2))
             }
             
         } else if let view = ownerActions {
@@ -1522,12 +1601,15 @@ private final class HeaderView : GeneralRowView {
             current.layer?.cornerRadius = current.frame.height / 2
 
             if self.variantsGlass == nil {
-                let glass = LiquidGlassView(frame: current.bounds, cornerRadius: current.frame.height / 2, hasShadow: false, hasBorder: false, forceAppearance: .forceLight)
+                let glass = LiquidGlassView(frame: current.bounds, cornerRadius: current.frame.height / 2, hasShadow: true, hasBorder: true, forceAppearance: .forceLight)
                 glass.autoresizingMask = [.width, .height]
                 self.variantsGlass = glass
                 current.addSubview(glass, positioned: .below, relativeTo: nil)
             }
             self.variantsGlass?.cornerRadius = current.frame.height / 2
+            self.variantsGlass?.customTint = item.uniqueGift?.backdrop?.first
+            current.layer?.masksToBounds = false
+            current.interactiveGlassView = self.variantsGlass
 
             current.setSingle(handler: { [weak item] _ in
                 if let gift = item?.state.gift {
@@ -1557,12 +1639,15 @@ private final class HeaderView : GeneralRowView {
             current.layer?.cornerRadius = current.frame.height / 2
 
             if self.onSaleGlass == nil {
-                let glass = LiquidGlassView(frame: current.bounds, cornerRadius: current.frame.height / 2, hasShadow: false, hasBorder: false, forceAppearance: .forceLight)
+                let glass = LiquidGlassView(frame: current.bounds, cornerRadius: current.frame.height / 2, hasShadow: true, hasBorder: true, forceAppearance: .forceLight)
                 glass.autoresizingMask = [.width, .height]
                 self.onSaleGlass = glass
                 current.addSubview(glass, positioned: .below, relativeTo: nil)
             }
             self.onSaleGlass?.cornerRadius = current.frame.height / 2
+            self.onSaleGlass?.customTint = item.uniqueGift?.backdrop?.first
+            current.layer?.masksToBounds = false
+            current.interactiveGlassView = self.onSaleGlass
 
             current.setSingle(handler: { [weak item] _ in
                 if let uniqueGift = item?.uniqueGift {
@@ -1665,36 +1750,37 @@ private final class Arguments {
     public let craftAnother:()->Void
     public let showCraftSuccess:(StarGift.UniqueGift)->Void
     public let okAction:()->Void
+    public var toggleProfileVisibility:()->Void = {}
 
-    public init(context: (any AccountContextProtocol), dismiss:@escaping()->Void, toggleName:@escaping()->Void, transfer:@escaping()->Void, copyNftLink:@escaping(StarGift.UniqueGift)->Void, shareNft:@escaping(StarGift.UniqueGift)->Void, sellNft:@escaping(StarGift.UniqueGift, Bool)->Void, toggleWear:@escaping(StarGift.UniqueGift)->Void, togglePin:@escaping()->Void, openPeer:@escaping(EnginePeer, Bool)->Void, openValue:@escaping(StarGift.UniqueGift)->Void, setAsTheme:@escaping(StarGift.UniqueGift)->Void, deleteOriginalInfo:@escaping(StarGift.UniqueGift, NSAttributedString)->Void, makeOffer:@escaping(StarGift.UniqueGift, EnginePeer)->Void, showModels:@escaping(StarGift, StarGift_Builder_Section)->Void, startCrafting:@escaping()->Void, toggleCraftGift:@escaping(ProfileGiftsContext.State.StarGift)->Void, showCraftModels:@escaping(StarGift.UniqueGift, StarGift_Builder_Section)->Void, showCraftMarketplace:@escaping(Int)->Void, showCraftAbout:@escaping()->Void, showBackdropChanceHint:@escaping(String, Int)->Void, showPatternChanceHint:@escaping(String, Int)->Void, openCraftAbout:@escaping(StarGift.UniqueGift)->Void, performCraft:@escaping(@escaping()->Void, @escaping(ProfileGiftsContext.State.StarGift)->Void, @escaping([ProfileGiftsContext.State.StarGift])->Void, @escaping()->Void)->Void, showCraftVariants:@escaping()->Void, craftAnother:@escaping()->Void, showCraftSuccess:@escaping(StarGift.UniqueGift)->Void, okAction:@escaping()->Void) {
+    public init(context: (any AccountContextProtocol), window: @escaping () -> Window, dismiss:@escaping()->Void, toggleName:@escaping()->Void, transfer:@escaping()->Void, copyNftLink:@escaping(StarGift.UniqueGift)->Void, shareNft:@escaping(StarGift.UniqueGift)->Void, sellNft:@escaping(StarGift.UniqueGift, Bool)->Void, toggleWear:@escaping(StarGift.UniqueGift)->Void, togglePin:@escaping()->Void, openPeer:@escaping(EnginePeer, Bool)->Void, openValue:@escaping(StarGift.UniqueGift)->Void, setAsTheme:@escaping(StarGift.UniqueGift)->Void, deleteOriginalInfo:@escaping(StarGift.UniqueGift, NSAttributedString)->Void, makeOffer:@escaping(StarGift.UniqueGift, EnginePeer)->Void, showModels:@escaping(StarGift, StarGift_Builder_Section)->Void, startCrafting:@escaping()->Void, toggleCraftGift:@escaping(ProfileGiftsContext.State.StarGift)->Void, showCraftModels:@escaping(StarGift.UniqueGift, StarGift_Builder_Section)->Void, showCraftMarketplace:@escaping(Int)->Void, showCraftAbout:@escaping()->Void, showBackdropChanceHint:@escaping(String, Int)->Void, showPatternChanceHint:@escaping(String, Int)->Void, openCraftAbout:@escaping(StarGift.UniqueGift)->Void, performCraft:@escaping(@escaping()->Void, @escaping(ProfileGiftsContext.State.StarGift)->Void, @escaping([ProfileGiftsContext.State.StarGift])->Void, @escaping()->Void)->Void, showCraftVariants:@escaping()->Void, craftAnother:@escaping()->Void, showCraftSuccess:@escaping(StarGift.UniqueGift)->Void, okAction:@escaping()->Void) {
         self.context = context
         self.dismiss = dismiss
         self.toggleName = toggleName
-        self.transfer = transfer
+        self.transfer = { withGiftModalSource(for: window(), perform: transfer) }
         self.copyNftLink = copyNftLink
-        self.shareNft = shareNft
-        self.sellNft = sellNft
+        self.shareNft = { gift in withGiftModalSource(for: window()) { shareNft(gift) } }
+        self.sellNft = { gift, edit in withGiftModalSource(for: window()) { sellNft(gift, edit) } }
         self.toggleWear = toggleWear
         self.togglePin = togglePin
         self.openPeer = openPeer
-        self.openValue = openValue
-        self.setAsTheme = setAsTheme
-        self.deleteOriginalInfo = deleteOriginalInfo
-        self.makeOffer = makeOffer
-        self.showModels = showModels
+        self.openValue = { gift in withGiftModalSource(for: window()) { openValue(gift) } }
+        self.setAsTheme = { gift in withGiftModalSource(for: window()) { setAsTheme(gift) } }
+        self.deleteOriginalInfo = { gift, text in withGiftModalSource(for: window()) { deleteOriginalInfo(gift, text) } }
+        self.makeOffer = { gift, peer in withGiftModalSource(for: window()) { makeOffer(gift, peer) } }
+        self.showModels = { gift, section in withGiftModalSource(for: window()) { showModels(gift, section) } }
         self.startCrafting = startCrafting
         self.toggleCraftGift = toggleCraftGift
-        self.showCraftModels = showCraftModels
-        self.showCraftMarketplace = showCraftMarketplace
+        self.showCraftModels = { gift, section in withGiftModalSource(for: window()) { showCraftModels(gift, section) } }
+        self.showCraftMarketplace = { slot in withGiftModalSource(for: window()) { showCraftMarketplace(slot) } }
         self.showCraftAbout = showCraftAbout
         self.showBackdropChanceHint = showBackdropChanceHint
         self.showPatternChanceHint = showPatternChanceHint
         self.openCraftAbout = openCraftAbout
         self.performCraft = performCraft
-        self.showCraftVariants = showCraftVariants
-        self.craftAnother = craftAnother
+        self.showCraftVariants = { withGiftModalSource(for: window(), perform: showCraftVariants) }
+        self.craftAnother = { withGiftModalSource(for: window(), perform: craftAnother) }
         self.showCraftSuccess = showCraftSuccess
-        self.okAction = okAction
+        self.okAction = { withGiftModalSource(for: window(), perform: okAction) }
     }
 }
 
@@ -1729,7 +1815,10 @@ private struct State : Equatable {
     public var purpose: Star_TransactionPurpose?
     
     public var weared: Bool {
-        return owner?.emojiStatus?.fileId == gift.unique?.file?.fileId.id
+        guard let unique = gift.unique, case let .starGift(id, _, _, _, _, _, _, _, _)? = owner?.emojiStatus?.content else {
+            return false
+        }
+        return id == unique.id
     }
     
     public var upgradeForm: BotPaymentForm?
@@ -1740,6 +1829,14 @@ private struct State : Equatable {
     public var myBalance: StarsAmount?
     public var myTonBalance: StarsAmount?
     public var tonAddress: String? = nil
+    public var savedToProfileOverride: Bool?
+
+    public var profileVisibility: (reference: StarGiftReference, saved: Bool)? {
+        guard case .quickLook = source, let purpose, case let .starGift(_, _, _, _, _, savedToProfile, _, _, _, _, _, _, reference, _, _, _, _, _, _, _, _, _, _, _) = purpose, let reference else {
+            return nil
+        }
+        return (reference, savedToProfileOverride ?? savedToProfile)
+    }
     
     public var owner: EnginePeer?
     public var ownerName: String?
@@ -1911,7 +2008,7 @@ private struct State : Equatable {
         case let .quickLook(peer, gift):
             if let purpose {
                 switch purpose {
-                case let .starGift(_, _, _, _, _, savedToProfile, _, _, _, _, _, _, reference, _, _, _, _, _, _, _, _, _, _, _):
+                case let .starGift(_, _, _, _, _, _, _, _, _, _, _, _, reference, _, _, _, _, _, _, _, _, _, _, _):
                     if let _ = reference {
                         var canManage: Bool
                         let peer = peer ?? owner
@@ -1925,11 +2022,7 @@ private struct State : Equatable {
                             if let _ = self.takeNextUpgradeGift {
                                 return strings().starGiftUniqueUpgradeNext
                             }
-                            if !savedToProfile {
-                                return strings().starTransactionStarGiftChannelDisplayOnMyPage
-                            } else {
-                                return strings().starTransactionStarGiftChannelHideFromMyPage
-                            }
+                            return strings().modalOK
                         }
                     }
                 default:
@@ -2406,6 +2499,14 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
             entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: .init("attributes"), equatable: .init(state), comparable: nil, item: { initialSize, stableId in
                 return InputDataTableBasedItem(initialSize, stableId: stableId, viewType: .singleItem, rows: rows, context: arguments.context)
             }))
+
+            if let visibility = state.profileVisibility, state.takeNextUpgradeGift == nil {
+                index += 1
+                entries.append(.desc(sectionId: sectionId, index: index, text: .markdown(visibility.saved ? strings().starTransactionStarGiftShownInProfile : strings().starTransactionStarGiftHidInProfile, linkHandler: { _ in
+                    arguments.toggleProfileVisibility()
+                }), data: .init(viewType: .singleItem, fontSize: 13, centerViewAlignment: true, alignment: .center)))
+                index += 1
+            }
             
             
             if let address = state.gift.unique?.giftAddress, state.gift.unique?.hostPeerId == nil, case .address = state.gift.unique?.owner {
@@ -2552,6 +2653,7 @@ public func StarGift_Nft_Controller(context: (any AccountContextProtocol), gift:
     let craftContextDisposables = DisposableSet()
 
     let actionsDisposable = DisposableSet()
+    let wearAction = GiftWearAction()
     let ownerDisposable = MetaDisposable()
     actionsDisposable.add(ownerDisposable)
     let peersDisposable = MetaDisposable()
@@ -2913,7 +3015,7 @@ public func StarGift_Nft_Controller(context: (any AccountContextProtocol), gift:
 
     }
 
-    let arguments = Arguments(context: context, dismiss:{
+    let arguments = Arguments(context: context, window: { window }, dismiss:{
         let state = stateValue.with { $0 }
         if case .failed = state.craftingState {
             close?()
@@ -2921,6 +3023,7 @@ public func StarGift_Nft_Controller(context: (any AccountContextProtocol), gift:
         }
         switch state.source {
         case let .previewWear(owner, gift):
+            wearAction.reset()
             updateState { current in
                 var current = current
                 current.source = .quickLook(owner, gift)
@@ -2982,47 +3085,19 @@ public func StarGift_Nft_Controller(context: (any AccountContextProtocol), gift:
         
         
         
-        _ = StarsHooks.shared.selectPeerToTransfer(context, window, strings().giftTransferTitle, state.gift.unique, reference, canExportDate).start(next: { peerIds in
-            if let peerId = peerIds.first {
-                let peer = context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: peerId)) |> deliverOnMainQueue
-                
-                _ = peer.startStandalone(next: { peer in
-                    if let peer {
-                                                
-                        let info: String
-                        let ok: String
-                        
-                        guard let reference = reference, let unique = state.gift.unique else {
-                            return
-                        }
-                        
-                        if let convertStars = convertStars, let starsState = state.starsState, starsState.balance.value < convertStars {
-                            showModal(with: Star_ListScreen(context: context, source: .buy(suffix: nil, amount: convertStars)), for: window)
-                            return
-                        }
-                        
-                        if let stars = transferStars, stars > 0 {
-                            info = strings().giftTransferConfirmationText("\(unique.title) #\(unique.number)", peer._asPeer().displayTitle, strings().starListItemCountOther(Int(stars)))
-                            ok = strings().giftTransferConfirmationTransfer + " " + strings().starListItemCountOther(Int(stars))
-                        } else {
-                            info = strings().giftTransferConfirmationTextFree("\(unique.title) #\(unique.number)", peer._asPeer().displayTitle)
-                            ok = strings().giftTransferConfirmationTransferFree
-                        }
-                
-                        let data = ModalAlertData(title: nil, info: info, description: nil, ok: ok, options: [], mode: .confirm(text: strings().modalCancel, isThird: false), header: .init(id: "header", value: { initialSize, stableId, presentation in
-                            return TransferUniqueGiftHeaderItem(initialSize, stableId: stableId, gift: unique, toPeer: peer, context: context)
-                        }), footer: ModalAlertData.Footer.init(id: "footer", value: { initialSize, stableId, presentation, action in
-                            return InputDataTableBasedItem(initialSize, stableId: stableId, viewType: .singleItem, rows: getTransferAttributesRows(gift: unique), context: context)
-                        }))
-                        
-                        showModalAlert(for: window, data: data, completion: { result in
-                            _ = giftsContext.transferStarGift(prepaid: transferStars == nil, reference: reference, peerId: peerId).startStandalone()
-                            _ = showModalSuccess(for: context.window, icon: theme.icons.successModalProgress, delay: 1.5).start()
-                            close?()
-                        })
-                    }
-                })
+        guard let reference, let unique = state.gift.unique else {
+            return
+        }
+
+        showGiftTransfer(context: context, window: window, gift: unique, reference: reference, giftsContext: giftsContext, canExportDate: canExportDate, transferStars: transferStars, transfer: { peer, dismiss in
+            if let convertStars, let starsState = stateValue.with({ $0.starsState }), starsState.balance.value < convertStars {
+                FeatureNavigationHooks.shared.showStarsPurchaseWithContext(context, window, .stars, nil, convertStars)
+                return
             }
+            dismiss()
+            _ = (giftsContext.transferStarGift(prepaid: transferStars == nil, reference: reference, peerId: peer.id)).startStandalone()
+            _ = (showModalSuccess(for: context.window, icon: theme.icons.successModalProgress, delay: 1.5)).start()
+            close?()
         })
     }, copyNftLink: { gift in
         copyToClipboard(gift.link(context))
@@ -3092,13 +3167,14 @@ public func StarGift_Nft_Controller(context: (any AccountContextProtocol), gift:
         }
         
     }, toggleWear: { gift in
+        wearAction.reset()
         
         let weared = stateValue.with { $0.weared }
         let owner = stateValue.with { $0.owner }
         
 
-        if weared, let owner {
-            context.reactions.setStatus(gift.file!, peer: owner._asPeer(), timestamp: context.timestamp, timeout: nil, fromRect: nil)
+        if weared, let owner, let file = gift.file {
+            context.reactions.setStatus(file, peer: owner._asPeer(), timestamp: context.timestamp, timeout: nil, fromRect: nil, starGift: gift)
         } else if let owner {
             updateState { current in
                 var current = current
@@ -3137,13 +3213,13 @@ public func StarGift_Nft_Controller(context: (any AccountContextProtocol), gift:
             StarsHooks.shared.openPeerInfo(context, peer.id)
         }
     }, openValue: { uniqueGift in
-            
+        let morphSource = ModalMorphContextSource.current
         let signal = context.engine.payments.cachedStarGifts() |> take(1)
         let valueSignal = context.engine.payments.getUniqueStarGiftValueInfo(slug: uniqueGift.slug)
         _ = showModalProgress(signal: combineLatest(queue: .mainQueue(), signal, valueSignal), for: window).start(next: { gifts, value in
             let gift = gifts?.first(where: { $0.generic?.id == uniqueGift.giftId })?.generic
             if let gift, let value {
-                showModal(with: StarGift_NftValue_Controller(context: context, gift: gift, uniqueGift: uniqueGift, valueInfo: value), for: window)
+                showModal(with: StarGift_NftValue_Controller(context: context, gift: gift, uniqueGift: uniqueGift, valueInfo: value), for: window, morphSource: morphSource)
             }
         })
     }, setAsTheme: { gift in
@@ -3436,6 +3512,19 @@ public func StarGift_Nft_Controller(context: (any AccountContextProtocol), gift:
     }, okAction: {
         _ = getController?()?.returnKeyAction()
     })
+
+    arguments.toggleProfileVisibility = {
+        guard let visibility = stateValue.with({ $0.profileVisibility }) else {
+            return
+        }
+        let added = !visibility.saved
+        giftsContext.updateStarGiftAddedToProfile(reference: visibility.reference, added: added)
+        updateState { current in
+            var current = current
+            current.savedToProfileOverride = added
+            return current
+        }
+    }
     
     let signal = statePromise.get() |> deliverOnPrepareQueue |> map { state in
         return InputDataSignalValue(entries: entries(state, arguments: arguments))
@@ -3462,29 +3551,28 @@ public func StarGift_Nft_Controller(context: (any AccountContextProtocol), gift:
         return controller
     }
 
+    controller.willDisappear = { _ in wearAction.setActive(false) }
+    controller.willAppear = { _ in wearAction.setActive(true) }
+
     controller.onDeinit = {
+        wearAction.setActive(false)
         actionsDisposable.dispose()
         craftContextDisposables.dispose()
     }
 
-    controller.validateData = { [weak giftsContext] _ in
-        
+    let validateGift: ([InputDataIdentifier: InputDataValue]) -> InputDataValidation = { [weak giftsContext, weak controller] _ in
+        guard let controller, wearAction.isActive else { return .none }
+        let morphSource = ModalMorphContextSource.current
         let state = stateValue.with { $0 }
         _ = stateValue.with { $0.closeOnOk }
-        
-        guard let starsState = state.starsState else {
-            return .none
-        }
         
         switch state.source {
         case .preview:
             close?()
         case let .quickLook(peer, gift):
             var giftReference: StarGiftReference?
-            var giftSavedToProfile: Bool = false
-            if let purpose = state.purpose, case let .starGift(_, _, _, _, _, savedToProfile, _, _, _, _, _, _, reference, _, _, _, _, _, _, _, _, _, _, _) = purpose {
+            if let purpose = state.purpose, case let .starGift(_, _, _, _, _, _, _, _, _, _, _, _, reference, _, _, _, _, _, _, _, _, _, _, _) = purpose {
                 giftReference = reference
-                giftSavedToProfile = savedToProfile
             }
 
             if let reference = giftReference {
@@ -3523,7 +3611,6 @@ public func StarGift_Nft_Controller(context: (any AccountContextProtocol), gift:
                             }
                         })
                     } else {
-                        giftsContext?.updateStarGiftAddedToProfile(reference: reference, added: !giftSavedToProfile)
                         close?()
                     }
                 } else {
@@ -3547,7 +3634,9 @@ public func StarGift_Nft_Controller(context: (any AccountContextProtocol), gift:
 
                 _ = showModalProgress(signal: combineLatest(signal |> castError(BotPaymentFormRequestError.self), formAndMaybeValidatedInfo_Stars, formAndMaybeValidatedInfo_Ton), for: window).start(next: { peer, starsForm, tonForm in
                     if let peer {
-                        buyResellGift(gift, peer, starsForm ?? tonForm, tonForm)
+                        ModalMorphContextSource.withSource(morphSource) {
+                            buyResellGift(gift, peer, starsForm ?? tonForm, tonForm)
+                        }
                     }
 
                 }, error: { _ in
@@ -3557,43 +3646,51 @@ public func StarGift_Nft_Controller(context: (any AccountContextProtocol), gift:
                 close?()
             }
         case let .previewWear(peer, gift):
-            
-            let owner = stateValue.with { $0.owner }
-            
-            if let owner = owner?._asPeer() {
-                if let channel = owner as? TelegramChannel {
-                    let approximateBoostLevel = channel.approximateBoostLevel ?? 0
-                    let boostNeeded = StarsHooks.shared.wearGiftBoostLevel(context)
-                    if boostNeeded > approximateBoostLevel {
-                        let signal = showModalProgress(signal: combineLatest(context.engine.peers.getChannelBoostStatus(peerId: channel.id), context.engine.peers.getMyBoostStatus()), for: window)
-                        _ = signal.start(next: { stats, myStatus in
-                            if let stats = stats {
-                                StarsHooks.shared.openBoostForWear(context, channel, stats, myStatus, window)
-                            }
-                        })
-                        return .none
-                    }
-                } else if !owner.isPremium {
-                    showModalText(for: context.window, text: strings().giftUniqueNeedsPremium, callback: { _ in
-                        prem(with: PremiumBoardingController(context: context, source: .emoji_status, openFeatures: true), for: context.window)
-                    })
-                    return .none
+            guard controller.isLoaded(), let targetWindow = controller.view.window as? Window else { return .none }
+            guard let owner = state.owner, owner.id == peer.id, state.gift.unique?.id == gift.id else {
+                showModalText(for: targetWindow, text: strings().unknownError)
+                return .none
+            }
+            let canPresent: () -> Bool = { [weak controller, weak targetWindow] in
+                guard let controller, let targetWindow, controller.isLoaded(), controller.view.window === targetWindow else { return false }
+                return stateValue.with { current in
+                    guard case let .previewWear(currentPeer, currentGift) = current.source else { return false }
+                    return currentPeer.id == peer.id && currentGift.id == gift.id && current.owner?.id == peer.id && current.gift.unique?.id == gift.id
                 }
             }
-            updateState { current in
-                var current = current
-                current.source = .quickLook(peer, gift)
-                current.converted = true
-                return current
-            }
-            if let owner, owner._asPeer().isChannel {
-                let _ = context.engine.peers.updatePeerStarGiftStatus(peerId: owner.id, starGift: gift, expirationDate: nil).startStandalone()
-            } else {
-                _ = context.engine.accountData.setStarGiftStatus(starGift: gift, expirationDate: nil).start()
-            }
-            PlayConfetti(for: window)
+            wearAction.perform(context: context, peer: owner, gift: gift, window: targetWindow, canPresent: canPresent, completion: { [weak controller, weak targetWindow, weak wearAction] outcome in
+                guard let controller, let targetWindow, wearAction?.isActive == true else { return }
+                switch outcome {
+                case .applied:
+                    updateState { current in
+                        var current = current
+                        current.source = .quickLook(peer, gift)
+                        current.converted = true
+                        return current
+                    }
+                    guard wearAction?.isActive == true, controller.isLoaded(), controller.view.window === targetWindow else { return }
+                    let isCurrent = stateValue.with { current in
+                        guard case let .quickLook(currentPeer, currentGift) = current.source else { return false }
+                        return currentPeer?.id == peer.id && currentGift.id == gift.id && current.owner?.id == peer.id && current.gift.unique?.id == gift.id
+                    }
+                    if isCurrent {
+                        PlayConfetti(for: targetWindow)
+                    }
+                case .failed:
+                    showModalText(for: targetWindow, text: strings().unknownError)
+                case .premiumRequired:
+                    showModalText(for: targetWindow, text: strings().giftUniqueNeedsPremium, callback: { [weak context, weak targetWindow, weak wearAction] _ in
+                        guard let context, let targetWindow, wearAction?.isActive == true, canPresent() else { return }
+                        prem(with: PremiumBoardingController(context: context, source: .emoji_status, openFeatures: true), for: targetWindow)
+                    })
+                case let .boostRequired(channel, stats, myStatus):
+                    ModalMorphContextSource.withSource(morphSource) {
+                        StarsHooks.shared.openBoostForWear(context, channel, stats, myStatus, targetWindow)
+                    }
+                }
+            })
         case let .upgrade(_, _, reference):
-
+            guard let starsState = state.starsState else { return .none }
             let isPrepaidUpgrade = (state.purpose?.upgradeStars ?? 0) > 0
 
             if !isPrepaidUpgrade, state.upgradeForm != nil, let upgradeStars = gift.generic?.upgradeStars, starsState.balance.value < upgradeStars {
@@ -3638,6 +3735,7 @@ public func StarGift_Nft_Controller(context: (any AccountContextProtocol), gift:
                 }
             })
         case let .giftUpgrade(peer, _, prepaidUpgradeHash):
+            guard let starsState = state.starsState else { return .none }
             if let upgradeStars = gift.generic?.upgradeStars, starsState.balance.value < upgradeStars {
                 showModal(with: Star_ListScreen(context: context, source: .buy(suffix: nil, amount: upgradeStars)), for: window)
                 return .none
@@ -3693,6 +3791,12 @@ public func StarGift_Nft_Controller(context: (any AccountContextProtocol), gift:
         }
 
         return .none
+    }
+
+    controller.validateData = { data in
+        return withGiftModalSource(for: window) {
+            validateGift(data)
+        }
     }
 
     let initialOkText = initialState.okText(context)
@@ -3779,6 +3883,15 @@ private final class SellNftInputItem : GeneralRowItem {
     
     public override var height: CGFloat {
         return 40
+    }
+    
+    override var accessibilityLabel: String? {
+        return strings().starNftSellHeader
+    }
+    
+    override var accessibilityValue: String? {
+        let value = usdLayout.attributedString.string
+        return value.isEmpty ? nil : value
     }
     
     public override func viewClass() -> AnyClass {
@@ -4361,6 +4474,27 @@ private final class AddGiftMessagePublicItem: GeneralRowItem {
         return 30
     }
 
+    override var accessibilityLabel: String? {
+        return layout.attributedString.string
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .checkBox
+    }
+
+    override var accessibilityToggleState: Bool? {
+        return isPublic
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        toggle()
+        return true
+    }
+
     public override func viewClass() -> AnyClass {
         return AddGiftMessagePublicView.self
     }
@@ -4487,6 +4621,7 @@ private final class AddGiftMessageInputView : View {
         emojiButton.scaleOnClick = true
         emojiButton.set(image: TelegramThemeHooks.shared.image(.iconCustomEmojiSmall).precomposed(theme.colors.grayIcon), for: .Normal)
         emojiButton.sizeToFit()
+        emojiButton.setAccessibilityLabel(strings().voiceOverCommonEmoji)
 
         let plane = TelegramThemeHooks.shared.image(.iconSendMessage).precomposed(.white)
         let planeIcon = generateImage(NSMakeSize(16, 16), contextGenerator: { size, ctx in
@@ -4496,6 +4631,7 @@ private final class AddGiftMessageInputView : View {
 
         sendButton.autohighlight = false
         sendButton.scaleOnClick = true
+        sendButton.setAccessibilityLabel(strings().voiceOverMessageContextSend)
         sendButton.set(background: theme.colors.accentIcon, for: .Normal)
         sendButton.set(image: planeIcon, for: .Normal)
         sendButton.setFrameSize(AddGiftMessageInputView.buttonSize)
@@ -4633,6 +4769,14 @@ private final class AddGiftMessageServiceTextItem : GeneralRowItem {
         return 30
     }
 
+    override var accessibilityLabel: String? {
+        return layout.attributedString.string
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
     public override func viewClass() -> AnyClass {
         return AddGiftMessageServiceTextView.self
     }
@@ -4694,6 +4838,10 @@ private final class AddGiftMessageSpacerItem : GeneralRowItem {
 
     public override var height: CGFloat {
         return spacerHeight
+    }
+
+    override var accessibilityIsSpacer: Bool {
+        return true
     }
 
     public override func viewClass() -> AnyClass {
@@ -4826,6 +4974,7 @@ public func StarGift_AddMessage_Controller(context: (any AccountContextProtocol)
     dismiss.setGlassEffect(size: NSMakeSize(36, 36), tintColor: backgroundColors[1].darker(amount: 0.1))
     dismiss.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
     dismiss.setFrameOrigin(NSMakePoint(10, 10))
+    dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
 
     controller.afterViewDidLoad = { [weak controller] in
         controller?.genericView.setBottom(inputView)

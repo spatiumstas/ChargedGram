@@ -48,6 +48,14 @@ final class WithdrawHeaderItem : GeneralRowItem {
     override func viewClass() -> AnyClass {
         return WithdrawHeaderView.self
     }
+
+    override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    override var accessibilityValue: String? {
+        return balance.attributedString.string.replacingOccurrences(of: clown, with: "").trimmingCharacters(in: .whitespaces)
+    }
 }
 
 private final class WithdrawHeaderView : GeneralRowView {
@@ -87,6 +95,7 @@ private final class WithdrawHeaderView : GeneralRowView {
         dismiss.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
         dismiss.autohighlight = false
         dismiss.scaleOnClick = true
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
         
         title.set(text: item.titleLayout, context: item.arguments.context)
         balance.set(text: item.balance, context: item.arguments.context)

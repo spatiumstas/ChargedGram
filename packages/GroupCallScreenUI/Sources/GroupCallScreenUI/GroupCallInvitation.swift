@@ -304,7 +304,7 @@ public final class GroupCallInviteMembersBehaviour : SelectPeersBehavior {
         
         let rightActions:ShortPeerRowItem.RightActions
         if isConference {
-            rightActions = .init(actions: [.init(icon: TelegramThemeHooks.shared.image(.iconPeerVideoCall).precomposed(customTheme().accentColor), index: 0), .init(icon: TelegramThemeHooks.shared.image(.iconPeerAudioCall).precomposed(customTheme().accentColor), index: 1)], callback: { [weak data, weak self] peerId, index in
+            rightActions = .init(actions: [.init(icon: TelegramThemeHooks.shared.image(.iconPeerVideoCall).precomposed(customTheme().accentColor), index: 0, accessibilityLabel: strings().voiceOverCommonVideoCall), .init(icon: TelegramThemeHooks.shared.image(.iconPeerAudioCall).precomposed(customTheme().accentColor), index: 1, accessibilityLabel: strings().voiceOverCommonCall)], callback: { [weak data, weak self] peerId, index in
                 _ = data?.call.invitePeer(peerId, isVideo: index == 0)
                 if let window = self?.window {
                     closeAllModals(window: window)
@@ -504,7 +504,7 @@ public func GroupCallAddmembers(_ data: GroupCallUIController.UIData, window: Wi
             if behaviour.isContact(peerId) {
                 return account.postbox.transaction {
                     return (user: $0.getPeer(peerId), chat: $0.getPeer(callPeerId))
-                } |> mapToSignal { [weak window] values in
+                } |> deliverOnMainQueue |> mapToSignal { [weak window] values in
                     if let window = window {
                         return verifyAlertSignal(for: window, information: strings().voiceChatInviteMemberToGroupFirstText(values.user?.displayTitle ?? "", values.chat?.displayTitle ?? ""), ok: strings().voiceChatInviteMemberToGroupFirstAdd, presentation: TelegramThemeHooks.shared.darkAppearance()) |> filter { $0 == .basic }
                             |> take(1)

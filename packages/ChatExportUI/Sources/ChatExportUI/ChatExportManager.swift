@@ -2,7 +2,6 @@ import Cocoa
 import TelegramMediaUtils
 import Postbox
 import TelegramCore
-import TelegramApi
 import MtProtoKit
 import SwiftSignalKit
 import TGUIKit
@@ -987,33 +986,30 @@ public enum TakeoutSessionResult {
 }
 
 public func requestTakeoutSession(context: any AccountContextProtocol, settings: FullExportSettings) -> Signal<TakeoutSessionResult, NoError> {
-    var flags: Int32 = 0
+    var contents: TakeoutSessionContents = []
     if settings.sections.contains(.contacts) {
-        flags |= 1 << 0
+        contents.insert(.contacts)
     }
     if settings.sections.contains(.personalChats) || settings.sections.contains(.botChats) {
-        flags |= 1 << 1
+        contents.insert(.messageUsers)
     }
     if settings.sections.contains(.privateGroups) {
-        flags |= 1 << 2
+        contents.insert(.messageChats)
     }
     if settings.sections.contains(.privateGroups) || settings.sections.contains(.publicGroups) {
-        flags |= 1 << 3
+        contents.insert(.messageMegagroups)
     }
     if settings.sections.contains(.privateChannels) || settings.sections.contains(.publicChannels) {
-        flags |= 1 << 4
+        contents.insert(.messageChannels)
     }
     var fileMaxSize: Int64?
     if !settings.mediaTypes.isEmpty {
-        flags |= 1 << 5
+        contents.insert(.files)
         fileMaxSize = min(settings.sizeLimit, 4000 * 1024 * 1024)
     }
-    return context.account.network.request(Api.functions.account.initTakeoutSession(flags: flags, fileMaxSize: fileMaxSize))
-    |> map { result -> TakeoutSessionResult in
-        if case let .takeout(data) = result {
-            return .ready(data.id)
-        }
-        return .failed("Invalid takeout response")
+    return initTakeoutSession(network: context.account.network, contents: contents, fileMaxSize: fileMaxSize)
+    |> map { id -> TakeoutSessionResult in
+        return .ready(id)
     }
     |> `catch` { error -> Signal<TakeoutSessionResult, NoError> in
         let description = error.errorDescription ?? ""
@@ -1027,8 +1023,7 @@ public func requestTakeoutSession(context: any AccountContextProtocol, settings:
 }
 
 public func finishTakeoutSession(context: any AccountContextProtocol, success: Bool) {
-    let flags: Int32 = success ? (1 << 0) : 0
-    _ = context.account.network.request(Api.functions.account.finishTakeoutSession(flags: flags)).start()
+    _ = finishTakeoutSession(network: context.account.network, success: success).start()
 }
 
 public func exportAllChatsToHtml(context: any AccountContextProtocol, settings: FullExportSettings) -> Signal<FullExportUpdate, NoError> {

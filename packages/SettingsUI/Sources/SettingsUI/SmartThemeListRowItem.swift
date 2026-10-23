@@ -6,6 +6,7 @@ import TelegramCore
 import TelegramContext
 import TelegramTheme
 import GeneralRows
+import Localization
 
 
 
@@ -26,6 +27,10 @@ public class SmartThemeListRowItem: GeneralRowItem {
     
     public override func viewClass() -> AnyClass {
         return SmartThemeListRowView.self
+    }
+    
+    public override var accessibilityLabel: String? {
+        return strings().voiceOverCommonTheme
     }
 }
 

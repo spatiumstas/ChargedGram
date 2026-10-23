@@ -40,6 +40,22 @@ public final class FilterChipRowItem : GeneralRowItem {
     public override var width: CGFloat {
         return 40
     }
+
+    public override var accessibilityLabel: String? {
+        return layout.attributedString.string
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .radioButton
+    }
+
+    public override var accessibilityToggleState: Bool? {
+        return selected
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 private final class FilterChipRowView : HorizontalRowView {

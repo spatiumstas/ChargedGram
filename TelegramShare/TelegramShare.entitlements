@@ -13,10 +13,5 @@
 	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
-	<key>keychain-access-groups</key>
-	<array>
-		<string>$(CHARGEDGRAM_TEAM_ID).$(CHARGEDGRAM_BUNDLE_ID).TelegramShare</string>
-		<string>$(CHARGEDGRAM_TEAM_ID).$(CHARGEDGRAM_BUNDLE_ID)</string>
-	</array>
 </dict>
 </plist>

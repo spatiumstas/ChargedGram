@@ -99,6 +99,7 @@ public class ChatCommentsHeaderView : TableRowView {
         self.textView = TextView()
         self.textView.isSelectable = false
         self.containerView.wantsLayer = true
+        self.containerView.isAccessibilityDecorative = true
         self.textView.disableBackgroundDrawing = true
         super.init(frame: frameRect)
         addSubview(textView)

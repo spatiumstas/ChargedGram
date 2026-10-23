@@ -123,6 +123,7 @@ public class ChatVideoMessageContentView: ChatMediaContentView, APDelegate {
         addSubview(player)
         videoCorner.userInteractionEnabled = false
         playingProgressView.userInteractionEnabled = false
+        stateThumbView.isAccessibilityDecorative = true
         stateThumbView.image = instantVideoMutedThumb
         stateThumbView.sizeToFit()
         player.addSubview(stateThumbView)

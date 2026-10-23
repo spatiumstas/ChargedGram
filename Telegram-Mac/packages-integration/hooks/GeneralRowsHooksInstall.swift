@@ -2,6 +2,7 @@ import Cocoa
 import TGUIKit
 import TelegramCore
 import Postbox
+import InlineStickerLayer
 
 private final class AppInlineTextRenderer: InlineTextRenderer {
     private var inlineStickerItemViews: [InlineStickerItemLayer.Key: SimpleLayer] = [:]
@@ -10,7 +11,7 @@ private final class AppInlineTextRenderer: InlineTextRenderer {
         guard let context = context as? AccountContext else {
             return
         }
-        var validIds: [InlineStickerItemLayer.Key] = []
+        var validIds = InlineStickerKeyCollection()
         var index: Int = textView.hashValue
 
         let textColor: NSColor
@@ -84,13 +85,7 @@ private final class AppInlineTextRenderer: InlineTextRenderer {
     }
 
     func updateAnimatableContent(window: NSWindow?, isLite: Bool) {
-        for (_, value) in inlineStickerItemViews {
-            if let value = value as? InlineStickerItemLayer {
-                if let superview = value.superview {
-                    value.isPlayable = NSIntersectsRect(value.frame, superview.visibleRect) && window != nil && window!.isKeyWindow && !isLite
-                }
-            }
-        }
+        updateInlineStickerPlayback(inlineStickerItemViews.values, window: window, isLite: isLite)
     }
 }
 

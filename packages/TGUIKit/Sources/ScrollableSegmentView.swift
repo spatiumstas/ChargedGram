@@ -128,6 +128,7 @@ public final class ScrollableSegmentItem : Equatable, Comparable, Identifiable {
     public let index: Int
     public let uniqueId: Int64
     fileprivate var customTextView: (()->NSView?)?
+    public var accessibilityLabel: (()->String?)?
     
     public init(title: String, index: Int, uniqueId: Int64, selected: Bool, insets: NSEdgeInsets, icon: CGImage?, theme: ScrollableSegmentTheme, equatable: UIEquatable?, customTextView: (()->NSView?)? = nil) {
         self.title = title
@@ -237,6 +238,42 @@ private final class SegmentItemView : Control {
         }, for: .RightDown)
     }
     
+    override var accessibilityDefaultLabel: String? {
+        return item.accessibilityLabel?() ?? item.title
+    }
+
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        return TGUIKitAccessibility.isEnabled ? .radioButton : super.accessibilityRole()
+    }
+
+    override func accessibilityValue() -> Any? {
+        return TGUIKitAccessibility.isEnabled ? NSNumber(value: item.selected) : super.accessibilityValue()
+    }
+
+    override func isAccessibilitySelected() -> Bool {
+        return item.selected
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+        return TGUIKitAccessibility.isEnabled ? [] : super.accessibilityChildren()
+    }
+
+    override func accessibilityPerformShowMenu() -> Bool {
+        guard TGUIKitAccessibility.isEnabled else {
+            return false
+        }
+        let point = convert(NSMakePoint(bounds.midX, bounds.midY), to: nil)
+        guard let window, let event = NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 0) else {
+            return false
+        }
+        _ = menuItems(item).start(next: { [weak self] items in
+            if let self, !items.isEmpty {
+                ContextMenu.show(items: items, view: self, event: event)
+            }
+        })
+        return true
+    }
+
     override func scrollWheel(with event: NSEvent) {
         super.scrollWheel(with: event)
     }
@@ -280,6 +317,7 @@ private final class SegmentItemView : Control {
                 current = view
             } else {
                 current = TextView()
+                current.isAccessibilityDecorative = true
                 self.textView = current
                 self.addSubview(current)
                 current.userInteractionEnabled = false
@@ -293,6 +331,7 @@ private final class SegmentItemView : Control {
         if let image = item.icon {
             if imageView == nil {
                 imageView = ImageView()
+                imageView?.isAccessibilityDecorative = true
                 addSubview(imageView!)
                 if animated {
                   //  imageView?.layer?.animateAlpha(from: 0, to: 1, duration: duration)

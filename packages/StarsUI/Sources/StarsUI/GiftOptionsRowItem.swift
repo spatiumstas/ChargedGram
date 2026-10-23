@@ -119,6 +119,70 @@ public struct PeerStarGift : Equatable {
     }
 }
 
+extension GiftOptionsRowItem.Option {
+    fileprivate var accessibilityTitle: String {
+        if let gift = self.gift {
+            switch gift {
+            case let .generic(gift):
+                return gift.title ?? strings().voiceOverCommonGift
+            case let .unique(gift):
+                return "\(gift.title) #\(gift.number)"
+            }
+        }
+        if let text = self.text?.string, !text.isEmpty {
+            return text.replacingOccurrences(of: "\n", with: " ")
+        }
+        return strings().voiceOverCommonGift
+    }
+
+    fileprivate func accessibilityStatus(selected: Bool) -> String? {
+        var parts: [String] = []
+        switch type {
+        case let .price(string):
+            parts.append(string)
+        case let .stars(amount, _, addPlus, _):
+            if nativeStarGift?.native.generic?.isAuction == true, nativeStarGift?.native.generic?.soldOut == nil {
+                parts.append(strings().starGiftOptionJoin)
+            } else {
+                parts.append(strings().starListItemCountOther(Int(amount)) + (addPlus ? "+" : ""))
+            }
+        case .none:
+            break
+        }
+        if let starProduct = nativePayment?.starProduct {
+            parts.append(strings().giftPremiumPayOrStars(strings().starListItemCountOther(Int(starProduct.giftOption.amount))))
+        }
+        if let priceBadge {
+            let amount = priceBadge.attributedString.string.replacingOccurrences(of: clown, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+            parts.append("\(amount) \(strings().voiceOverCommonStars)")
+        }
+        if let badge {
+            parts.append(badge.text)
+        }
+        if let generic = gift?.generic, generic.upgradeStars != nil {
+            parts.append(strings().selectGiftsFilterUpgradable)
+        }
+        if let peer {
+            parts.append(strings().chatServiceStarGiftFrom(peer._asPeer().displayTitle))
+        }
+        if pinned {
+            parts.append(strings().voiceOverCommonPinned)
+        }
+        if invisible {
+            parts.append(strings().peerInfoGiftsHidden)
+        }
+        if limitDatePurchase != nil {
+            parts.append(strings().voiceOverCommonLocked)
+        }
+        if let toggleSelect {
+            parts.append(toggleSelect ? strings().voiceOverCommonSelected : strings().voiceOverCommonNotSelected)
+        } else if selected {
+            parts.append(strings().voiceOverCommonSelected)
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+}
+
 public final class GiftOptionsRowItem : GeneralRowItem {
     
     public struct Option : Equatable {
@@ -432,6 +496,10 @@ public final class GiftOptionsRowItem : GeneralRowItem {
     public override var hasBorder: Bool {
         return false
     }
+
+    public override var accessibilityLabel: String? {
+        return strings().voiceOverCommonGift
+    }
     
     public override func viewClass() -> AnyClass {
         return GiftOptionsRowView.self
@@ -454,6 +522,7 @@ public final class GiftOptionsRowView:  GeneralContainableRowView {
                 super.init(frame: frameRect)
                 addSubview(imageView)
                 imageView.image = TelegramThemeHooks.shared.image(.menuEyeSlash).precomposed(NSColor.white)
+                imageView.isAccessibilityDecorative = true
                 imageView.sizeToFit()
                 layer?.cornerRadius = frameRect.height / 2
                 layer?.masksToBounds = true
@@ -530,6 +599,7 @@ public final class GiftOptionsRowView:  GeneralContainableRowView {
                 addSubview(textView)
                 textView.userInteractionEnabled = false
                 textView.isSelectable = false
+                textView.isAccessibilityDecorative = true
             }
             
             public required init?(coder: NSCoder) {
@@ -557,6 +627,7 @@ public final class GiftOptionsRowView:  GeneralContainableRowView {
                 addSubview(imageView)
                 
                 imageView.image = TelegramThemeHooks.shared.image(.iconTonCurrency).precomposed(.white)
+                imageView.isAccessibilityDecorative = true
                 imageView.sizeToFit()
                 self.layer?.cornerRadius = 15
                 
@@ -636,6 +707,15 @@ public final class GiftOptionsRowView:  GeneralContainableRowView {
         }
         
         public var option: GiftOptionsRowItem.Option?
+        private var isChosen: Bool = false
+
+        public override var accessibilityDefaultLabel: String? {
+            return option?.accessibilityTitle
+        }
+
+        public override func accessibilityValue() -> Any? {
+            return option?.accessibilityStatus(selected: isChosen)
+        }
         
         public func morphHoldDidChange(_ isHeld: Bool) {
             (self.sticker as? StarsStickerView)?.overridePlayValue = isHeld ? true : nil
@@ -650,6 +730,7 @@ public final class GiftOptionsRowView:  GeneralContainableRowView {
                 self.isHidden = false
             }
             self.option = option
+            self.isChosen = selected
             self.surfaceView.backgroundColor = surfaceBackgroundColor.cgColor
 
             self.setSingle(handler: { [weak self] _ in
@@ -673,6 +754,7 @@ public final class GiftOptionsRowView:  GeneralContainableRowView {
                     self.addSubview(current)
                     self.imageView = current
                     current.isEventLess = true
+                    current.isAccessibilityDecorative = true
                 }
                 current.image = image
                 current.sizeToFit()
@@ -691,6 +773,7 @@ public final class GiftOptionsRowView:  GeneralContainableRowView {
                     self.textView = current
                     current.userInteractionEnabled = false
                     current.isSelectable = false
+                    current.isAccessibilityDecorative = true
                 }
                 let textLayout = TextViewLayout(text, alignment: .center)
                 textLayout.measure(width: .greatestFiniteMagnitude)
@@ -797,6 +880,7 @@ public final class GiftOptionsRowView:  GeneralContainableRowView {
                     current = view
                 } else {
                     current = ImageView()
+                    current.isAccessibilityDecorative = true
                     addSubview(current, positioned: .above, relativeTo: self.sticker)
                     self.badgeView = current
                 }
@@ -853,6 +937,7 @@ public final class GiftOptionsRowView:  GeneralContainableRowView {
                     current = view
                 } else {
                     current = ImageView()
+                    current.isAccessibilityDecorative = true
                     self.pinnedView = current
                     addSubview(current)
                 }
@@ -916,6 +1001,7 @@ public final class GiftOptionsRowView:  GeneralContainableRowView {
                     current = view
                 } else {
                     current = ImageView()
+                    current.isAccessibilityDecorative = true
                     self.limitDatePurchase = current
                     addSubview(current)
                 }
@@ -975,6 +1061,7 @@ public final class GiftOptionsRowView:  GeneralContainableRowView {
                     current = view
                 } else {
                     current = ImageView()
+                    current.isAccessibilityDecorative = true
                     addSubview(current, positioned: .below, relativeTo: self.badgeView)
                     self.badgeOutlineView = current
                 }
@@ -999,6 +1086,7 @@ public final class GiftOptionsRowView:  GeneralContainableRowView {
                     current = view
                 } else {
                     current = SelectingControl(unselectedImage: unselected, selectedImage: selected)
+                    current.isAccessibilityDecorative = true
                     current.scaleOnClick = true
                     addSubview(current)
                     self.toggleSelect = current

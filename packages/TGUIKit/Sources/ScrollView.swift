@@ -70,7 +70,10 @@ open class ScrollView: NSScrollView{
 
     public func scrollPosition(_ visibleRange: NSRange = NSMakeRange(NSNotFound, 0))  -> (current: ScrollPosition, previous: ScrollPosition) {
         
-        let rect = NSMakeRect(contentView.bounds.minX, contentView.bounds.maxY,contentView.documentRect.width, contentView.documentRect.height)
+        let contentView = self.contentView
+        let bounds = contentView.bounds
+        let documentRect = contentView.documentRect
+        let rect = NSMakeRect(bounds.minX, bounds.maxY, documentRect.width, documentRect.height)
         
         var d:ScrollDirection = currentpos.direction
                 
@@ -91,11 +94,14 @@ open class ScrollView: NSScrollView{
     }
 
     open override func accessibilityParent() -> Any? {
-        return nil
+        return TGUIKitAccessibility.parent(of: self, default: { super.accessibilityParent() })
     }
     
     func resetScroll(_ visibleRange: NSRange = NSMakeRange(NSNotFound, 0)) -> Void {
-        self.currentpos = ScrollPosition(NSMakeRect(contentView.bounds.minX, contentView.bounds.maxY,contentView.documentRect.width, contentView.documentRect.height), .none, visibleRange)
+        let contentView = self.contentView
+        let bounds = contentView.bounds
+        let documentRect = contentView.documentRect
+        self.currentpos = ScrollPosition(NSMakeRect(bounds.minX, bounds.maxY, documentRect.width, documentRect.height), .none, visibleRange)
     }
     
     public var documentOffset:NSPoint {

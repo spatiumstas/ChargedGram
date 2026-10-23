@@ -381,6 +381,28 @@ public class FastSettings {
             UserDefaults.standard.set(newValue, forKey: kIsMinimisizeType)
         }
     }
+    public static var accessibilityTreeEnabled: Bool {
+        get {
+            return UserDefaults.standard.object(forKey: "kAccessibilityTreeEnabled") as? Bool ?? true
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: "kAccessibilityTreeEnabled")
+        }
+    }
+
+    public static var accessibilityServerDisabled: Bool {
+        get {
+            return UserDefaults.standard.bool(forKey: "kAccessibilityServerDisabled")
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: "kAccessibilityServerDisabled")
+        }
+    }
+
+    public static var accessibilityTreeEffective: Bool {
+        return accessibilityTreeEnabled && !accessibilityServerDisabled
+    }
+
     public static var canViewPeerId: Bool {
         get {
             return UserDefaults.standard.bool(forKey: "kCanViewPeerId")
@@ -511,6 +533,11 @@ public class FastSettings {
     public static func openInQuickLook(_ ext: String) -> Bool {
         return !UserDefaults.standard.bool(forKey: "open_in_quick_look_\(ext)")
     }
+    public static func toggleSidebarShown(_ enable: Bool) {
+        UserDefaults.standard.set(!enable, forKey: kSidebarShownType)
+        UserDefaults.standard.synchronize()
+    }
+
     public static func toggleSidebar(_ enable: Bool) {
         UserDefaults.standard.set(enable, forKey: kSidebarType)
         UserDefaults.standard.synchronize()

@@ -22,11 +22,13 @@ import TelegramMediaResources
 private final class Arguments {
     public let context: any AccountContextProtocol
     public let presentaiton: TelegramPresentationTheme
+    public let loadMore: () -> Void
     public let openStory:(StoryInitialIndex?)->Void
-    public init(context: any AccountContextProtocol, presentaiton: TelegramPresentationTheme, openStory:@escaping(StoryInitialIndex?)->Void) {
+    public init(context: any AccountContextProtocol, presentaiton: TelegramPresentationTheme, openStory:@escaping(StoryInitialIndex?)->Void, loadMore: @escaping () -> Void) {
         self.context = context
         self.presentaiton = presentaiton
         self.openStory = openStory
+        self.loadMore = loadMore
     }
 }
 
@@ -55,7 +57,14 @@ private class MapRowItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return MapRowItemView.self
     }
-    
+
+    public override var accessibilityLabel: String? {
+        return geocodedPlacemark?.city ?? strings().locationPreviewLocation
+    }
+
+    public override var accessibilityValue: String? {
+        return geocodedPlacemark?.street
+    }
 }
 
 private final class MapRowItemView : GeneralContainableRowView, MKMapViewDelegate {
@@ -67,6 +76,7 @@ private final class MapRowItemView : GeneralContainableRowView, MKMapViewDelegat
         required init(frame frameRect: NSRect) {
             super.init(frame: frameRect)
             addSubview(imageView)
+            imageView.isAccessibilityDecorative = true
             
             addSubview(titleView)
             addSubview(textView)
@@ -217,9 +227,11 @@ private final class MapRowItemView : GeneralContainableRowView, MKMapViewDelegat
         venueView.update(item: item, animated: animated)
         
     
-        mapView.addAnnotation(item.location)
-
-        focusVenue()
+        if !mapView.annotations.contains(where: { ($0 as? State.Location) === item.location }) {
+            mapView.removeAnnotations(mapView.annotations.compactMap { $0 as? State.Location })
+            mapView.addAnnotation(item.location)
+            focusVenue()
+        }
 
     }
 }
@@ -272,23 +284,39 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
             }))
         }
         
-        if listState.totalCount == 0 {
-            entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: _id_search_empty, equatable: .init(state), comparable: nil, item: { initialSize, stableId in
-                return SearchEmptyRowItem(initialSize, stableId: stableId, height: 160, isLoading: listState.isLoading, text: strings().storiesFoundListNotFound, customTheme: .initialize(arguments.presentaiton))
-            }))
-        } else {
-            let items = listState.items
-            let chunks = items.chunks(3)
-            for chunk in chunks {
-                let item = chunk[0]
-                
-                let peerReference = PeerReference(arguments.context.myPeer!)!
-                
-                let viewType: GeneralViewType = .modern(position: .inner, insets: NSEdgeInsetsMake(0, 0, 0, 0))
-                entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: _id_block(item), equatable: .init(chunk), comparable: nil, item: { initialSize, stableId in
-                    return StoriesHooks.shared.makeStoryMonthRowItem(initialSize, stableId, arguments.context, false, arguments.context.peerId, peerReference, chunk, nil, [], 3, viewType, arguments.openStory, { _ in }, { _ in return [] }, arguments.presentaiton)
-                }))
+        let items = listState.items.filter { item in
+            guard let peer = item.peer, peer.id == item.id.peerId else {
+                return false
             }
+            return PeerReference(peer._asPeer()) != nil
+        }
+        for chunk in items.chunks(3) {
+            guard let item = chunk.first, let peer = item.peer, let peerReference = PeerReference(peer._asPeer()) else {
+                continue
+            }
+            let viewType: GeneralViewType = .modern(position: .inner, insets: NSEdgeInsetsMake(0, 0, 0, 0))
+            entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: _id_block(item), equatable: .init(chunk), comparable: nil, item: { initialSize, stableId in
+                return StoriesHooks.shared.makeStoryMonthRowItem(initialSize, stableId, arguments.context, false, item.id.peerId, peerReference, chunk, nil, [], 3, viewType, arguments.openStory, { _ in }, { _ in return [] }, arguments.presentaiton)
+            }))
+        }
+        if items.isEmpty || listState.isLoading || listState.loadMoreToken != nil {
+            entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: _id_search_empty, equatable: .init(state), comparable: nil, item: { initialSize, stableId in
+                let action: SearchEmptyRowItem.Action?
+                if !listState.isLoading && listState.loadMoreToken != nil {
+                    action = .init(click: arguments.loadMore, title: listState.hasCache ? strings().chatRichTextShowMore : strings().voiceOverCommonRetry)
+                } else {
+                    action = nil
+                }
+                let text: String
+                if !listState.hasCache && !listState.isLoading {
+                    text = strings().unknownError
+                } else if items.isEmpty && listState.loadMoreToken == nil {
+                    text = strings().storiesFoundListNotFound
+                } else {
+                    text = ""
+                }
+                return SearchEmptyRowItem(initialSize, stableId: stableId, height: items.isEmpty ? 160 : 120, isLoading: listState.isLoading, text: text, customTheme: .initialize(arguments.presentaiton), action: action)
+            }))
         }
         
     }
@@ -324,6 +352,8 @@ private extension SearchStoryListContext.Source {
 }
 
 public func StoryFoundListController(context: any AccountContextProtocol, source: SearchStoryListContext.Source, presentation: TelegramPresentationTheme, existingsContext: SearchStoryListContext? = nil) -> InputDataModalController {
+    if case let .hashtag(peerId, _) = source, let peerId {
+    }
 
     let actionsDisposable = DisposableSet()
 
@@ -337,24 +367,24 @@ public func StoryFoundListController(context: any AccountContextProtocol, source
     
     
     
-    actionsDisposable.add(requestUserLocation().start(next: { location in
-        switch location {
-        case let .success(location):
+    if let location = initialState.location {
+        actionsDisposable.add(requestUserLocation().start(next: { location in
+            switch location {
+            case let .success(location):
+                updateState { current in
+                    var current = current
+                    current.userLocation = location
+                    return current
+                }
+            }
+        }, error: { error in
             updateState { current in
                 var current = current
-                current.userLocation = location
+                current.userLocationError = error
                 return current
             }
-        }
-    }, error: { error in
-        updateState { current in
-            var current = current
-            current.userLocationError = error
-            return current
-        }
-    }))
-    
-    if let location = initialState.location {
+        }))
+
         actionsDisposable.add(reverseGeocodeLocation(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude).start(next: { mark in
             updateState { current in
                 var current = current
@@ -369,8 +399,10 @@ public func StoryFoundListController(context: any AccountContextProtocol, source
 
     let arguments = Arguments(context: context, presentaiton: presentation, openStory: { [weak contextObject] initialId in
         if let contextObject {
-            StoriesHooks.shared.showListStory(context, contextObject, context.peerId, initialId)
+            StoriesHooks.shared.showListStoryObserved(context, contextObject, context.peerId, initialId)
         }
+    }, loadMore: { [weak contextObject] in
+        contextObject?.loadMore()
     })
     
     let signal = statePromise.get() |> deliverOnPrepareQueue |> map { state in

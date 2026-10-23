@@ -66,6 +66,62 @@ final class DisplayLinkRateTests: XCTestCase {
     }
 }
 
+extension DisplayLinkRateTests {
+    private func measure(_ fps: [SharedDisplayLinkDriver.FramesPerSecond], seconds: Double = 2.0) -> (ticks: [Int], deliveries: Int) {
+        var ticks = Array(repeating: 0, count: fps.count)
+        let animators = fps.enumerated().map { index, rate in
+            ConstantDisplayLinkAnimator(framesPerSecond: rate, update: { _ in
+                ticks[index] += 1
+            })
+        }
+        for animator in animators {
+            animator.isPaused = false
+        }
+        let warm = expectation(description: "warm")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            warm.fulfill()
+        }
+        wait(for: [warm], timeout: 3)
+        ticks = Array(repeating: 0, count: fps.count)
+        let before = SharedDisplayLinkDriver.shared.deliveredEvents
+        let done = expectation(description: "done")
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+            done.fulfill()
+        }
+        wait(for: [done], timeout: seconds + 3)
+        let deliveries = SharedDisplayLinkDriver.shared.deliveredEvents - before
+        for animator in animators {
+            animator.isPaused = true
+        }
+        let result = (ticks.map { Int((Double($0) / seconds).rounded()) }, Int((Double(deliveries) / seconds).rounded()))
+        print("DisplayLinkRate refresh \(Int(self.refreshRate)) Hz, links \(fps): ticks/s \(result.0), main deliveries/s \(result.1)")
+        return result
+    }
+
+    func testLowRateLinkOnlyWakesTheMainThreadWhenDue() throws {
+        try XCTSkipIf(self.refreshRate < 50, "needs a display faster than the link")
+        let result = self.measure([.fps(25)])
+        let expected = self.refreshRate / Double(Int(ceil(self.refreshRate / 25.0 * 0.95 - 1e-3)))
+        XCTAssertEqual(Double(result.ticks[0]), expected, accuracy: 3, "refresh \(self.refreshRate)")
+        XCTAssertLessThanOrEqual(Double(result.deliveries), Double(result.ticks[0]) + 3, "refresh \(self.refreshRate)")
+    }
+
+    func testMixedRatesKeepTheirOwnCadence() throws {
+        try XCTSkipIf(self.refreshRate < 50, "needs a display faster than the links")
+        let result = self.measure([.fps(25), .fps(30), .fps(60)])
+        XCTAssertEqual(Double(result.ticks[0]), self.refreshRate / Double(Int(ceil(self.refreshRate / 25.0 * 0.95 - 1e-3))), accuracy: 3)
+        XCTAssertEqual(Double(result.ticks[1]), self.refreshRate / Double(Int(ceil(self.refreshRate / 30.0 * 0.95 - 1e-3))), accuracy: 3)
+        XCTAssertEqual(Double(result.ticks[2]), min(60, self.refreshRate), accuracy: 6)
+        XCTAssertLessThan(Double(result.deliveries), self.refreshRate * 0.7)
+    }
+
+    func testMaxLinkStillGetsEveryFrame() {
+        let result = self.measure([.fps(25), .max])
+        XCTAssertGreaterThan(Double(result.ticks[1]), self.refreshRate * 0.8)
+        XCTAssertGreaterThan(Double(result.deliveries), self.refreshRate * 0.8)
+    }
+}
+
 final class FrameStepTests: XCTestCase {
     func testSixtyHertzStepsAreUnchanged() {
         XCTAssertEqual(FrameStep.scale(1.0 / 60.0), 1, accuracy: 1e-9)

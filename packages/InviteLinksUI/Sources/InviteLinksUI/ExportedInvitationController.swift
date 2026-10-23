@@ -69,6 +69,18 @@ private final class SubscriptionFeeRowItem: GeneralRowItem {
     override var height: CGFloat {
         return 50
     }
+
+    override var accessibilityLabel: String? {
+        return textLayout.attributedString.string.replacingOccurrences(of: clown, with: "").trimmingCharacters(in: .whitespaces)
+    }
+
+    override var accessibilityValue: String? {
+        return infoLayout.attributedString.string
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 private final class SubscriptionFeeRowView: GeneralContainableRowView {
@@ -80,6 +92,7 @@ private final class SubscriptionFeeRowView: GeneralContainableRowView {
         addSubview(imageView)
         addSubview(textView)
         addSubview(infoView)
+        imageView.isAccessibilityDecorative = true
         
         self.textView.userInteractionEnabled = false
         

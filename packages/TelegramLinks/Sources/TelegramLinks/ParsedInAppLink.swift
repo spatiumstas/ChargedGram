@@ -72,6 +72,8 @@ public enum ParsedInAppLink {
     case oauth(link: String, token: String)
     case createBot(link: String, managerUsername: String, botUsername: String, title: String?)
     case addStyle(link: String, slug: String)
+    case noPaidMessagesToken(link: String, username: String, token: String)
+    case contactToken(link: String, token: String, freeToken: String?)
 }
 
 public enum ParsedStickerPack: Equatable {

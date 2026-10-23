@@ -96,6 +96,26 @@ private final class AffiliateRowItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return AffiliateRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    override var accessibilityValue: String? {
+        var commission = commissionLayout.attributedString.string
+        if let commission2Layout {
+            commission += " + " + commission2Layout.attributedString.string
+        }
+        return [commission, durationLayout.attributedString.string].filter { !$0.isEmpty }.joined(separator: ", ")
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 private final class AffiliateRowView : GeneralContainableRowView {
@@ -130,6 +150,7 @@ private final class AffiliateRowView : GeneralContainableRowView {
         addSubview(duration)
         addSubview(next)
         addSubview(title)
+        next.isAccessibilityDecorative = true
         
         
         containerView.setStateChangeHandler { [weak self] in
@@ -232,6 +253,7 @@ private final class AffiliateRowView : GeneralContainableRowView {
                 current = view
             } else {
                 current = ImageView()
+                current.isAccessibilityDecorative = true
                 addSubview(current)
                 self.linkBadge = current
             }

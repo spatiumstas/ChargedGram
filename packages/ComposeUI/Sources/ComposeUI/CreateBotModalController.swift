@@ -11,30 +11,124 @@ import TelegramUtils
 import AvatarUI
 import GeneralRows
 import InputDataUI
+import TGModernGrowingTextView
 import AlertsUI
 import PremiumUI
+
+private struct UsernameCheck: Equatable {
+    let username: String
+    let isPremium: Bool
+    let status: CreateBotUsernameStatus
+}
 
 private struct State: Equatable {
     var managerUsername: String
     var managerPeer: PeerEquatable?
     var botTitle: String
     var botUsername: String
-    var usernameState: AddressNameAvailabilityState
+    var isPremium: Bool
+    var usernameCheck: UsernameCheck?
 }
 
 private struct Arguments {
     let context: any AccountContextProtocol
+    let endings: CreateBotUsernameEndings
     let dismiss: () -> Void
+    let updateUsername: (String) -> Void
+    let openPremium: () -> Void
 }
 
 private let _id_header = InputDataIdentifier("_id_header")
 private let _id_bot_name = InputDataIdentifier("_id_bot_name")
 private let _id_bot_username = InputDataIdentifier("_id_bot_username")
 
-private func checkBotUsernameSuffix(_ username: String) -> Bool {
-    return username.lowercased().hasSuffix("bot")
+private func usernameStatus(_ state: State, username: CreateBotUsername) -> CreateBotUsernameStatus? {
+    guard let check = state.usernameCheck, check.username == username.username.lowercased() else {
+        return nil
+    }
+    return check.status
 }
 
+private func canCreateBot(_ state: State, endings: CreateBotUsernameEndings) -> Bool {
+    guard state.managerPeer != nil else {
+        return false
+    }
+    let resolvedUsername = CreateBotUsername(typedText: state.botUsername, endings: endings)
+    return createBotCanCreate(name: state.botTitle, username: resolvedUsername, status: usernameStatus(state, username: resolvedUsername))
+}
+
+private final class CreateBotUsernameRowItem: InputDataRowItem {
+    fileprivate let endings: CreateBotUsernameEndings
+
+    init(_ initialSize: NSSize, stableId: AnyHashable, text: String, endings: CreateBotUsernameEndings, updated: @escaping (String) -> Void) {
+        self.endings = endings
+        super.init(initialSize, stableId: stableId, mode: .plain, error: nil, viewType: .singleItem, currentText: text, placeholder: nil, inputPlaceholder: "", defaultText: "@", filter: { $0 }, updated: updated, limit: Int32(CreateBotUsername.maxLength + 1))
+    }
+
+    fileprivate var appendedSuffix: String? {
+        return CreateBotUsername(typedText: self.currentText.string, endings: self.endings).appendedSuffix
+    }
+
+    override func viewClass() -> AnyClass {
+        return CreateBotUsernameRowView.self
+    }
+}
+
+private final class CreateBotUsernameRowView: InputDataRowView {
+    private let suffixView = TextView()
+
+    required init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        suffixView.userInteractionEnabled = false
+        suffixView.isSelectable = false
+        containerView.addSubview(suffixView)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func set(item: TableRowItem, animated: Bool) {
+        super.set(item: item, animated: animated)
+        updateSuffix()
+    }
+
+    override func textViewTextDidChange(_ string: String) {
+        super.textViewTextDidChange(string)
+        updateSuffix()
+    }
+
+    override func layout() {
+        super.layout()
+        layoutSuffix()
+    }
+
+    private func updateSuffix() {
+        guard let item = item as? CreateBotUsernameRowItem else {
+            return
+        }
+        if let suffix = item.appendedSuffix {
+            let layout = TextViewLayout(.initialize(string: suffix, color: theme.colors.grayText, font: .normal(.text)))
+            layout.measure(width: .greatestFiniteMagnitude)
+            suffixView.update(layout)
+            suffixView.isHidden = false
+        } else {
+            suffixView.isHidden = true
+        }
+        layoutSuffix()
+    }
+
+    private func layoutSuffix() {
+        let inputView = textView.inputView
+        guard let layoutManager = inputView.layoutManager, let textContainer = inputView.textContainer else {
+            return
+        }
+        let glyphRange = layoutManager.glyphRange(for: textContainer)
+        let textRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer).offsetBy(dx: inputView.textContainerOrigin.x, dy: inputView.textContainerOrigin.y)
+        let rect = containerView.convert(textRect, from: inputView)
+        suffixView.setFrameOrigin(NSMakePoint(rect.maxX, floorToScreenPixels(backingScaleFactor, rect.midY - suffixView.frame.height / 2)))
+    }
+}
 
 private final class CreateBotHeaderItem: GeneralRowItem {
     fileprivate let context: any AccountContextProtocol
@@ -52,8 +146,8 @@ private final class CreateBotHeaderItem: GeneralRowItem {
         self.titleLayout = TextViewLayout(.initialize(string: strings().createBotTitle, color: theme.colors.text, font: .medium(.header)), alignment: .center)
 
         let text = NSMutableAttributedString()
-        _ = text.append(string: strings().createBotDescription(managerUsername), color: theme.colors.listGrayText, font: .normal(.text))
-        text.detectBoldColorInString(with: .bold(.text))
+        _ = text.append(string: strings().createBotDescription(managerUsername), color: theme.colors.text, font: .normal(.text))
+        text.detectBoldColorInString(with: .bold(.text), color: theme.colors.accent)
         self.infoLayout = TextViewLayout(text, alignment: .center)
 
         super.init(initialSize, stableId: stableId)
@@ -72,6 +166,14 @@ private final class CreateBotHeaderItem: GeneralRowItem {
 
     override func viewClass() -> AnyClass {
         return CreateBotHeaderView.self
+    }
+
+    override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    override var accessibilityValue: String? {
+        return infoLayout.attributedString.string
     }
 }
 
@@ -119,6 +221,7 @@ private final class CreateBotHeaderView: TableRowView {
                 current = ImageButton()
                 current.scaleOnClick = true
                 current.autohighlight = false
+                current.setAccessibilityLabel(strings().voiceOverCommonClose)
                 self.dismissButton = current
                 addSubview(current)
             }
@@ -159,7 +262,7 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
     var sectionId: Int32 = 0
     var index: Int32 = 0
 
-    entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: _id_header, equatable: .init(state), comparable: nil, item: { initialSize, stableId in
+    entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: _id_header, equatable: .init(state.managerPeer), comparable: nil, item: { initialSize, stableId in
         return CreateBotHeaderItem(initialSize, stableId: stableId, context: arguments.context, peer: state.managerPeer?.peer, managerUsername: state.managerUsername, dismiss: arguments.dismiss)
     }))
     index += 1
@@ -176,55 +279,62 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
     entries.append(.sectionId(sectionId, type: .customModern(20)))
     sectionId += 1
 
-    let usernameFilter: (String) -> String = { value in
-        var set = CharacterSet.alphanumerics
-        set.insert("_")
-        return value.trimmingCharacters(in: set.inverted)
-    }
-
     entries.append(.desc(sectionId: sectionId, index: index, text: .plain(strings().createBotBotUsernameHeader), data: InputDataGeneralTextData(color: theme.colors.listGrayText, viewType: .textTopItem)))
     index += 1
 
-    entries.append(.input(sectionId: sectionId, index: index, value: .string(state.botUsername), error: nil, identifier: _id_bot_username, mode: .plain, data: InputDataRowData(viewType: .singleItem), placeholder: nil, inputPlaceholder: strings().createBotBotUsernamePlaceholder, filter: usernameFilter, limit: 32))
+    let initialUsername = state.botUsername
+    entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: _id_bot_username, equatable: .init(arguments.endings), comparable: nil, item: { initialSize, stableId in
+        return CreateBotUsernameRowItem(initialSize, stableId: stableId, text: initialUsername, endings: arguments.endings, updated: arguments.updateUsername)
+    }))
     index += 1
 
-    let botSuffixOk = state.botUsername.isEmpty || checkBotUsernameSuffix(state.botUsername)
-
-    if !botSuffixOk {
-        entries.append(.desc(sectionId: sectionId, index: index, text: .plain(strings().createBotUsernameEndBot), data: InputDataGeneralTextData(color: theme.colors.redUI, viewType: .textBottomItem)))
-        index += 1
-    } else {
-        switch state.usernameState {
-        case .progress, .none:
-            entries.append(.desc(sectionId: sectionId, index: index, text: .plain(strings().createBotChecking), data: InputDataGeneralTextData(color: theme.colors.listGrayText, viewType: .textBottomItem, rightItem: InputDataGeneralTextRightData(isLoading: true, text: nil))))
-            index += 1
-        case let .fail(username, formatError, availability):
-            if username?.length != 0 {
-                let text: String
-                if let formatError = formatError {
-                    text = formatError.description
-                } else {
-                    text = availability.description(for: username ?? "", target: .username)
-                }
-                let color: NSColor
-                switch availability {
-                case .purchaseAvailable:
-                    color = theme.colors.grayText
-                default:
-                    color = theme.colors.redUI
-                }
-                entries.append(.desc(sectionId: sectionId, index: index, text: .plain(text), data: InputDataGeneralTextData(color: color, viewType: .textBottomItem)))
-                index += 1
-            }
-        case let .success(username):
-            if username?.count != 0 {
-                entries.append(.desc(sectionId: sectionId, index: index, text: .plain(strings().usernameSettingsAvailable(username ?? "")), data: InputDataGeneralTextData(color: theme.colors.accent, viewType: .textBottomItem)))
-                index += 1
-            }
+    let resolvedUsername = CreateBotUsername(typedText: state.botUsername, endings: arguments.endings)
+    let premiumHint = createBotUsernamePremiumHint(endings: arguments.endings, premiumLink: true)
+    let footerText: String
+    let footerHasLink: Bool
+    var footerColor = theme.colors.redUI
+    switch CreateBotUsernameFooter(username: resolvedUsername, status: usernameStatus(state, username: resolvedUsername)) {
+    case .hint:
+        footerText = premiumHint ?? strings().createBotUsernameHint
+        footerHasLink = premiumHint != nil
+        footerColor = theme.colors.listGrayText
+    case .hintError:
+        footerText = premiumHint ?? strings().createBotUsernameHint
+        footerHasLink = premiumHint != nil
+    case let .validationError(validationError):
+        switch validationError {
+        case .tooShort:
+            footerText = strings().errorUsernameMinimumLength
+        case .tooLong:
+            footerText = strings().createBotModalControllerUsernameTooLongOther(CreateBotUsername.maxLength)
+        case .startsWithNumber:
+            footerText = strings().errorUsernameNumberStart
+        case .unsupportedCharacters:
+            footerText = strings().errorUsernameInvalid
         }
+        footerHasLink = false
+    case .invalid:
+        footerText = strings().errorUsernameInvalid
+        footerHasLink = false
+    case .taken:
+        footerText = strings().errorUsernameAlreadyTaken
+        footerHasLink = false
+    case let .premiumRequired(ending):
+        footerText = strings().createBotModalControllerPremiumRequiredSubscribe(createBotUsernamePremiumRequiredText(ending: ending))
+        footerHasLink = true
+    case let .suffixLimitExceeded(limit):
+        footerText = createBotUsernameSuffixLimitText(limit: limit, endings: arguments.endings)
+        footerHasLink = false
     }
-
-    entries.append(.desc(sectionId: sectionId, index: 1000, text: .plain(strings().createBotUsernameHint), data: InputDataGeneralTextData(color: theme.colors.listGrayText, viewType: .textBottomItem)))
+    let footer: GeneralRowTextType
+    if footerHasLink {
+        footer = .markdown(footerText, linkHandler: { _ in
+            arguments.openPremium()
+        })
+    } else {
+        footer = .plain(footerText)
+    }
+    entries.append(.desc(sectionId: sectionId, index: index, text: footer, data: InputDataGeneralTextData(color: footerColor, viewType: .textBottomItem)))
     index += 1
 
     entries.append(.sectionId(sectionId, type: .normal))
@@ -233,13 +343,15 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
     return entries
 }
 
-public func CreateBotModalController(context: any AccountContextProtocol, managerUsername: String, botUsername: String, botTitle: String?) -> InputDataModalController {
+public func CreateBotModalController(context: any AccountContextProtocol, managerUsername: String, botUsername: String, botTitle: String?, openAutomatically: Bool = true, completion: @escaping (PeerId?) -> Void = { _ in }) -> InputDataModalController {
 
     let actionsDisposable = DisposableSet()
     let availabilityDisposable = MetaDisposable()
     actionsDisposable.add(availabilityDisposable)
 
-    let initialState = State(managerUsername: managerUsername, botTitle: botTitle ?? "", botUsername: botUsername, usernameState: .none(username: botUsername))
+    let endings = CreateBotUsernameEndings(appConfiguration: context.appConfiguration)
+
+    let initialState = State(managerUsername: managerUsername, botTitle: botTitle ?? "", botUsername: botUsername, isPremium: context.isPremium, usernameCheck: nil)
 
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
@@ -247,10 +359,56 @@ public func CreateBotModalController(context: any AccountContextProtocol, manage
         statePromise.set(stateValue.modify(f))
     }
 
-    var close: (() -> Void)?
+    let checkUsername: () -> Void = {
+        let state = stateValue.with { $0 }
+        let resolvedUsername = CreateBotUsername(typedText: state.botUsername, endings: endings)
+        let username = resolvedUsername.username.lowercased()
+        let isPremium = state.isPremium
+        if let check = state.usernameCheck, check.username == username, check.isPremium == isPremium {
+            return
+        }
+        availabilityDisposable.set(nil)
+        let setStatus: (CreateBotUsernameStatus) -> Void = { status in
+            updateState { current in
+                var current = current
+                current.usernameCheck = UsernameCheck(username: username, isPremium: isPremium, status: status)
+                return current
+            }
+        }
+        if let status = CreateBotUsernameStatus.decidedLocally(for: resolvedUsername, isPremium: isPremium) {
+            setStatus(status)
+            return
+        }
+        setStatus(.checking)
+        availabilityDisposable.set((context.engine.peers.checkBotUsername(username) |> delay(0.3, queue: .concurrentDefaultQueue()) |> deliverOnMainQueue).start(next: { result in
+            setStatus(CreateBotUsernameStatus(result))
+        }))
+    }
 
-    let arguments = Arguments(context: context, dismiss: {
-        close?()
+    var close: (() -> Void)?
+    var cancel: (() -> Void)?
+    var closesWithoutConfirmation = false
+    var isCompleted = false
+
+    let complete: (PeerId?) -> Void = { peerId in
+        guard !isCompleted else {
+            return
+        }
+        isCompleted = true
+        completion(peerId)
+    }
+
+    let arguments = Arguments(context: context, endings: endings, dismiss: {
+        cancel?()
+    }, updateUsername: { username in
+        updateState { current in
+            var current = current
+            current.botUsername = username
+            return current
+        }
+        checkUsername()
+    }, openPremium: {
+        prem(with: PremiumBoardingController(context: context, source: .settings), for: context.window)
     })
 
     actionsDisposable.add((context.engine.peers.resolvePeerByName(name: managerUsername, referrer: nil)
@@ -266,35 +424,19 @@ public func CreateBotModalController(context: any AccountContextProtocol, manage
             }
         }))
 
-    if !botUsername.isEmpty, checkBotUsernameSuffix(botUsername) {
-        let signal = context.engine.peers.validateAddressNameInteractive(domain: .bot(PeerId(namespace: Namespaces.Peer.CloudUser, id: PeerId.Id._internalFromInt64Value(0))), name: botUsername) |> map { state -> AddressNameAvailabilityState in
-            switch state {
-            case let .availability(availability):
-                switch availability {
-                case .available:
-                    return .success(username: botUsername)
-                case .invalid:
-                    return .fail(username: botUsername, formatError: .invalidCharacters, availability: availability)
-                case .taken:
-                    return .fail(username: botUsername, formatError: nil, availability: availability)
-                case .purchaseAvailable:
-                    return .fail(username: botUsername, formatError: nil, availability: availability)
-                }
-            case let .invalidFormat(error):
-                return .fail(username: botUsername, formatError: error, availability: .invalid)
-            case .checking:
-                return .progress(username: botUsername)
-            }
-        } |> deliverOnMainQueue
-
-        availabilityDisposable.set(signal.start(next: { state in
+    actionsDisposable.add((context.engine.data.subscribe(TelegramEngine.EngineData.Item.Peer.Peer(id: context.peerId))
+        |> map { peer -> Bool in
+            return peer?.isPremium ?? false
+        }
+        |> distinctUntilChanged
+        |> deliverOnMainQueue).start(next: { isPremium in
             updateState { current in
                 var current = current
-                current.usernameState = state
+                current.isPremium = isPremium
                 return current
             }
+            checkUsername()
         }))
-    }
 
     let signal = statePromise.get() |> deliverOnPrepareQueue |> map { state in
         return InputDataSignalValue(entries: entries(state, arguments: arguments))
@@ -304,93 +446,64 @@ public func CreateBotModalController(context: any AccountContextProtocol, manage
 
     controller.onDeinit = {
         actionsDisposable.dispose()
+        complete(nil)
     }
 
     let modalInteractions = ModalInteractions(acceptTitle: strings().createBotCreate, accept: { [weak controller] in
         _ = controller?.returnKeyAction()
-    }, singleButton: true)
+    }, cancelTitle: strings().modalCancel, cancel: {
+        cancel?()
+    })
+    modalInteractions.glassButtons = true
 
-    let modalController = InputDataModalController(controller, modalInteractions: modalInteractions)
-
-    controller.leftModalHeader = ModalHeaderData(image: theme.icons.modalClose, handler: { [weak modalController] in
-        modalController?.close()
+    let modalController = InputDataModalController(controller, modalInteractions: modalInteractions, closeHandler: { closeModal in
+        guard !closesWithoutConfirmation else {
+            complete(nil)
+            closeModal()
+            return
+        }
+        verifyAlert(for: context.window, header: strings().createBotModalControllerUnsavedChangesHeader, information: strings().createBotModalControllerUnsavedChangesInfo, ok: strings().createBotModalControllerUnsavedChangesDiscard, successHandler: { _ in
+            complete(nil)
+            closeModal()
+        })
     })
 
+    controller.leftModalHeader = ModalHeaderData(image: theme.icons.modalClose, handler: {
+        cancel?()
+    })
+
+    controller.afterTransaction = { [weak modalInteractions] _ in
+        modalInteractions?.updateDone { button in
+            button.isEnabled = canCreateBot(stateValue.with { $0 }, endings: endings)
+        }
+    }
+
     controller.updateDatas = { data in
-        let username = data[_id_bot_username]?.stringValue ?? ""
-        updateState { current in
-            var current = current
-            if let title = data[_id_bot_name]?.stringValue {
-                current.botTitle = title
-            }
-            current.botUsername = username
-            current.usernameState = .none(username: username)
-            return current
-        }
-
-        if username.isEmpty || !checkBotUsernameSuffix(username) {
-            availabilityDisposable.set(nil)
-            return .fail(.none)
-        }
-
-        let signal = context.engine.peers.validateAddressNameInteractive(domain: .bot(PeerId(namespace: Namespaces.Peer.CloudUser, id: PeerId.Id._internalFromInt64Value(0))), name: username) |> map { state -> AddressNameAvailabilityState in
-            switch state {
-            case let .availability(availability):
-                switch availability {
-                case .available:
-                    return .success(username: username)
-                case .invalid:
-                    return .fail(username: username, formatError: .invalidCharacters, availability: availability)
-                case .taken:
-                    return .fail(username: username, formatError: nil, availability: availability)
-                case .purchaseAvailable:
-                    return .fail(username: username, formatError: nil, availability: availability)
-                }
-            case let .invalidFormat(error):
-                return .fail(username: username, formatError: error, availability: .invalid)
-            case .checking:
-                return .progress(username: username)
-            }
-        } |> deliverOnMainQueue
-
-        availabilityDisposable.set(signal.start(next: { state in
+        if let title = data[_id_bot_name]?.stringValue {
             updateState { current in
                 var current = current
-                current.usernameState = state
+                current.botTitle = title
                 return current
             }
-        }))
-
+        }
         return .fail(.none)
     }
 
     controller.validateData = { _ in
         let state = stateValue.with { $0 }
-        guard !state.botTitle.isEmpty, !state.botUsername.isEmpty else {
+        guard canCreateBot(state, endings: endings), let managerPeer = state.managerPeer else {
             return .fail(.none)
         }
-        guard checkBotUsernameSuffix(state.botUsername) else {
-            return .fail(.none)
-        }
-        guard let managerPeer = state.managerPeer else {
-            return .fail(.none)
-        }
-        switch state.usernameState {
-        case .success:
-            break
-        case let .none(username):
-            if username?.isEmpty != false {
-                return .fail(.none)
-            }
-        default:
-            return .fail(.none)
-        }
+        let resolvedUsername = CreateBotUsername(typedText: state.botUsername, endings: endings)
         return .fail(.doSomething(next: { f in
-            let signal = context.engine.peers.createBot(name: state.botTitle, username: state.botUsername, managerPeerId: managerPeer.peer.id, viaDeeplink: true)
+            let signal = context.engine.peers.createBot(name: state.botTitle, username: resolvedUsername.username, managerPeerId: managerPeer.peer.id, viaDeeplink: true)
             _ = showModalProgress(signal: signal, for: context.window).start(next: { peer in
                 close?()
                 showModalText(for: context.window, text: strings().createBotSuccessInfo(state.managerUsername), title: strings().createBotSuccessTitle(state.botTitle))
-                ComposeUIHooks.shared.navigateToChat(context.bindings.rootNavigation(), context, .peer(peer.id))
+                if openAutomatically {
+                    ComposeUIHooks.shared.navigateToChat(context.bindings.rootNavigation(), context, .peer(peer.id))
+                }
+                complete(peer.id)
                 f(.none)
             }, error: { error in
                 switch error {
@@ -404,7 +517,15 @@ public func CreateBotModalController(context: any AccountContextProtocol, manage
                             prem(with: PremiumBoardingController(context: context, source: .double_limits(.channels)), for: context.window)
                         })
                     }
-                default:
+                case .occupied:
+                    alert(for: context.window, info: strings().errorUsernameAlreadyTaken)
+                case .suffixNotAllowed:
+                    alert(for: context.window, info: createBotUsernamePremiumHint(endings: endings, premiumLink: false) ?? strings().createBotUsernameHint)
+                case .premiumRequired:
+                    alert(for: context.window, info: createBotUsernamePremiumRequiredText(ending: resolvedUsername.ending))
+                case let .suffixLimitExceeded(limit):
+                    alert(for: context.window, info: createBotUsernameSuffixLimitText(limit: limit, endings: endings))
+                case .generic:
                     alert(for: context.window, info: strings().unknownError)
                 }
                 f(.none)
@@ -413,8 +534,16 @@ public func CreateBotModalController(context: any AccountContextProtocol, manage
     }
 
     close = { [weak modalController] in
+        closesWithoutConfirmation = true
         modalController?.modal?.close()
     }
+
+    cancel = {
+        complete(nil)
+        close?()
+    }
+
+    checkUsername()
 
     return modalController
 }

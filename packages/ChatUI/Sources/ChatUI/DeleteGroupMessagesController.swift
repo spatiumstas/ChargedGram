@@ -74,6 +74,38 @@ private class RowItem : GeneralRowItem {
     override func viewClass() -> AnyClass {
         return RowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return option.text
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .checkBox
+    }
+
+    override var accessibilityToggleState: Bool? {
+        return option.selected
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        option.callback.callback()
+        return true
+    }
+
+    override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        guard revealText != nil else {
+            return nil
+        }
+        let callback = option.callback
+        return [NSAccessibilityCustomAction(name: option.revealed ? strings().voiceOverCommonCollapse : strings().voiceOverCommonExpand, handler: {
+            callback.toggle()
+            return true
+        })]
+    }
 }
 
 private final class RowView: GeneralContainableRowView {
@@ -109,6 +141,7 @@ private final class RowView: GeneralContainableRowView {
             item.option.callback.toggle()
 
         }, for: .Click)
+        action.setAccessibilityLabel(strings().voiceOverCommonExpand)
         
         selectingControl.set(handler: { [weak self] _ in
             guard let item = self?.item as? RowItem else {
@@ -177,6 +210,7 @@ private final class RowView: GeneralContainableRowView {
                 current = view
             } else {
                 current = ImageView(frame: .zero)
+                current.isAccessibilityDecorative = true
                 self.chevron = current
                 action.addSubview(current)
             }
@@ -731,7 +765,7 @@ public func DeleteGroupMessagesController(context: any AccountContextProtocol, c
             if joinedChats.creatorChatIds.isEmpty {
                 return .single((communityPeer, joinedChats, [:]))
             }
-            return context.engine.data.subscribe(EngineDataMap(joinedChats.creatorChatIds.map { TelegramEngine.EngineData.Item.Peer.ParticipantCount(id: $0) }))
+            return (context.engine.data.subscribe(EngineDataMap(joinedChats.creatorChatIds.map { TelegramEngine.EngineData.Item.Peer.ParticipantCount(id: $0) })))
             |> map { countsMap -> (EnginePeer?, CommunityParticipantJoinedChats, [PeerId: Int32]) in
                 var counts: [PeerId: Int32] = [:]
                 for id in joinedChats.creatorChatIds {
@@ -742,7 +776,7 @@ public func DeleteGroupMessagesController(context: any AccountContextProtocol, c
                 return (communityPeer, joinedChats, counts)
             }
         }
-        actionsDisposable.add(contextSignal.start(next: { communityPeer, joinedChats, creatorCounts in
+        actionsDisposable.add((contextSignal).start(next: { communityPeer, joinedChats, creatorCounts in
             var available = false
             var totalCount = 0
             if case let .community(community) = communityPeer, community.hasPermission(.banUsers) {
@@ -763,7 +797,7 @@ public func DeleteGroupMessagesController(context: any AccountContextProtocol, c
         }))
     }
 
-    let signal = statePromise.get() |> deliverOnPrepareQueue |> map { state in
+    let signal = (statePromise.get() |> deliverOnPrepareQueue) |> map { state in
         return InputDataSignalValue(entries: entries(state, arguments: arguments))
     }
     
@@ -788,7 +822,7 @@ public func DeleteGroupMessagesController(context: any AccountContextProtocol, c
 
         if state.deleteListSelected {
             if let reactionAuthor, let messageId = messageIds.first {
-                _ = context.engine.messages.deleteReaction(messageId: messageId, authorId: reactionAuthor).start()
+                _ = (context.engine.messages.deleteReaction(messageId: messageId, authorId: reactionAuthor)).start()
             } else {
                 signals.append(context.engine.messages.deleteMessagesInteractively(messageIds: messageIds, type: .forEveryone))
             }
@@ -846,15 +880,17 @@ public func DeleteGroupMessagesController(context: any AccountContextProtocol, c
 
         if state.deleteReactionsSelected {
             for memberId in state.deleteReactionsPeerSelected {
-                _ = context.engine.messages.deleteAllReactionsWithAuthor(peerId: messagesPeerId, authorId: memberId).start()
+                _ = (context.engine.messages.deleteAllReactionsWithAuthor(peerId: messagesPeerId, authorId: memberId)).start()
             }
         }
 
         let commit: () -> Void = {
             if state.banFromCommunity, let communityId = state.communityId, let participantId = state.allPeers.first {
-                _ = context.engine.peers.toggleCommunityParticipantBanned(communityId: communityId, participantId: participantId, banned: true).start()
+                _ = (context.engine.peers.toggleCommunityParticipantBanned(communityId: communityId, participantId: participantId, banned: true)).start()
             }
-            _ = combineLatest(signals).start()
+            if state.deleteListSelected, reactionAuthor == nil {
+            }
+            _ = (combineLatest(signals)).start()
             close?()
             onComplete()
         }
@@ -956,6 +992,18 @@ private final class CommunityBanWarningItem: GeneralRowItem {
 
     override func viewClass() -> AnyClass {
         return CommunityBanWarningView.self
+    }
+
+    override var accessibilityLabel: String? {
+        let lines = zip(titles, subtitles).map { title, subtitle -> String in
+            let sub = subtitle.attributedString.string
+            return sub.isEmpty ? title.attributedString.string : title.attributedString.string + ", " + sub
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: ". ")
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
     }
 }
 

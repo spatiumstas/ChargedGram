@@ -256,8 +256,15 @@ public class ChatAudioContentView: ChatMediaContentView, APDelegate {
         let icon = isPlaying ? presentation.pauseThumb : presentation.playThumb
         progressView.theme = RadialProgressTheme(backgroundColor: presentation.activityBackground, foregroundColor: presentation.activityForeground, icon: icon, iconInset: NSEdgeInsets(left: isPlaying ? 0 : 1), blendMode: presentation.blendingMode)
         if fetchStatus == nil || fetchStatus == .Local {
+            if case let .Icon(current) = progressView.state, current === icon {
+                return
+            }
             progressView.setState(.Icon(image: icon), animated: animated)
         }
+    }
+
+    public var initialFetchStatus: MediaResourceStatus {
+        return .Local
     }
     
     public override func update(with media: Media, size:NSSize, context: any AccountContextProtocol, parent:Message?, table:TableView?, parameters:ChatMediaLayoutParameters? = nil, animated: Bool = false, positionFlags: LayoutPositionFlags? = nil, approximateSynchronousValue: Bool = false) {
@@ -294,7 +301,7 @@ public class ChatAudioContentView: ChatMediaContentView, APDelegate {
         self.setNeedsDisplay()
         
         if !self.hasFetchStatusForCurrentMedia {
-            self.fetchStatus = .Local
+            self.fetchStatus = self.initialFetchStatus
         }
         checkState(animated: animated)
 

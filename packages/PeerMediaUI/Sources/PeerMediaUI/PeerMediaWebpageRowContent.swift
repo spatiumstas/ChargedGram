@@ -234,6 +234,10 @@ public class PeerMediaWebpageRowItem: PeerMediaRowItem {
     public override func viewClass() -> AnyClass {
         return PeerMediaWebpageRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return linkLayouts.first?.attributedString.string ?? textLayout?.attributedString.string ?? strings().voiceOverCommonLink
+    }
 }
 
 
@@ -312,6 +316,7 @@ public class PeerMediaWebpageRowView : PeerMediaRowView {
             if item.hasInstantPage {
                 if ivImage == nil {
                     ivImage = ImageView()
+                    ivImage?.isAccessibilityDecorative = true
                 }
                 ivImage!.image = theme.icons.chatInstantView
                 ivImage!.sizeToFit()

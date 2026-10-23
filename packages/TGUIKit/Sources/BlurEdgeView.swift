@@ -1,5 +1,46 @@
 import Cocoa
 
+private final class BlurEdgeMaskCache {
+    static let shared = BlurEdgeMaskCache()
+
+    private struct Entry {
+        let size: CGSize
+        let padding: CGFloat
+        let bottom: Bool
+        weak var image: CIImage?
+    }
+
+    private let lock = NSLock()
+    private var entries: [Entry] = []
+    private var replacementIndex = 0
+
+    func image(size: CGSize, padding: CGFloat, bottom: Bool, generate: () -> CIImage?) -> CIImage? {
+        lock.lock()
+        if let image = entries.first(where: { $0.size == size && $0.padding == padding && $0.bottom == bottom })?.image {
+            lock.unlock()
+            return image
+        }
+        lock.unlock()
+        guard let generated = generate() else { return nil }
+        lock.lock()
+        if let image = entries.first(where: { $0.size == size && $0.padding == padding && $0.bottom == bottom })?.image {
+            lock.unlock()
+            return image
+        }
+        let entry = Entry(size: size, padding: padding, bottom: bottom, image: generated)
+        if let vacant = entries.firstIndex(where: { $0.image == nil }) {
+            entries[vacant] = entry
+        } else if entries.count < 16 {
+            entries.append(entry)
+        } else {
+            entries[replacementIndex] = entry
+            replacementIndex = (replacementIndex + 1) % 16
+        }
+        lock.unlock()
+        return generated
+    }
+}
+
 public final class BlurEdgeView: NSView {
 
     public enum Edge {
@@ -116,40 +157,44 @@ public final class BlurEdgeView: NSView {
     // MARK: - Progressive blur
 
     private func verticalGradient(size: CGSize) -> CIImage? {
-        guard let ctx = CGContext(
-            data: nil,
-            width: Int(round(size.width)),
-            height: Int(round(size.height)),
-            bitsPerComponent: 8,
-            bytesPerRow: 0,
-            space: CGColorSpaceCreateDeviceGray(),
-            bitmapInfo: CGImageAlphaInfo.none.rawValue
-        ) else { return nil }
+        let padding = self.padding
+        let bottom = currentEdge == .bottom
+        return BlurEdgeMaskCache.shared.image(size: size, padding: padding, bottom: bottom) {
+            guard let ctx = CGContext(
+                data: nil,
+                width: Int(round(size.width)),
+                height: Int(round(size.height)),
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceGray(),
+                bitmapInfo: CGImageAlphaInfo.none.rawValue
+            ) else { return nil }
 
-        let colors: [NSColor]
-        switch currentEdge {
-        case .bottom:
-            colors = [.white, .black]
-        case .top:
-            colors = [.black, .white]
+            let colors: [NSColor]
+            switch bottom {
+            case true:
+                colors = [.white, .black]
+            case false:
+                colors = [.black, .white]
+            }
+            let cgcolors = colors.map { $0.cgColor } as CFArray
+
+            guard let gradient = CGGradient(
+                colorsSpace: CGColorSpaceCreateDeviceGray(),
+                colors: cgcolors,
+                locations: [0.0, 1.0]
+            ) else { return nil }
+
+            ctx.drawLinearGradient(
+                gradient,
+                start: CGPoint(x: 0, y: -padding),
+                end: CGPoint(x: 0, y: size.height + padding),
+                options: []
+            )
+
+            guard let image = ctx.makeImage() else { return nil }
+            return CIImage(cgImage: image)
         }
-        let cgcolors = colors.map { $0.cgColor } as CFArray
-
-        guard let gradient = CGGradient(
-            colorsSpace: CGColorSpaceCreateDeviceGray(),
-            colors: cgcolors,
-            locations: [0.0, 1.0]
-        ) else { return nil }
-
-        ctx.drawLinearGradient(
-            gradient,
-            start: CGPoint(x: 0, y: -padding),
-            end: CGPoint(x: 0, y: size.height + padding),
-            options: []
-        )
-
-        guard let image = ctx.makeImage() else { return nil }
-        return CIImage(cgImage: image)
     }
 
     private func applyVariableBlur() {

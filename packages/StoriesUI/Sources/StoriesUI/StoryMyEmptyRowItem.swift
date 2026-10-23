@@ -60,6 +60,10 @@ public final class StoryMyEmptyRowItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return StoryMyEmptyRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
 }
 
 
@@ -78,6 +82,7 @@ private final class StoryMyEmptyRowView: GeneralContainableRowView {
         
         textView.isSelectable = false
         textView.userInteractionEnabled = true
+        textView.isAccessibilityDecorative = true
         
         archive.set(handler: { [weak self] _ in
             if let item = self?.item as? StoryMyEmptyRowItem {

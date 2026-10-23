@@ -44,6 +44,10 @@ open class DynamicHeightRowItem: GeneralRowItem {
     open override func viewClass() -> AnyClass {
         return DynamicHeightRowView.self
     }
+
+    open override var accessibilityIsSpacer: Bool {
+        return true
+    }
 }
 
 private final class DynamicHeightRowView : TableRowView {

@@ -36,6 +36,18 @@ public class CameraPreviewRowItem: GeneralRowItem {
     deinit {
         self.session.stopRunning()
     }
+
+    public override var accessibilityLabel: String? {
+        return device.localizedName
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .image
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
     
     public override func viewClass() -> AnyClass {
         return CameraPreviewRowView.self

@@ -67,6 +67,7 @@ public final class KeyboardGlobalHandler {
     
     private final class ProcessEvent {
         public var process:(NSEvent)->Void = { _ in }
+        public var eventTap: CFMachPort?
     }
     
     public static func getPermission()->Signal<Bool, NoError> {
@@ -109,9 +110,16 @@ public final class KeyboardGlobalHandler {
                 
         if hasPermission {
             func callback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, refcon: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
-                if let event = NSEvent(cgEvent: event) {
-                    let processor = Unmanaged<ProcessEvent>.fromOpaque(refcon!).takeUnretainedValue()
-                    processor.process(event)
+                let processor = Unmanaged<ProcessEvent>.fromOpaque(refcon!).takeUnretainedValue()
+                switch type {
+                case .tapDisabledByTimeout, .tapDisabledByUserInput:
+                    if let eventTap = processor.eventTap {
+                        CGEvent.tapEnable(tap: eventTap, enable: true)
+                    }
+                default:
+                    if let event = NSEvent(cgEvent: event) {
+                        processor.process(event)
+                    }
                 }
                 return Unmanaged.passRetained(event)
             }
@@ -131,6 +139,7 @@ public final class KeyboardGlobalHandler {
                                                   userInfo: UnsafeMutableRawPointer(processEventRef.toOpaque()))
 
             if let eventTap = self.eventTap {
+                processEvent.eventTap = eventTap
                 let runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
                 CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
                 CGEvent.tapEnable(tap: eventTap, enable: true)

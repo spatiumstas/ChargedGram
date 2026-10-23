@@ -42,6 +42,10 @@ private final class HeaderItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return HeaderItemView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return title.attributedString.string
+    }
 }
 
 private final class HeaderItemView : TableRowView {
@@ -63,6 +67,7 @@ private final class HeaderItemView : TableRowView {
         dismiss.set(image: theme.icons.glass_close, for: .Normal)
         dismiss.setGlassEffect(size: NSMakeSize(36, 36))
         dismiss.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
 
     }
     
@@ -155,6 +160,10 @@ private final class OptionsItem : GeneralRowItem {
     }
     public override func viewClass() -> AnyClass {
         return OptionsItemView.self
+    }
+
+    public override var accessibilityLabel: String? {
+        return options.map { $0.header.attributedString.string }.joined(separator: ", ")
     }
 }
 

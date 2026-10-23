@@ -2,6 +2,7 @@ import Cocoa
 import TGUIKit
 import TelegramTheme
 import GeneralRows
+import CurrencyFormat
 
 struct WalletSendRatePill: Equatable {
     let text: String
@@ -31,6 +32,38 @@ final class WalletSendRatePillRowItem: GeneralRowItem {
 
     override func viewClass() -> AnyClass {
         return WalletSendRatePillRowView.self
+    }
+
+    override var accessibilityLabel: String? {
+        guard let pill, !pill.text.isEmpty else {
+            return nil
+        }
+        switch pill.mode {
+        case .fiat:
+            return walletTonAccessibilityText(pill.text)
+        case .gram:
+            return pill.text
+        }
+    }
+
+    override var accessibilityIsSpacer: Bool {
+        return pill == nil
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        guard pill != nil else {
+            return false
+        }
+        toggle()
+        return true
     }
 }
 

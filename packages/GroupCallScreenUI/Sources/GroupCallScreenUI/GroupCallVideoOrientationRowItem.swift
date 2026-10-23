@@ -6,6 +6,7 @@ import TGUIKit
 import SwiftSignalKit
 import GeneralRows
 import TelegramTheme
+import Localization
 
 public final class GroupCallVideoOrientationRowItem : GeneralRowItem {
     
@@ -29,6 +30,19 @@ public final class GroupCallVideoOrientationRowItem : GeneralRowItem {
         return true
     }
     
+    public override var accessibilityLabel: String? {
+        return strings().voiceChatSettingsRecordIncludeVideo
+    }
+
+    public override var accessibilityValue: String? {
+        switch selected {
+        case .portrait:
+            return strings().voiceChatSettingsRecordOrientationPortrait
+        case .landscape:
+            return strings().voiceChatSettingsRecordOrientationLandscape
+        }
+    }
+
     public override func viewClass() -> AnyClass {
         return GroupCallVideoOrientationRowView.self
     }
@@ -93,6 +107,7 @@ private final class GroupCallVideoOrientationRowView : GeneralContainableRowView
             images.removeAllSubviews()
             
             let top = ImageView()
+            top.isAccessibilityDecorative = true
             top.image = TelegramThemeHooks.shared.image(.iconGroupCallRecordAvatar1)._cgImage
             top.isEventLess = true
             top.layer?.cornerRadius = 2
@@ -114,6 +129,7 @@ private final class GroupCallVideoOrientationRowView : GeneralContainableRowView
             for i in 2 ... 4 {
                 let imageView = ImageView()
                 imageView.isEventLess = true
+                imageView.isAccessibilityDecorative = true
                 imageView.image = NSImage(named: "Icon_GroupCall_Record_Avatar\(i)")?._cgImage
                 imageView.setFrameSize(NSMakeSize(19, 19))
                 imageView.layer?.cornerRadius = 2
@@ -170,6 +186,11 @@ private final class GroupCallVideoOrientationRowView : GeneralContainableRowView
             self?.updateColors()
         }, for: .Hover)
         
+        vertical.setAccessibilityLabel(strings().voiceChatSettingsRecordOrientationPortrait)
+        horizontal.setAccessibilityLabel(strings().voiceChatSettingsRecordOrientationLandscape)
+        verticalTextView.isAccessibilityDecorative = true
+        horizontalTextView.isAccessibilityDecorative = true
+
         vertical.set(handler: { [weak self] _ in
             self?.select(.portrait)
         }, for: .Click)

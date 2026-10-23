@@ -3,6 +3,7 @@ import TGUIKit
 import Cocoa
 import TelegramContext
 import GeneralRows
+import Localization
 
 final class ForumTopicEmojiSelectRowItem : GeneralRowItem {
     let getView: ()->NSView
@@ -15,6 +16,10 @@ final class ForumTopicEmojiSelectRowItem : GeneralRowItem {
     
     override func viewClass() -> AnyClass {
         return ForumTopicEmojiSelectRowView.self
+    }
+
+    override var accessibilityLabel: String? {
+        return strings().voiceOverCommonEmoji
     }
     
     

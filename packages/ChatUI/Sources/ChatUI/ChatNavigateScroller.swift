@@ -4,6 +4,7 @@ import TelegramCore
 
 import Postbox
 import TelegramTheme
+import Localization
 
 
 public class ChatNavigationScroller: ImageButton {
@@ -88,6 +89,35 @@ public class ChatNavigationScroller: ImageButton {
 
     public override func scrollWheel(with event: NSEvent) {
 
+    }
+
+    public override var accessibilityDefaultLabel: String? {
+        switch source {
+        case .mentions:
+            return strings().voiceOverCommonMentions
+        case .failed:
+            return strings().voiceOverChatFailed
+        case .reactions:
+            return strings().voiceOverCommonUnreadReactions
+        case .pollVotes:
+            return strings().voiceOverChatPollVotes
+        case .scroller:
+            return strings().voiceOverCommonScrollToBottom
+        case .scrollerUp:
+            return strings().voiceOverCommonScrollUp
+        }
+    }
+
+    public override func accessibilityValue() -> Any? {
+        guard count > 0 else {
+            return nil
+        }
+        switch source {
+        case .scroller:
+            return count == 1 ? strings().voiceOverChatUnreadMessagesOne(Int(count)) : strings().voiceOverChatUnreadMessagesOther(Int(count))
+        default:
+            return Int(count).prettyNumber
+        }
     }
 
     public var hasBadge: Bool {

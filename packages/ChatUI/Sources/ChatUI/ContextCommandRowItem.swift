@@ -4,12 +4,13 @@ import TelegramCore
 
 import TelegramTheme
 import AvatarUI
+import ShortPeerRow
 
 public class ContextCommandRowItem: TableRowItem {
 
     fileprivate let _stableId:Int64
     fileprivate let account: Account
-    public let command:PeerCommand
+    public let command:ChatInputCommand
     
     private let title:TextViewLayout
     private let desc:TextViewLayout
@@ -21,7 +22,7 @@ public class ContextCommandRowItem: TableRowItem {
         return _stableId
     }
     
-    public init(_ initialSize:NSSize, _ account:Account, _ command:PeerCommand, _ index:Int64) {
+    public init(_ initialSize:NSSize, _ account:Account, _ command:ChatInputCommand, _ index:Int64) {
         _stableId = index
         self.command = command
         self.account = account
@@ -40,6 +41,19 @@ public class ContextCommandRowItem: TableRowItem {
     
     public override func viewClass() -> AnyClass {
         return ContextCommandRowView.self
+    }
+
+    public override var accessibilityLabel: String? {
+        return title.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        let text = desc.attributedString.string
+        return text.isEmpty ? nil : text
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
     }
     
     public override func makeSize(_ width: CGFloat, oldWidth:CGFloat) -> Bool {

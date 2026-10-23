@@ -3,6 +3,7 @@ import TGUIKit
 import TelegramTheme
 import TelegramIconsTheme
 import ImageCanvasUI
+import Localization
 
 open class MediaPreviewEditControl: View {
     private let crop = ImageButton()
@@ -31,6 +32,9 @@ open class MediaPreviewEditControl: View {
         _ = crop.sizeToFit(NSZeroSize, NSMakeSize(27, frame.height), thatFit: true)
         _ = delete.sizeToFit(NSZeroSize, NSMakeSize(27, frame.height), thatFit: true)
         _ = paint.sizeToFit(NSZeroSize, NSMakeSize(27, frame.height), thatFit: true)
+        crop.setAccessibilityLabel(strings().voiceOverCommonCrop)
+        paint.setAccessibilityLabel(strings().voiceOverCommonDraw)
+        delete.setAccessibilityLabel(strings().voiceOverCommonDelete)
 
     }
     
@@ -54,11 +58,28 @@ open class MediaPreviewEditControl: View {
     
     public var canEdit: Bool = true {
         didSet {
-            crop.isHidden = !canEdit
-            paint.isHidden = !canEdit
-            self.setFrameSize(canEdit ? 90 : 30, frame.height)
+            updateEditing()
         }
     }
+
+    public var isVideo: Bool = false {
+        didSet {
+            guard isVideo != oldValue else {
+                return
+            }
+            crop.set(image: isVideo ? EditVideoIcons.edit.precomposed(theme.colors.text) : theme.icons.editor_crop, for: .Normal)
+            crop.setAccessibilityLabel(isVideo ? strings().voiceOverCommonEdit : strings().voiceOverCommonCrop)
+            updateEditing()
+        }
+    }
+
+    private func updateEditing() {
+        crop.isHidden = !canEdit
+        paint.isHidden = !canEdit || isVideo
+        self.setFrameSize(canEdit ? (isVideo ? 60 : 90) : 30, frame.height)
+        needsLayout = true
+    }
+
     public var canDelete: Bool = true {
         didSet {
             delete.isHidden = !canDelete
@@ -77,8 +98,12 @@ open class MediaPreviewEditControl: View {
         glassView?.frame = bounds
         if canEdit {
             crop.centerY(x: 3)
-            paint.centerY(x: crop.frame.maxX)
-            delete.centerY(x: paint.frame.maxX)
+            if isVideo {
+                delete.centerY(x: crop.frame.maxX)
+            } else {
+                paint.centerY(x: crop.frame.maxX)
+                delete.centerY(x: paint.frame.maxX)
+            }
         } else {
             delete.center()
         }

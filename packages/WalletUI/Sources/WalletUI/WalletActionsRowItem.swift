@@ -28,6 +28,10 @@ public final class WalletActionsRowItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return WalletActionsRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return [leftTitle, rightTitle].filter { !$0.isEmpty }.joined(separator: ", ")
+    }
 }
 
 @available(macOS 10.15, *)

@@ -1,3 +1,4 @@
+#if DEBUG
 import Foundation
 
 public struct PerfLabConfiguration {
@@ -54,3 +55,4 @@ public struct PerfLabConfiguration {
         return self.arguments[name] ?? defaultValue
     }
 }
+#endif

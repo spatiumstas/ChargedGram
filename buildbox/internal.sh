@@ -1,5 +1,4 @@
 #/bin/sh
-set -x
 set -e
 
 export PATH="$PATH:$PWD/../deploy"
@@ -9,6 +8,7 @@ export PATH="$PATH:/opt/homebrew/bin"
 
 
 tag="$1"
+BUILD_OUTPUT="${TELEGRAM_BUILD_ROOT:-$HOME}/build-$tag"
 
 lock="$HOME/telegram-build.lock"
 if [ -z "$TELEGRAM_BUILD_LOCK_HELD" ]; then
@@ -20,9 +20,14 @@ if [ -z "$TELEGRAM_BUILD_LOCK_HELD" ]; then
 fi
 echo "job ${CI_JOB_ID:-manual} $tag $(git rev-parse --short HEAD) since $(date -u '+%Y-%m-%d %H:%M:%S UTC')" > "$lock.owner"
 
+export CI_BUILD_LOG_DIR="$PWD/.ci-build-logs/${CI_JOB_ID:-manual}"
+mkdir -p "$CI_BUILD_LOG_DIR"
+export BUILD_TIMING_LOG="$CI_BUILD_LOG_DIR/timings.tsv"
+printf 'stage\tseconds\texit_code\n' > "$BUILD_TIMING_LOG"
+
 sh ./buildbox/stop-leftover-builds.sh
 
-sh ./buildbox/build-mac.sh $tag
-sh ./buildbox/verify-build.sh ~/build-$tag $PWD
-sh deploy-$tag.sh ~/build-$tag $PWD Telegram.app ~/.credentials/dsa-$tag
-mv ~/build-$tag.app-size.pending ~/build-$tag.app-size
+sh ./scripts/time-step.sh build sh ./buildbox/build-mac.sh "$tag"
+sh ./scripts/time-step.sh verify sh ./buildbox/verify-build.sh "$BUILD_OUTPUT" "$PWD"
+sh ./scripts/time-step.sh deploy sh deploy-$tag.sh "$BUILD_OUTPUT" "$PWD" Telegram.app ~/.credentials/dsa-$tag
+mv "$BUILD_OUTPUT.app-size.pending" "$BUILD_OUTPUT.app-size"

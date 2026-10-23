@@ -32,6 +32,10 @@ class PassportAcceptRowItem: GeneralRowItem {
     override func viewClass() -> AnyClass {
         return PassportAcceptRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return strings().secureIdRequestAccept
+    }
 }
 
 final class PassportAcceptRowView : TableRowView {

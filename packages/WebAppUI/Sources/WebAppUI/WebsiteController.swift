@@ -449,6 +449,17 @@ public final class WebsiteController : ModalViewController, WKNavigationDelegate
     private var browser: BrowserLinkManager
     
     
+    private var enteredFullScreen = false
+    private var fullScreenObserver: NSObjectProtocol?
+
+    private func closeFilePage() {
+        if let observer = fullScreenObserver {
+            NotificationCenter.default.removeObserver(observer)
+            fullScreenObserver = nil
+        }
+        browser.close(confirm: false)
+    }
+
     public init(context: (any AccountContextProtocol), url: String, browser: BrowserLinkManager) {
         self.context = context
         self.browser = browser
@@ -469,8 +480,11 @@ public final class WebsiteController : ModalViewController, WKNavigationDelegate
         
         var title: String = ""
         if let parsedUrl = URL(string: url) {
-            let request = URLRequest(url: parsedUrl)
-            self.webView.load(request)
+            if parsedUrl.isFileURL {
+                self.webView.loadFileURL(parsedUrl, allowingReadAccessTo: parsedUrl.deletingLastPathComponent())
+            } else {
+                self.webView.load(URLRequest(url: parsedUrl))
+            }
 
             title = parsedUrl.host ?? ""
         }
@@ -545,6 +559,9 @@ public final class WebsiteController : ModalViewController, WKNavigationDelegate
     }
     
     deinit {
+        if let observer = fullScreenObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
         self.webView.removeObserver(self, forKeyPath: #keyPath(WKWebView.title))
         self.webView.removeObserver(self, forKeyPath: #keyPath(WKWebView.url))
         self.webView.removeObserver(self, forKeyPath: #keyPath(WKWebView.estimatedProgress))
@@ -723,6 +740,13 @@ public final class WebsiteController : ModalViewController, WKNavigationDelegate
     }
     
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        if !enteredFullScreen, webView.url?.isFileURL == true, let window = self.window, !window.isFullScreen {
+            enteredFullScreen = true
+            fullScreenObserver = NotificationCenter.default.addObserver(forName: NSWindow.didExitFullScreenNotification, object: window, queue: nil, using: { [weak self] _ in
+                self?.closeFilePage()
+            })
+            window.toggleFullScreen(nil)
+        }
         self.updateState {
             $0
                 .withUpdatedBackList(webView.backForwardList.backList.map { BrowserContentState.HistoryItem(webItem: $0) })

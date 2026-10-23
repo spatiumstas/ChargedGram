@@ -52,6 +52,52 @@ class LocationSendCurrentItem: GeneralRowItem {
         return success
     }
     
+    var buttonText: String {
+        let text: String
+        switch state {
+        case .accurate:
+            switch destination {
+            case .chat:
+                text = strings().locationSendMyLocation
+            case .business:
+                text = strings().locationSetLocation
+            case .select:
+                text = strings().locationSelectMyLocation
+            }
+        case .selected:
+            switch destination {
+            case .chat:
+                text = strings().locationSendThisLocation
+            case .business:
+                text = strings().locationSetLocation
+            case .select:
+                text = strings().locationSelectThisLocation
+            }
+        }
+        return text
+    }
+
+    override var accessibilityLabel: String? {
+        return buttonText
+    }
+
+    override var accessibilityValue: String? {
+        return statusLayout.attributedString.string
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
+    }
+
     override func viewClass() -> AnyClass {
         return LocationSendCurrentView.self
     }
@@ -67,6 +113,7 @@ private final class LocationSendCurrentView : TableRowView {
         addSubview(button)
         addSubview(iconView)
         addSubview(statusView)
+        iconView.isAccessibilityDecorative = true
         statusView.userInteractionEnabled = false
         statusView.isSelectable = false
         button.userInteractionEnabled = false
@@ -91,27 +138,7 @@ private final class LocationSendCurrentView : TableRowView {
         
         button.set(font: .medium(.title), for: .Normal)
         button.set(color: theme.colors.accent, for: .Normal)
-        let text: String
-        switch item.state {
-        case .accurate:
-            switch item.destination {
-            case .chat:
-                text = strings().locationSendMyLocation
-            case .business:
-                text = strings().locationSetLocation
-            case .select:
-                text = strings().locationSelectMyLocation
-            }
-        case .selected:
-            switch item.destination {
-            case .chat:
-                text = strings().locationSendThisLocation
-            case .business:
-                text = strings().locationSetLocation
-            case .select:
-                text = strings().locationSelectThisLocation
-            }
-        }
+        let text = item.buttonText
         button.set(text: text, for: .Normal)
         _ = button.sizeToFit()
         

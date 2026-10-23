@@ -65,6 +65,14 @@ private final class HeaderItem : GeneralRowItem {
     public override var height: CGFloat {
         return 80 + 20 + headerLayout.layoutSize.height + 10 + infoLayout.layoutSize.height + 20 + 20 + 20 + usersInfoLayout.layoutSize.height + (participants.count > 0 ? 55 : 0) + 10
     }
+
+    public override var accessibilityLabel: String? {
+        return headerLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return infoLayout.attributedString.string
+    }
     
     public override func viewClass() -> AnyClass {
         return HeaderItemView.self
@@ -115,6 +123,8 @@ private final class HeaderItemView: GeneralRowView {
         dismiss.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
         dismiss.autohighlight = false
         dismiss.scaleOnClick = true
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
+        stickerView.isAccessibilityDecorative = true
         
         addSubview(iconView)
         gradient.frame = iconView.bounds

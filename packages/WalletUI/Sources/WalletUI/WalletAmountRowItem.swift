@@ -420,6 +420,22 @@ public final class WalletAmountRowItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return WalletAmountRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return strings().voiceOverCommonAmount
+    }
+
+    public override var accessibilityValue: String? {
+        guard amount > 0 else {
+            return nil
+        }
+        switch mode {
+        case .gram:
+            return walletTonAccessibilityText(formatTonAmountText(amount, maxDecimalPositions: 9))
+        case .fiat:
+            return walletSendInputText(amount: amount, mode: .fiat, rate: rate, fiatFractionDigits: fiatFractionDigits) + " " + currency.code
+        }
+    }
 }
 
 private let walletAmountFiatColor = NSColor(rgb: 0x219949)
@@ -1544,6 +1560,10 @@ final class WalletAmountRowView: GeneralRowView, NSTextViewDelegate {
 
     public override var firstResponder: NSResponder? {
         return inputView
+    }
+
+    var hasInputText: Bool {
+        return !inputView.string.isEmpty
     }
 
     public override var mouseInsideField: Bool {

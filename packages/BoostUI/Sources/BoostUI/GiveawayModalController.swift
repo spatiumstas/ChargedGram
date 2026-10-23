@@ -73,6 +73,31 @@ private final class StarsToDistributeRowItem : GeneralRowItem {
     override func viewClass() -> AnyClass {
         return StarsToDistributeRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return textLayout.attributedString.string
+    }
+
+    override var accessibilityValue: String? {
+        return [price.attributedString.string, amountLayout.attributedString.string].joined(separator: ", ")
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .radioButton
+    }
+
+    override var accessibilityToggleState: Bool? {
+        return selected
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        select(option)
+        return true
+    }
     
     override var height: CGFloat {
         return 50

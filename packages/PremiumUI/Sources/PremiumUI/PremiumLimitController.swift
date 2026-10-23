@@ -366,6 +366,8 @@ public final class PremiumLimitView: View {
             container.addSubview(textView)
             container.addSubview(imageView)
             addSubview(container)
+            backgrounView.isAccessibilityDecorative = true
+            imageView.isAccessibilityDecorative = true
             
             textView.userInteractionEnabled = false
             textView.isSelectable = false
@@ -559,6 +561,7 @@ public final class PremiumLimitView: View {
         let theme = theme as! TelegramPresentationTheme
         
         dismiss.set(image: theme.icons.glass_close, for: .Normal)
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
         dismiss.setGlassEffect(size: NSMakeSize(36, 36))
         dismiss.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
         backgroundColor = theme.colors.background
@@ -800,7 +803,8 @@ public final class PremiumLimitController : ModalViewController {
         
         self.genericView.premium = { [weak self] in
             if !context.premiumIsBlocked {
-                prem(with: PremiumBoardingController(context: context, source: source), for: context.window)
+                let controller = PremiumBoardingController(context: context, source: source)
+                prem(with: controller, for: context.window)
             }
             self?.close()
         }

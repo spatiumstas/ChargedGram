@@ -50,6 +50,7 @@ struct ChatHeaderState : Identifiable, Equatable {
         case pendingRequests(Int, [PeerInvitationImportersState.Importer])
         case restartTopic
         case removePaidMessages(Peer, StarsAmount)
+        case setBotPhoto
         
         static func ==(lhs:Value, rhs: Value) -> Bool {
             switch lhs {
@@ -99,6 +100,8 @@ struct ChatHeaderState : Identifiable, Equatable {
                 return 9
             case .removePaidMessages:
                 return 10
+            case .setBotPhoto:
+                return 11
             }
         }
     }
@@ -195,6 +198,8 @@ struct ChatHeaderState : Identifiable, Equatable {
             return ChatRestartTopic.self
         case .removePaidMessages:
             return ChatRemovePaidMessage.self
+        case .setBotPhoto:
+            return ChatSetBotPhotoView.self
         case .none:
             return nil
         }
@@ -252,6 +257,8 @@ struct ChatHeaderState : Identifiable, Equatable {
             height += 36
         case .removePaidMessages:
             height += 40
+        case .setBotPhoto:
+            height += 36
         }
         return height
     }
@@ -689,6 +696,8 @@ class ChatHeaderController {
                 primary = ChatRestartTopic(chatInteraction, state: _headerState, frame: primaryRect)
             case .removePaidMessages:
                 primary = ChatRemovePaidMessage(chatInteraction, state: _headerState, frame: primaryRect)
+            case .setBotPhoto:
+                primary = ChatSetBotPhotoView(chatInteraction, state: _headerState, frame: primaryRect)
             case .none:
                 primary = nil
             }
@@ -860,6 +869,7 @@ private final class ChatSponsoredView : Control, ChatHeaderProtocol {
             
         }, for: .Click)
         
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
         dismiss.set(handler: { [weak chatInteraction] _ in
             guard let chatInteraction = chatInteraction else { return }
             FastSettings.removePromoTitle(for: chatInteraction.peerId)
@@ -951,6 +961,16 @@ class ChatPinnedView : Control, ChatHeaderProtocol {
     private var inlineButton: TextButton? = nil
     private var _state: ChatHeaderState
     private let particleList: VerticalParticleListControl = VerticalParticleListControl()
+
+    override var accessibilityDefaultLabel: String? {
+        return container.accessibilityLabel()
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+        let views: [NSView?] = [dismiss, inlineButton]
+        return views.compactMap { $0 }.filter { !$0.isHidden }
+    }
+
     required init(_ chatInteraction:ChatInteraction, state: ChatHeaderState, frame: NSRect) {
 
         self.chatInteraction = chatInteraction
@@ -1036,6 +1056,7 @@ class ChatPinnedView : Control, ChatHeaderProtocol {
         particleList.update(count: pinnedMessage.totalCount, selectedIndex: pinnedMessage.index, animated: animated)
         
         self.dismiss.set(image: pinnedMessage.totalCount <= 1 ? theme.icons.chat_header_dismiss : theme.icons.chat_header_pinned_list, for: .Normal)
+        self.dismiss.setAccessibilityLabel(pinnedMessage.totalCount <= 1 ? strings().voiceOverCommonClose : strings().chatTitlePinnedMessagesOther(Int(pinnedMessage.totalCount)))
         
         if pinnedMessage.messageId != self.pinnedMessage?.messageId || translate != self.translate {
             let oldContainer = self.container
@@ -1328,6 +1349,7 @@ class ChatReportView : Control, ChatHeaderProtocol {
             chatInteraction?.blockContact()
         }, for: .SingleClick)
 
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
         dismiss.set(handler: { [weak chatInteraction] _ in
             chatInteraction?.dismissPeerStatusOptions()
         }, for: .SingleClick)
@@ -1498,6 +1520,7 @@ class ShareInfoView : Control, ChatHeaderProtocol {
             self?.chatInteraction.dismissPeerStatusOptions()
         }, for: .SingleClick)
         
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
         dismiss.set(handler: { [weak self] _ in
             self?.chatInteraction.dismissPeerStatusOptions()
         }, for: .SingleClick)
@@ -1575,6 +1598,7 @@ class AddContactView : Control, ChatHeaderProtocol {
             self?.chatInteraction.addContact()
         }, for: .SingleClick)
         
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
         dismiss.set(handler: { [weak self] _ in
             self?.chatInteraction.dismissPeerStatusOptions()
         }, for: .SingleClick)
@@ -2051,6 +2075,7 @@ final class ChatGroupCallView : Control, ChatHeaderProtocol {
         let headerLayout = TextViewLayout(.initialize(string: title, color: theme.colors.text, font: .medium(.text)))
         headerLayout.measure(width: frame.width - 100)
         headerView.update(headerLayout)
+        button.setAccessibilityLabel(title)
 
         needsLayout = true
         
@@ -2165,6 +2190,7 @@ private final class ChatRequestChat : Control, ChatHeaderProtocol {
             self?.chatInteraction.openPendingRequests()
         }, for: .Click)
         
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
         dismiss.set(handler: { [weak self] _ in
             guard let `self` = self else {
                 return
@@ -2265,6 +2291,7 @@ final class ChatPendingRequests : Control, ChatHeaderProtocol {
             openAction()
         }, for: .Click)
         
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
         dismiss.set(handler: { [weak self] _ in
             guard let `self` = self else {
                 return
@@ -2499,6 +2526,64 @@ private final class ChatRestartTopic : Control, ChatHeaderProtocol {
     }
 }
 
+private final class ChatSetBotPhotoView : Control, ChatHeaderProtocol {
+    private let chatInteraction:ChatInteraction
+    private let button = TextButton()
+
+    required init(_ chatInteraction:ChatInteraction, state: ChatHeaderState, frame: NSRect) {
+        self.chatInteraction = chatInteraction
+        super.init(frame: frame)
+
+        button.autoSizeToFit = false
+        button.set(handler: { [weak self] _ in
+            self?.chatInteraction.openSetPeerAvatar()
+        }, for: .SingleClick)
+
+        addSubview(button)
+        updateLocalizationAndTheme(theme: theme)
+    }
+
+    func measure(_ width: CGFloat) {
+
+    }
+
+    func remove(animated: Bool) {
+
+    }
+
+    func update(with state: ChatHeaderState, animated: Bool) {
+        updateLocalizationAndTheme(theme: theme)
+    }
+
+    override func updateLocalizationAndTheme(theme: PresentationTheme) {
+        super.updateLocalizationAndTheme(theme: theme)
+        let theme = (theme as! TelegramPresentationTheme)
+        button.style = ControlStyle(font: .normal(.text), foregroundColor: theme.colors.accent, backgroundColor: .clear, highlightColor: theme.colors.accent.highlighted)
+        button.set(color: theme.colors.accent.highlighted, for: .Highlight)
+        button.set(image: theme.icons.chatAttachCamera, for: .Normal)
+        button.set(text: strings().chatHeaderControllerSetProfilePhoto, for: .Normal)
+        self.backgroundColor = .clear
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        updateLayout(size: frame.size, transition: .immediate)
+    }
+
+    func updateLayout(size: NSSize, transition: ContainedViewLayoutTransition) {
+        transition.updateFrame(view: button, frame: NSRect(x: 0, y: 0, width: size.width, height: size.height - .borderSize))
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    required init(frame frameRect: NSRect) {
+        fatalError("init(frame:) has not been implemented")
+    }
+}
+
 
 private final class ChatTranslateHeader : Control, ChatHeaderProtocol {
     
@@ -2695,6 +2780,7 @@ private final class ChatTranslateHeader : Control, ChatHeaderProtocol {
         textView.set(image: theme.icons.chat_header_translate, for: .Normal)
 
         action.set(image: theme.icons.chat_header_translate_actions, for: .Normal)
+        action.setAccessibilityLabel(strings().voiceOverCommonOptions)
         action.sizeToFit(NSZeroSize)
         action.autohighlight = false
         action.scaleOnClick = true
@@ -2768,6 +2854,7 @@ private final class ChatBotManager : Control, ChatHeaderProtocol {
         avatar.setFrameSize(NSMakeSize(30, 30))
 
         setup.disableActions()
+        setup.setAccessibilityLabel(strings().voiceOverCommonSettings)
         setup.autohighlight = false
         setup.scaleOnClick = true
         
@@ -3043,6 +3130,7 @@ private final class ChatAdHeaderView : Control, ChatHeaderProtocol {
                 current = view
             } else {
                 current = ImageButton()
+                current.setAccessibilityLabel(strings().voiceOverCommonClose)
                 self.dismiss = current
                 addSubview(current)
                 current.autohighlight = false

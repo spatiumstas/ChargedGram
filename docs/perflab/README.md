@@ -217,6 +217,49 @@ cd tools/perflab/ProgressLab && swift build
 
 Scenarios: `download` (start, progress, finish), `cancel`, `toggle` (download and cancel interrupting each other mid-morph), `upload`, `instant` (remote straight to local), `reduce-motion` and `reuse` (non-animated changes stay immediate). Each one writes `<scenario>.png`, a contact sheet with one row per configuration and one column per sample of the composited window, and adds a section to `report.txt`. The report lists the display-link sample rate, updates and largest per-frame steps for each configuration, and whether the end state is at rest. `--range` zooms the columns into a time window (`<scenario>-zoom.png`), and `--closeup` crops every row tightly around its control so small sizes can be checked for overlaps (`-closeup.png`). The display link follows the key window's screen, and the lab never activates, so it runs at the rate of the menu-bar screen.
 
+## Main app component lab
+
+[MainAppLab](../../tools/perflab/MainAppLab/README.md) is a standalone executable and test suite for date grouping, spoilers, image-cache lifecycle, and hashtag album selection. It compiles the actual production files through relative symlinks, needs no account or Telegram build, and has no telegram-ios dependency. It includes frozen baselines, release benchmarks, regression tests, and sanitizer commands.
+
+```sh
+tools/perflab/MainAppLab/run.sh test
+tools/perflab/MainAppLab/run.sh bench > /tmp/mainapp-benchmarks.json
+```
+
+The lab's README records the measurements, correctness evidence, and remaining full-app validation.
+
 ## Adding a lab
 
 Create a `<Name>Lab` next to the screen it measures, parse `PerfLabConfiguration.fromLaunchArguments`, drive the screen with `PerfLabScrollMeasurement` or `PerfLabFrameClock`, record with `PerfLabReport`, and start it from the `#if DEBUG` hook in `AppDelegate`. Put `startUnixTime` and `endUnixTime` in every entry so `merge.py` can attribute the system samples.
+
+## ChatController standalone opening and scrolling lab
+
+`tools/perflab/ChatControllerLab` extracts the current controller selection and scroll-control code into an independent AppKit mini-app, with frozen baselines, randomized transition tests, native table geometry and pixel comparisons, sanitizer runs, and paired text-layout benchmarks. It requires no account or telegram-ios build. See [the lab README](../../tools/perflab/ChatControllerLab/README.md) for commands, measured results, tradeoffs, and remaining full-app validation.
+
+## Text layout measurement lab
+
+[TextLayoutLab](../../tools/perflab/TextLayoutLab/README.md) extracts the production `TextViewLayout` measurement code into a standalone AppKit/Core Text executable. It compares cold and repeated measurements against a frozen baseline, checks randomized Unicode layouts and glyph pixels, runs both sanitizers, and records rejected wrapping and interval-math experiments. It requires no account or telegram-ios build.
+
+## Row parity lab (`chat-navigation` scenario `parity`)
+
+Proves that a row-rendering migration is pixel-identical on real rows of a real chat. For each loaded `ChatRowItem` (up to `-PerfLabParityRows`, default 80) the lab creates the row view four times in a borderless capture window, with `ChatRowView.usesLegacyRowChrome` set to true (native path), false (layer path), true and false again, waits `-PerfLabParityWait` seconds (default 0.7) for media to load, and captures the window through WindowServer (`CGWindowListCreateImage`, so z-order, blur and media are the real composition). Rows whose two native captures differ are self-animating and counted as `unstable`; for the rest the layer capture must equal the native one byte for byte. Differing rows are saved as `parity<i>-legacy.png` / `parity<i>-layers.png` next to the report. `-PerfLabParityMutate <pt>` shifts the hosted layer by that many points in DEBUG to prove the oracle catches a mistake; `-PerfLabParityMutateEmoji <pt>`, `-PerfLabParityMutateAvatar <pt>` and `-PerfLabParityMutateStatus <pt>` shift only the reaction emoji, the reactor avatar container or the sender status. Each path is captured twice, and rows where one path changes between its two captures are listed in the `playback` note (animations started on one path only). `avatarLayers` / `avatarViews` and `statusLayers` / `statusViews` count the reactor avatars and sender statuses found on each path, so a run shows the slice was actually exercised; `replyNodes` / `replyViews` / `replyNodeThumbnails` / `replyViewThumbnails` / `replyHitOK` / `replyHitTotal` cover reply previews (`-PerfLabParityMutateReply <pt>` shifts the reply node, `-PerfLabParityReplyFallback 1` rejects every layer-hosted reply on its first update to exercise the rebuild as a view), `photoLayers` / `photoViews` count chat photos on `TransformImageLayer` vs `TransformImageView` (`-PerfLabParityMutateMedia <pt>` shifts the photo layer) and `snapshotEqual` / `snapshotDifferent` compare the gallery snapshot (`copy()`) of each photo on both paths, `badgeNodes` / `badgeViews` do the same for admin badges, and `badgeHitOK` / `badgeHitTotal` check that the window's hit test reaches each interactive badge node at its center. `-PerfLabParityMutateBadge <pt>` shifts only the badge and its background. Few chats have badges among their loaded rows, so `-PerfLabParityFakeBadge 1` gives every row with a sender name a green rank badge with background (interactive) and `-PerfLabParityFakeBadge 2` a plain gray one (not interactive), both through the item's real badge fields, restored after the run.
+
+```sh
+tools/perflab/run.sh chat-navigation parity -PerfLabScenarios parity -PerfLabParityRows 60 -PerfLabPeerTitle "Telegram macOS Talk"
+tools/perflab/run.sh chat-navigation parity-saved -PerfLabScenarios parity -PerfLabParityRows 60 -PerfLabSavedMessages 1
+tools/perflab/run.sh chat-navigation mutant -PerfLabScenarios parity -PerfLabParityRows 40 -PerfLabParityMutate 1 -PerfLabPeerTitle "Telegram macOS Talk"
+```
+
+## Floating avatar parity lab (`chat-navigation` scenario `floatparity`)
+
+Proves that the layer-hosted floating avatars (`ChatFloatingAvatarScene` / `ChatFloatingAvatarNode`) look exactly like the `ChatAvatarView` path in the real chat window. At `-PerfLabFloatPositions` evenly spaced scroll offsets of the loaded history (default 12) the lab rebuilds the chat's floating avatars four times (views, nodes, views, nodes; `ChatFloatingAvatar.usesNodes`), waits `-PerfLabParityWait` (default 0.8 s), and captures the main window through WindowServer, cropped to the avatar column (the table's left inset plus 38 pt, full table height). Positions where one path differs between its two captures are `unstable`; the rest must match byte for byte. `-PerfLabFloatMutate <pt>` shifts every node by that many points in DEBUG as the negative control; `-PerfLabParitySaveAll 1` saves every crop. `avatarNodes` / `avatarViewsNodesPath` / `avatarViewsLegacy` count what each path put on screen (story-ring and video avatars stay views on purpose), `avatarHitOK` / `avatarHitTotal` check that the window's hit test reaches each node at its center, and `viewHitOK` / `viewHitTotal` run the same check on the legacy views (misses are avatars whose center is outside the visible table or under the pinned bar / header; `misses` lists them). The `scroll` scenario takes `-PerfLabFloatNodes 0` to run the view path for A/B.
+
+```sh
+tools/perflab/run.sh chat-navigation float -PerfLabScenarios floatparity -PerfLabPeerTitle "Telegram macOS Talk"
+tools/perflab/run.sh chat-navigation floatmut -PerfLabScenarios floatparity -PerfLabFloatMutate 1 -PerfLabPeerTitle "Telegram macOS Talk"
+```
+
+## View census drawing metrics
+
+The `census` scenario reports `censusDrawingViews`, `censusDrawingMPixels` (backing pixels of visible views on the drawing path, i.e. views with a bitmap backing store) and `censusDrawingClasses` (kilopixels per class). The `rowbacking` scenario that compared table rows with and without a backing store is parked with its patch in `evidence/2026-10-19-table-row-backing-parked`.
+

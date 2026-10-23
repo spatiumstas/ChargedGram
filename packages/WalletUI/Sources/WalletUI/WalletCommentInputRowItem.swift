@@ -20,17 +20,23 @@ final class WalletCommentInputRowItem: InputDataRowItem {
     fileprivate let lockEnabled: Bool
     fileprivate let lockDescription: String
     fileprivate let toggleEncryption: () -> Void
+    private let placeholderText: String
 
     init(_ initialSize: NSSize, stableId: AnyHashable, viewType: GeneralViewType, currentText: String, inputPlaceholder: String, commentEncrypted: Bool, lockEnabled: Bool, lockDescription: String, limit: Int32, updated: @escaping (String) -> Void, toggleEncryption: @escaping () -> Void) {
         self.commentEncrypted = commentEncrypted
         self.lockEnabled = lockEnabled
         self.lockDescription = lockDescription
         self.toggleEncryption = toggleEncryption
+        self.placeholderText = inputPlaceholder
         super.init(initialSize, stableId: stableId, mode: .plain, error: nil, viewType: viewType, currentText: currentText, placeholder: nil, inputPlaceholder: inputPlaceholder, rightItem: .action(walletCommentLockBlankImage(), .none), filter: walletCommentInputFilter, updated: updated, limit: limit, customTheme: GeneralRowItem.Theme(backgroundColor: theme.colors.grayBackground))
     }
 
     override func viewClass() -> AnyClass {
         return WalletCommentInputRowView.self
+    }
+
+    override var accessibilityLabel: String? {
+        return placeholderText.isEmpty ? nil : placeholderText
     }
 }
 

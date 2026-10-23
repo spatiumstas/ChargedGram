@@ -308,6 +308,13 @@ open class InputDataRowItem: GeneralRowItem, InputDataRowDataValue {
         return success
     }
     
+    open override var accessibilityLabel: String? {
+        if let title = placeholderLayout?.attributedString.string, !title.isEmpty {
+            return title
+        }
+        return inputPlaceholder.string.isEmpty ? nil : inputPlaceholder.string
+    }
+
     open override func viewClass() -> AnyClass {
         return InputDataRowView.self
     }
@@ -878,6 +885,7 @@ open class InputDataRowView : GeneralRowView, TGModernGrowingDelegate, NSTextFie
             switch rightItem {
             case let .action(image, action):
                 rightActionView.set(image: image, for: .Normal)
+                rightActionView.setAccessibilityLabel(rightActionAccessibilityLabel(action))
                 _ = rightActionView.sizeToFit()
                 rightActionView.isHidden = false
                 loadingView?.removeFromSuperview()
@@ -923,6 +931,7 @@ open class InputDataRowView : GeneralRowView, TGModernGrowingDelegate, NSTextFie
                 rightActionView.isHidden = true
             case let .actionWithLoading(image, action):
                 rightActionView.set(image: image, for: .Normal)
+                rightActionView.setAccessibilityLabel(rightActionAccessibilityLabel(action))
                 _ = rightActionView.sizeToFit()
                 rightActionView.isHidden = false
                 if loadingView == nil {
@@ -991,6 +1000,7 @@ open class InputDataRowView : GeneralRowView, TGModernGrowingDelegate, NSTextFie
                     return
                 }
                 placeholderAction.set(image: icon, for: .Normal)
+                placeholderAction.setAccessibilityLabel(placeholder.placeholder)
                 placeholderAction.set(image: icon, for: .Highlight)
                 placeholderAction.set(image: icon, for: .Hover)
                 _ = placeholderAction.sizeToFit()
@@ -1093,5 +1103,16 @@ open class InputDataRowView : GeneralRowView, TGModernGrowingDelegate, NSTextFie
     
     open override func selectAll(_ sender: Any?) {
         self.textView.setSelectedRange(NSMakeRange(0, self.textView.string().length))
+    }
+}
+
+private func rightActionAccessibilityLabel(_ action: InputDataRightItemAction) -> String? {
+    switch action {
+    case .clearText:
+        return strings().voiceOverCommonClear
+    case .resort:
+        return strings().voiceOverCommonReorder
+    default:
+        return nil
     }
 }

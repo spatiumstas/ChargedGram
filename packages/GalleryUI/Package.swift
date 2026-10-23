@@ -37,6 +37,7 @@ let deps: [(String, String)] = [
     ("TelegramMediaResources", "../TelegramMediaResources"),
     ("InputDataUI", "../InputDataUI"),
     ("PerfLab", "../PerfLab"),
+
 ]
 
 let package = Package(

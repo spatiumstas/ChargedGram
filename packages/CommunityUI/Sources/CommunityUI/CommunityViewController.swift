@@ -212,6 +212,24 @@ private final class CommunityChatRowItem: GeneralRowItem {
         super.init(initialSize, height: 64, stableId: stableId, viewType: viewType, inset: NSEdgeInsets(left: 20, right: 20))
     }
 
+    public override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        var parts: [String] = []
+        if let messageLayout {
+            parts.append(messageLayout.attributedString.string)
+        }
+        if let dateLayout {
+            parts.append(dateLayout.attributedString.string)
+        }
+        if isMuted {
+            parts.append(strings().voiceOverCommonMuted)
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
     public override func makeSize(_ width: CGFloat, oldWidth: CGFloat = 0) -> Bool {
         _ = super.makeSize(width, oldWidth: oldWidth)
         let textX: CGFloat = 10 + 44 + 10
@@ -304,6 +322,7 @@ private final class CommunityChatRowView: GeneralContainableRowView {
             } else {
                 current = ImageView()
                 current.isEventLess = true
+                current.isAccessibilityDecorative = true
                 self.hiddenView = current
                 addSubview(current)
             }

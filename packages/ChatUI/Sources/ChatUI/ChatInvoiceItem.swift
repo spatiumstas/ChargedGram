@@ -247,6 +247,7 @@ public class ChatInvoiceView : ChatRowView {
                 super.init(frame: frameRect)
                 addSubview(self.textView)
                 addSubview(imageView)
+                imageView.isAccessibilityDecorative = true
                 imageView.image = theme.icons.extend_content_lock
                 imageView.sizeToFit()
                 self.textView.userInteractionEnabled = false
@@ -378,6 +379,10 @@ public class ChatInvoiceView : ChatRowView {
         return rect
     }
     
+    override var textSelectionSources: ChatTextSelectionSources {
+        return .views(selectableTextViews)
+    }
+
     public override var selectableTextViews: [TextView] {
         return [textView]
     }

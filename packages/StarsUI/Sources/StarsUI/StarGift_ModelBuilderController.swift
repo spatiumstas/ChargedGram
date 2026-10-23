@@ -84,6 +84,10 @@ private final class AttrRowItem: GeneralRowItem {
         self.model = model
         super.init(initialSize, height: 110, stableId: stableId)
     }
+
+    public override var accessibilityLabel: String? {
+        return entry.mode.accessibilityTitle
+    }
     
     public override func viewClass() -> AnyClass {
         return AttrRowItemView.self
@@ -99,6 +103,24 @@ private final class AttrRowItemView : GeneralRowView {
         private var backgroundView: UniqueGiftBackgroundView?
         private var backgroundContent: UniqueGiftBackgroundContent?
         private var backgroundContext: (any AccountContextProtocol)?
+        private var accessibilityAttr: StarGift.UniqueGift.Attribute?
+        private var isAccessibilityChosen: Bool = false
+
+        override var accessibilityDefaultLabel: String? {
+            return accessibilityAttr?.name
+        }
+
+        override func accessibilityValue() -> Any? {
+            guard let attr = accessibilityAttr else {
+                return nil
+            }
+            var parts: [String] = [attr.rarity.badgeText]
+            if isAccessibilityChosen {
+                parts.append(strings().voiceOverCommonSelected)
+            }
+            return parts.filter { !$0.isEmpty }.joined(separator: ", ")
+        }
+
         public required init(frame frameRect: NSRect) {
             super.init(frame: frameRect)
             addSubview(modelView)
@@ -106,9 +128,11 @@ private final class AttrRowItemView : GeneralRowView {
             addSubview(nameView)
             nameView.userInteractionEnabled = false
             nameView.isSelectable = false
+            nameView.isAccessibilityDecorative = true
             
             rarityTextView.userInteractionEnabled = false
             rarityTextView.isSelectable = false
+            rarityTextView.isAccessibilityDecorative = true
 
             
             (modelView as? View)?.userInteractionEnabled = false
@@ -121,6 +145,8 @@ private final class AttrRowItemView : GeneralRowView {
         }
         
         public func set(entry: GridController.Entry, model:TelegramMediaFile, attr: StarGift.UniqueGift.Attribute, mode: StarGift_Builder_Section, selected: Bool, arguments: Arguments, animated: Bool) {
+            self.accessibilityAttr = attr
+            self.isAccessibilityChosen = selected
             
             setSingle(handler: { [weak arguments] _ in
                 arguments?.selectAttribute(attr, mode)
@@ -140,7 +166,7 @@ private final class AttrRowItemView : GeneralRowView {
             
             let nameLayout = TextViewLayout(.initialize(string: attr.name, color: mode == .models ? theme.colors.text : .white, font: .normal(.short)), truncationType: .middle, alignment: .center)
             nameLayout.measure(width: frame.width - 10)
-            nameView.update(nameLayout)
+            GiftBuilderMotion.updateText(nameView, layout: nameLayout, animated: animated)
             
             nameView.centerX(y: frame.height - 5 - nameView.frame.height - 3)
             
@@ -149,7 +175,7 @@ private final class AttrRowItemView : GeneralRowView {
             let rarityLayout = TextViewLayout(.initialize(string: attr.rarity.badgeText, color: badgeColor, font: .medium(9)), alignment: .center)
             rarityLayout.measure(width: .greatestFiniteMagnitude)
 
-            rarityTextView.update(rarityLayout)
+            GiftBuilderMotion.updateText(rarityTextView, layout: rarityLayout, animated: animated)
             rarityTextView.setFrameSize(NSMakeSize(rarityTextView.frame.width + 6, rarityTextView.frame.height + 5))
 
             rarityTextView.layer?.cornerRadius = rarityTextView.frame.height / 2
@@ -191,7 +217,7 @@ private final class AttrRowItemView : GeneralRowView {
                     }
                     self.backgroundContent = content
                     self.backgroundContext = arguments.context
-                    self.updateBackground()
+                    self.updateBackground(animated: animated)
                 } else {
                     backgroundView?.removeFromSuperview()
                     self.backgroundView = nil
@@ -211,12 +237,12 @@ private final class AttrRowItemView : GeneralRowView {
             self.updateBackground()
         }
 
-        private func updateBackground() {
+        private func updateBackground(animated: Bool = false) {
             guard let backgroundView, let content = backgroundContent, let context = backgroundContext else {
                 return
             }
             backgroundView.frame = bounds
-            backgroundView.update(context: context, content: content, style: .item(giftCenterY: modelView.frame.midY, cornerRadius: 14))
+            backgroundView.update(context: context, content: content, style: .item(giftCenterY: modelView.frame.midY, cornerRadius: 14), animated: animated)
         }
     }
     public required init(frame frameRect: NSRect) {
@@ -273,6 +299,19 @@ public enum StarGift_Builder_Section : Int {
     case symbols = 2
 }
 
+extension StarGift_Builder_Section {
+    fileprivate var accessibilityTitle: String {
+        switch self {
+        case .models:
+            return strings().starGiftModelBuilderModels
+        case .backdrops:
+            return strings().starGiftModelBuilderBackdrops
+        case .symbols:
+            return strings().starGiftModelBuilderSymbols
+        }
+    }
+}
+
 private final class GridController : ViewController {
     
     public struct Entry : Comparable, Identifiable {
@@ -306,7 +345,6 @@ private final class GridController : ViewController {
  
     fileprivate let mode: StarGift_Builder_Section
     fileprivate let tableView: TableView = TableView()
-    private let maskLayer = SimpleGradientLayer()
     
     private var entries: [Entry] = []
     
@@ -354,33 +392,7 @@ private final class GridController : ViewController {
             theme.colors.listBackground
         }
         
-        guard let clipView = tableView.layer else { return }
-        
-        let gradientHeight: CGFloat = 10
-        let h = clipView.bounds.height
-
-        
-        maskLayer.frame = clipView.bounds
-        maskLayer.colors = [
-            NSColor.clear.cgColor,
-            NSColor.black.cgColor,
-            NSColor.black.cgColor,
-            NSColor.black.cgColor
-        ]
-
-        maskLayer.locations = [
-            0.0,
-            NSNumber(value: Float(gradientHeight / h)),
-            NSNumber(value: Float((h - gradientHeight) / h)),
-            1.0
-        ]
-
-        maskLayer.startPoint = CGPoint(x: 0.5, y: 0)
-        maskLayer.endPoint = CGPoint(x: 0.5, y: 1)
-
-        clipView.mask = maskLayer
-        
-        tableView.contentInsets = NSEdgeInsets(top: 5, left: 0, bottom: 20, right: 0)
+        tableView.contentInsets = NSEdgeInsets(top: 112, left: 0, bottom: 20, right: 0)
         tableView.frame = bounds
         addSubview(tableView)
         
@@ -397,7 +409,11 @@ private final class GridRowItem : GeneralRowItem {
     public init(_ initialSize: NSSize, stableId: AnyHashable, state: State, arguments: Arguments) {
         self.state = state
         self.arguments = arguments
-        super.init(initialSize, height: 260, stableId: stableId)
+        super.init(initialSize, height: 350, stableId: stableId)
+    }
+
+    public override var accessibilityLabel: String? {
+        return state.selected.accessibilityTitle
     }
     
     public override func viewClass() -> AnyClass {
@@ -407,6 +423,7 @@ private final class GridRowItem : GeneralRowItem {
 
 private final class GridRowItemView : GeneralRowView {
     public let controller: SectionViewController
+    private let header = BuilderTabsView(frame: .zero)
     public required init(frame frameRect: NSRect) {
         controller = .init(sections: [
             .init(title: { return "" }, controller: GridController(mode: .models)),
@@ -414,12 +431,20 @@ private final class GridRowItemView : GeneralRowView {
             .init(title: { "" }, controller: GridController(mode: .symbols))
         ], selected: 0, hasBar: false)
         
-        controller._frameRect = NSMakeRect(20, 0, frameRect.width - 40, frameRect.height)
+        controller._frameRect = NSMakeRect(16, 0, frameRect.width - 32, frameRect.height)
 
-//        tableView = TableView(frame: NSMakeRect(0, 0, frameRect.width - 40, frameRect.height))
         super.init(frame: frameRect)
-//        addSubview(tableView)
         addSubview(controller.view)
+        addSubview(header)
+        controller.selectionUpdateHandler = { [weak self] index in
+            guard let item = self?.item as? GridRowItem,
+                  item.state.selected.rawValue != index,
+                  let section = StarGift_Builder_Section(rawValue: index) else { return }
+            item.arguments.toggleSection(section)
+        }
+        controller.selectorPositionHandler = { [weak self] position, animated in
+            self?.header.updateSelection(position: position, animated: animated)
+        }
         
         controller.genericView._backgroundColor = theme.colors.listBackground
     }
@@ -434,7 +459,8 @@ private final class GridRowItemView : GeneralRowView {
     
     public override func layout() {
         super.layout()
-        controller.view.frame = NSMakeRect(20, 0, frame.width - 40, frame.height)
+        controller.view.frame = NSMakeRect(16, 0, frame.width - 32, frame.height)
+        header.frame = NSMakeRect(0, 0, frame.width, 112)
     }
     
     public override func set(item: TableRowItem, animated: Bool) {
@@ -469,87 +495,86 @@ private final class GridRowItemView : GeneralRowView {
         backdrops?.set(model: modelFile, attrs: item.state.attributes.filter({ $0.attributeType == .backdrop }), selected: item.state.selectedBackdrop, arguments: item.arguments, state: item.state, animated: animated)
         symbols?.set(model: modelFile, attrs: item.state.attributes.filter({ $0.attributeType == .pattern }), selected: item.state.selectedSymbol, arguments: item.arguments, state: item.state, animated: animated)
 
-        controller.select(Int(item.state.selected.rawValue), animated)
+        layout()
+        header.update(state: item.state, arguments: item.arguments, animated: animated)
+        controller.select(Int(item.state.selected.rawValue), animated && !GiftBuilderMotion.reduceMotion)
         
     }
-}
 
-private final class SegmentRowItem: GeneralRowItem {
-    fileprivate let arguments: Arguments
-    fileprivate let state: State
-    public init(_ initialSize: NSSize, stableId: AnyHashable, state: State, arguments: Arguments) {
-        self.arguments = arguments
-        self.state = state
-        super.init(initialSize, height: 40, stableId: stableId)
-    }
-    
-    public override func viewClass() -> AnyClass {
-        return SegmentRowView.self
+    override func scrollWheel(with event: NSEvent) {
+        guard let item = item as? GridRowItem,
+              let page = controller.sections[item.state.selected.rawValue].controller as? GridController else { return }
+        page.tableView.scrollWheel(with: event)
     }
 }
 
-private final class SegmentRowView : GeneralRowView {
-    fileprivate let segmentControl: CatalinaStyledSegmentController
-    public required init(frame frameRect: NSRect) {
-        segmentControl = CatalinaStyledSegmentController(frame: NSMakeRect(0, 0, frameRect.width - 40, 30))
+private final class BuilderTabsView: View {
+    private let edge = EdgeEffectView(frame: .zero)
+    private let segments = GlassSegmentView(frame: .zero)
+    private let info = TextView()
+    private var arguments: Arguments?
+
+    required init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        addSubview(segmentControl.view)
-        
-        segmentControl.theme = CatalinaSegmentTheme(backgroundColor: theme.colors.listBackground, foregroundColor: theme.colors.background, activeTextColor: theme.colors.text, inactiveTextColor: theme.colors.listGrayText)
-        
-        segmentControl.set(items: [
-            CatalinaSegmentedItem(
-                title: strings().starGiftModelBuilderModels,
-                handler: { [weak self] in
-                    if let item = self?.item as? SegmentRowItem {
-                        item.arguments.toggleSection(.models)
-                    }
-                }
-            ),
-            CatalinaSegmentedItem(
-                title: strings().starGiftModelBuilderBackdrops,
-                handler: { [weak self] in
-                    if let item = self?.item as? SegmentRowItem {
-                        item.arguments.toggleSection(.backdrops)
-                    }
-                }
-            ),
-            CatalinaSegmentedItem(
-                title: strings().starGiftModelBuilderSymbols,
-                handler: { [weak self] in
-                    if let item = self?.item as? SegmentRowItem {
-                        item.arguments.toggleSection(.symbols)
-                    }
-                }
-            )
-        ])
+        layer?.masksToBounds = false
+        edge.isEventLess = true
+        addSubview(edge)
+        addSubview(segments)
+        addSubview(info)
+        info.isSelectable = false
+        segments.didSelect = { [weak self] index in
+            if let section = StarGift_Builder_Section(rawValue: index) {
+                self?.arguments?.toggleSection(section)
+            }
+        }
+    }
 
-    }
-    
-    public override var backdorColor: NSColor {
-        return .clear
-    }
-    
-    public required init?(coder: NSCoder) {
+    required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-    
-    public override func set(item: TableRowItem, animated: Bool) {
-        super.set(item: item, animated: animated)
-        
-        guard let item = item as? SegmentRowItem else {
-            return
-        }
-        
-        segmentControl.set(selected: item.state.selected.rawValue)
+
+    func updateSelection(position: CGFloat, animated: Bool) {
+        segments.setSelection(position: position, animated: animated && !GiftBuilderMotion.reduceMotion)
     }
-    
-    public override func layout() {
+
+    func update(state: State, arguments: Arguments, animated: Bool) {
+        self.arguments = arguments
+        segments.updateLocalizationAndTheme(theme: theme)
+        segments.set(titles: [strings().starGiftModelBuilderModels, strings().starGiftModelBuilderBackdrops, strings().starGiftModelBuilderSymbols], selected: state.selected.rawValue, animated: animated && !GiftBuilderMotion.reduceMotion)
+        segments.setFrameSize(segments.contentSize)
+        let text = NSMutableAttributedString()
+        if state.hasCraftableModels {
+            let count = state.modelFilter == .primary ? state.primaryModelsCount : state.craftableModelsCount
+            let current = state.modelFilter == .primary ? strings().starGiftModelBuilderPrimary : strings().starGiftModelBuilderCraftable
+            let other = state.modelFilter == .primary ? strings().starGiftModelBuilderCraftable : strings().starGiftModelBuilderPrimary
+            text.append(.initialize(string: strings().starGiftModelBuilderCollectionFeatures(count, current).trimmingCharacters(in: .whitespacesAndNewlines), color: theme.colors.listGrayText, font: .normal(.text)))
+            text.append(.initialize(string: "\n", color: theme.colors.listGrayText, font: .normal(.text)))
+            let link = NSAttributedString.initialize(string: strings().starGiftModelBuilderViewOtherModels(other), color: theme.colors.accent, font: .normal(.text))
+            let range = NSRange(location: text.length, length: link.length)
+            text.append(link)
+            text.addAttribute(.link, value: "toggle://filter", range: range)
+        } else {
+            text.append(.initialize(string: strings().starGiftModelBuilderCollectionFeaturesOther(state.attributes.filter { $0.attributeType == .model }.count), color: theme.colors.listGrayText, font: .normal(.text)))
+        }
+        let layout = TextViewLayout(text, maximumNumberOfLines: 3, alignment: .center)
+        layout.measure(width: max(1, frame.width - 32))
+        layout.interactions = TextViewInteractions(processURL: { [weak arguments] _ in
+            arguments?.toggleModelFilter()
+        })
+        GiftBuilderMotion.updateText(info, layout: layout, animated: animated)
+        needsLayout = true
+    }
+
+    override func layout() {
         super.layout()
-        segmentControl.view.center()
+        segments.centerX(y: 12)
+        info.centerX(y: segments.frame.maxY + 10)
+        let rect = NSMakeRect(0, 0, frame.width, frame.height + 24)
+        edge.frame = rect
+        let blur = System.blurEnabled ? EdgeEffectView.Blur(rect: rect, edgeSize: 40) : nil
+        edge.update(color: theme.colors.listBackground, blur: blur, edge: .bottom, edgeSize: 40, rect: rect, transition: .immediate)
     }
 }
-
 
 private final class HeaderItem : GeneralRowItem {
     
@@ -565,8 +590,8 @@ private final class HeaderItem : GeneralRowItem {
         public init(context: (any AccountContextProtocol), rarity: StarGift.UniqueGift.Attribute.Rarity, title: String, subtext: String, action: @escaping () -> Void) {
             self.context = context
 
-            self.title = .init(.initialize(string: title, color: NSColor.white.withAlphaComponent(0.8), font: .medium(.text)), maximumNumberOfLines: 1)
-            self.subtext = .init(.initialize(string: subtext, color: NSColor.white.withAlphaComponent(0.4), font: .normal(.small)), maximumNumberOfLines: 1)
+            self.title = .init(.initialize(string: title, color: .white, font: .medium(.text)), maximumNumberOfLines: 1)
+            self.subtext = .init(.initialize(string: subtext, color: NSColor.white.withAlphaComponent(0.75), font: .normal(.small)), maximumNumberOfLines: 1)
             self.action = action
             self.rarity = rarity
         }
@@ -635,19 +660,10 @@ private final class HeaderItem : GeneralRowItem {
         }
         
         self.title = .init(.initialize(string: state.gift.title, color: .white, font: .medium(18)))
-        self.info = .init(.initialize(string: state.mode == .random ? "Random Traits" : "Selected Traits", color: NSColor.white.withAlphaComponent(0.8), font: .normal(.text)), alignment: .center)
+        self.info = .init(.initialize(string: state.mode == .random ? strings().starGiftModelBuilderRandomizeTraits : strings().starGiftModelBuilderSelectedTraits, color: NSColor.white.withAlphaComponent(0.8), font: .normal(.text)), alignment: .center)
         
        
 
-        for (_, model) in models {
-            switch model {
-            case let .model(_, file, _, _):
-                _ = freeMediaFileInteractiveFetched(context: context, fileReference: .standalone(media: file)).start()
-            default:
-                break
-            }
-        }
-        
         if let pattern = state.selectedSymbol {
             patternIndex = patterns.firstIndex(where: { $0.1.fileId == pattern.file?.fileId }) ?? 0
         } else {
@@ -675,7 +691,7 @@ private final class HeaderItem : GeneralRowItem {
             self?.arguments.toggleSection(.models)
         }), .init(context: context, rarity: backdrops[backdropIndex].1.rarity, title: backdrops[backdropIndex].0, subtext: strings().starGiftModelBuilderSubtextBackdrop, action: { [weak self] in
             self?.arguments.toggleSection(.backdrops)
-        }), .init(context: context, rarity: state.selectedSymbol?.rarity ?? .permille(0), title: patterns[patternIndex].0, subtext: strings().starGiftModelBuilderSubtextSymbol, action: { [weak self] in
+        }), .init(context: context, rarity: (state.selectedSymbol ?? state.firstSymbol)?.rarity ?? .permille(0), title: patterns[patternIndex].0, subtext: strings().starGiftModelBuilderSubtextSymbol, action: { [weak self] in
             self?.arguments.toggleSection(.symbols)
         })]
         
@@ -714,7 +730,7 @@ private final class HeaderItem : GeneralRowItem {
         
         
         for action in actions {
-            action.measure(width: 120)
+            action.measure(width: (width - 48) / 3)
         }
         
 
@@ -722,24 +738,21 @@ private final class HeaderItem : GeneralRowItem {
     }
     
     public override var height: CGFloat {
-        var height: CGFloat = 0
-        
-        height += 30
-        height += 100
-        height += 20
-        
-        height += title.layoutSize.height
-        height += 5
-        height += 20//info.layoutSize.height
-        height += 10
-        
-        if !actions.isEmpty {
-            height += 70
-        }
-        
-        return height
+        return 304
     }
-    
+
+    public var glassTint: NSColor? {
+        return backgroundContent.map { NSColor($0.colors.center) }
+    }
+
+    public override var accessibilityLabel: String? {
+        return title.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return info.attributedString.string
+    }
+
     public override func viewClass() -> AnyClass {
         return HeaderView.self
     }
@@ -754,352 +767,210 @@ private final class HeaderItem : GeneralRowItem {
     }
 }
 
-private final class HeaderView : GeneralRowView {
-    private let textView = TextView()
-    private let infoView = TextView()
-    private let dismiss = ImageButton()
-    private let giftView = StarsHooks.shared.makeStickerView(NSMakeRect(0, 0, 100, 100))
-    private let backgroundView = UniqueGiftBackgroundView(frame: .zero)
-    
-    
-    private var ownerActions: View?
-    
-    public class ActionView : Control {
-        private let textView: InteractiveTextView = InteractiveTextView()
-        private let subtextView = TextView()
-        private let rarityTextView = TextView()
-        public required init(frame frameRect: NSRect) {
-            super.init(frame: frameRect)
-            textView.userInteractionEnabled = false
-            textView.textView.isSelectable = false
-            
-            subtextView.userInteractionEnabled = false
-            subtextView.isSelectable = false
-            
-            addSubview(textView)
-            addSubview(subtextView)
-            addSubview(rarityTextView)
-            
-            rarityTextView.userInteractionEnabled = false
-            rarityTextView.isSelectable = false
-            
-            layer?.masksToBounds = false
+private final class HeaderView: GeneralRowView {
+    private let textView = GiftBuilderAnimatedText(frame: .zero)
+    private let infoView = GiftBuilderAnimatedText(frame: .zero)
+    private let dismiss = GiftBuilderButton(frame: NSMakeRect(16, 14, 36, 36))
+    private let playView = GiftBuilderButton(frame: NSMakeRect(328, 14, 36, 36))
+    private let backgroundView = GiftBuilderBackgroundView(frame: .zero)
+    private let giftContainer = View(frame: NSMakeRect(0, 0, 124, 124))
+    private var giftView: NSView?
+    private var pendingGift: NSView?
+    private var outgoingGift: NSView?
+    private let giftReadyDisposable = MetaDisposable()
+    private var modelId: MediaId?
+    private var mode: State.Mode?
+    private let actions = [ActionView(frame: .zero), ActionView(frame: .zero), ActionView(frame: .zero)]
+    private var timer: SwiftSignalKit.Timer?
 
+    private final class ActionView: Control {
+        let glass = GiftBuilderGlassView(frame: .zero)
+        private let title = GiftBuilderAnimatedText(frame: .zero)
+        private let subtitle = GiftBuilderAnimatedText(frame: .zero)
+        private let rarity = GiftBuilderAnimatedText(frame: .zero)
+
+        required init(frame frameRect: NSRect) {
+            super.init(frame: frameRect)
+            layer?.masksToBounds = false
+            addSubview(glass)
+            for view in [title, subtitle, rarity] {
+                addSubview(view)
+            }
+            rarity.padding = NSMakeSize(5, 2)
+            stretchReferenceView = glass
         }
-        
-        public required init?(coder: NSCoder) {
+
+        required init?(coder: NSCoder) {
             fatalError("init(coder:) has not been implemented")
         }
-        
-        public func set(item: HeaderItem.ActionItem) {
-            self.textView.set(text: item.title, context: item.context)
-            self.subtextView.update(item.subtext)
-            
-            layer?.masksToBounds = false
-            
-            let rarityLayout = TextViewLayout(.initialize(string: item.rarity.badgeText, color: NSColor.white, font: .medium(9)), alignment: .center)
-            rarityLayout.measure(width: .greatestFiniteMagnitude)
 
-            rarityTextView.update(rarityLayout)
-            rarityTextView.setFrameSize(NSMakeSize(rarityTextView.frame.width + 6, rarityTextView.frame.height + 5))
-
-            rarityTextView.layer?.cornerRadius = rarityTextView.frame.height / 2
-            rarityTextView.backgroundColor = NSColor.white.withAlphaComponent(0.5)
-            rarityTextView.layer?.borderColor = NSColor.white.withAlphaComponent(0.7).cgColor
-            rarityTextView.layer?.borderWidth = 1.0
-            
-            setSingle(handler: { [weak item] _ in
-                item?.action()
-            }, for: .Click)
-            
+        func update(item: HeaderItem.ActionItem, animated: Bool) {
+            title.update(item.title, animated: animated)
+            subtitle.update(item.subtext, animated: animated)
+            let layout = TextViewLayout(.initialize(string: item.rarity.badgeText, color: .white, font: .medium(9)), maximumNumberOfLines: 1, alignment: .center)
+            layout.measure(width: max(1, item.size.width - 20))
+            rarity.update(layout, animated: animated)
+            rarity.layer?.cornerRadius = rarity.frame.height / 2
+            rarity.backgroundColor = NSColor.white.withAlphaComponent(0.3)
+            rarity.layer?.borderWidth = 1
+            rarity.layer?.borderColor = NSColor.white.withAlphaComponent(0.65).cgColor
+            setAccessibilityLabel("\(item.subtext.attributedString.string): \(item.title.attributedString.string), \(item.rarity.badgeText)")
+            setSingle(handler: { [weak item] _ in item?.action() }, for: .Click)
             needsLayout = true
         }
-        
-        public override func layout() {
-            super.layout()
-            textView.centerX(y: 5)
-            subtextView.centerX(y: textView.frame.maxY + 5)
-            
-            rarityTextView.setFrameOrigin(NSMakePoint(frame.width - rarityTextView.frame.width + 2, -rarityTextView.frame.height/2))
-        }
-    }
-    
-    public final class RandomizeView : Control {
-        public enum Mode {
-            case full
-            case short
-        }
-        private var textView: TextView?
-        private let imageView = ImageView()
-        private var mode: Mode = .short
-        private var controllerMode: State.Mode = .random
-        private var state: State?
-        private var timer: SwiftSignalKit.Timer?
-        
-        public required init(frame frameRect: NSRect) {
-            super.init(frame: frameRect)
-            addSubview(imageView)
-            scaleOnClick = true
-        }
-        
-        public required init?(coder: NSCoder) {
-            fatalError("init(coder:) has not been implemented")
-        }
-        
-        public func update(state: State, animated: Bool) {
-            
-            let previousControllerMode = self.controllerMode
-            self.controllerMode = state.mode
-            self.state = state
-            
-            guard let superview else {
-                return
-            }
-            switch state.mode {
-            case .custom:
-                imageView.image = TelegramThemeHooks.shared.image(.iconVideoPlayerPlay).precomposed(.white)
-            case .random:
-                imageView.image = TelegramThemeHooks.shared.image(.iconVideoPlayerPause).precomposed(.white)
-            }
-            imageView.contentGravity = .resizeAspectFill
-            imageView.setFrameSize(NSMakeSize(12, 12))
-            imageView.animates = true
 
-            var size = NSMakeSize(24, 24)
-            
-            if previousControllerMode != state.mode {
-                
-                self.mode = .full
-                
-                let string: String
-                switch state.mode {
-                case .custom:
-                    string = strings().starGiftModelBuilderSelectedTraits
-                case .random:
-                    string = strings().starGiftModelBuilderRandomizeTraits
-                }
-                let layout: TextViewLayout = TextViewLayout(.initialize(string: string, color: .white, font: .medium(.text)))
-                layout.measure(width: .greatestFiniteMagnitude)
-                
-                
-                let current: TextView
-                let isNew: Bool
-                if let view = self.textView {
-                    current = view
-                    isNew = false
-                } else {
-                    current = TextView()
-                    current.userInteractionEnabled = false
-                    current.isSelectable = false
-                    current.isEventLess = true
-                    self.textView = current
-                    self.addSubview(current)
-                    isNew = true
-                }
-                current.update(layout)
-                current.centerY(x: 5)
-                
-                if isNew {
-                    current.layer?.animateAlpha(from: 0, to: 1, duration: 0.2)
-                }
-                
-                timer = .init(timeout: 5.0, repeat: false, completion: { [weak self] in
-                    if let view = self?.textView, let state = self?.state {
-                        self?.mode = .short
-                        performSubviewRemoval(view, animated: true)
-                        self?.textView = nil
-                        self?.update(state: state, animated: true)
-                    }
-                }, queue: .mainQueue())
-                
-                timer?.start()
-            }
-            
-            if let textView {
-                size = NSMakeSize(5 + textView.frame.width + 5 + imageView.frame.width + 5, 24)
-            }
-            
-            
-            layer?.cornerRadius = size.height / 2
-            
-            backgroundColor = NSColor.white.withAlphaComponent(0.6)
-            layer?.borderColor = NSColor.white.withAlphaComponent(0.8).cgColor
-            layer?.borderWidth = 1.0
-            
-            let transition: ContainedViewLayoutTransition = animated ? .animated(duration: 0.2, curve: .easeOut) : .immediate
-            
-            transition.updateFrame(view: self, frame: CGRect(origin: NSMakePoint(superview.frame.width - size.width - 14, 14), size: size))
-            
-            self.controllerMode = state.mode
-            
-            self.updateLayout(size: size, transition: transition)
-            
-        }
-        
-        public override func layout() {
+        override func layout() {
             super.layout()
-            self.updateLayout(size: self.frame.size, transition: .immediate)
-        }
-        
-        public func updateLayout(size: NSSize, transition: ContainedViewLayoutTransition) {
-            if let textView {
-                transition.updateFrame(view: textView, frame: textView.centerFrameY(x: 5))
-                transition.updateFrame(view: imageView, frame: imageView.centerFrameY(x: size.width - imageView.frame.width - 5))
-            } else {
-                transition.updateFrame(view: imageView, frame: imageView.centerFrame())
-            }
+            glass.frame = bounds
+            glass.layout()
+            rarity.setFrameOrigin(NSMakePoint(frame.width - rarity.frame.width - 4, -rarity.frame.height / 2))
+            title.centerX(y: 11)
+            subtitle.centerX(y: 31)
         }
     }
-    
-    private let playView: RandomizeView = RandomizeView(frame: .zero)
-    
-    private var timer: SwiftSignalKit.Timer?
-    
-    public required init(frame frameRect: NSRect) {
+
+    required init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         addSubview(backgroundView)
-        addSubview(giftView)
+        addSubview(giftContainer)
         addSubview(textView)
         addSubview(infoView)
         addSubview(dismiss)
         addSubview(playView)
-        
-        infoView.isSelectable = false
-        
-        (giftView as? Control)?.scaleOnClick = true
-        (giftView as? Control)?.tooltipOnclick = true
-
+        for action in actions { addSubview(action) }
+        giftContainer.layer?.masksToBounds = false
+        backgroundView.onReveal = { [weak self] content, reveal, animated in
+            guard let self else { return }
+            let tint = NSColor(content.colors.center)
+            for glass in [self.dismiss.glass, self.playView.glass] + self.actions.map({ $0.glass }) {
+                glass.update(tint: tint, coordinateView: self, reveal: reveal, animated: animated)
+            }
+        }
     }
-    
-    public required init?(coder: NSCoder) {
+
+    required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-    
-    
-    public override func set(item: TableRowItem, animated: Bool) {
-        super.set(item: item, animated: animated)
-        
-        guard let item = item as? HeaderItem else {
-            return
-        }
-        
-        playView.setSingle(handler: { [weak item] _ in
-            item?.arguments.toggleMode()
-        }, for: .Click)
-        
-        dismiss.set(image: TelegramThemeHooks.shared.image(.iconPipClose).precomposed(.white), for: .Normal)
-        dismiss.setGlassEffect(size: NSMakeSize(36, 36))
-        dismiss.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
-        dismiss.scaleOnClick = true
-        
-        dismiss.setSingle(handler: { [weak item] _ in
-            item?.arguments.dismiss()
-        }, for: .Click)
-        
-        let update:()->Void = { [weak self] in
-            guard let self else {
-                return
-            }
-            self.updateBackground(animated: animated)
-            (self.giftView as? StarsStickerView)?.updateStarsSticker(file: item.model, size: giftView.frame.size, context: item.context, colors: [], playback: .standard, animated: animated)
-        }
-        
-        self.timer = .init(timeout: 2.5, repeat: true, completion: { [weak item] in
-            item?.arguments.makeNextPattern()
-        }, queue: .mainQueue())
-        
-        self.timer?.start()
-        update()
-        
-        if !item.actions.isEmpty {
-            
-            let current: View
-            if let view = ownerActions {
-                current = view
-            } else {
-                current = View()
-                current.layer?.masksToBounds = false
-                addSubview(current)
-                self.ownerActions = current
-            }
-            
-            while current.subviews.count > item.actions.count {
-                current.subviews.removeLast()
-            }
-            
-            while current.subviews.count < item.actions.count {
-                current.addSubview(ActionView(frame: .zero))
-            }
-            
-            for (i, action) in item.actions.enumerated() {
-                let view = current.subviews[i] as! ActionView
-                view.layer?.cornerRadius = 10
-                view.scaleOnClick = true
-                
-                let textColor = item.uniqueGift?.backdrop?.first?.lightness ?? 1.0 > 0.8 ? NSColor(0x000000) : NSColor(0xffffff)
 
-                view.background = textColor.withAlphaComponent(0.2)
-                view.set(item: action)
-            }
-            
-        } else if let view = ownerActions {
-            performSubviewRemoval(view, animated: animated)
-            self.ownerActions = nil
-        }
-        
-        textView.update(item.title)
-        infoView.update(item.info)
-                
-        
-        playView.update(state: item.state, animated: animated)
-
-        //let transition: ContainedViewLayoutTransition = animated ? .animated(duration: 0.2, curve: .easeOut) : .immediate
-        
-        //updateLayout(size: frame.size, transition: transition)
+    deinit {
+        timer?.invalidate()
+        giftReadyDisposable.dispose()
     }
-    
-    public override func updateLayout(size: NSSize, transition: ContainedViewLayoutTransition) {
-        super.updateLayout(size: size, transition: transition)
-        
-        
-        if let ownerActions {
-            ownerActions.setFrameSize(NSMakeSize(size.width, 44))
-            ownerActions.centerX(y: size.height - ownerActions.frame.height - 10)
-            
-            infoView.centerX(y: ownerActions.frame.minY - 20 - 15)
 
-                        
-            let itemSize = (frame.width - (CGFloat(ownerActions.subviews.count + 1) * 10)) / CGFloat(ownerActions.subviews.count)
-            var x: CGFloat = 10
-            for subview in ownerActions.subviews {
-                subview.frame = NSMakeRect(x, 0, itemSize, ownerActions.frame.height)
-                x += subview.frame.width + 10
+    override func set(item: TableRowItem, animated: Bool) {
+        super.set(item: item, animated: animated)
+        guard let item = item as? HeaderItem else { return }
+        let hadModel = modelId != nil
+        let animated = hadModel
+        dismiss.updateIcon(TelegramThemeHooks.shared.image(.iconPipClose).precomposed(.white), size: NSMakeSize(18, 18), animated: false)
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
+        dismiss.setSingle(handler: { [weak item] _ in item?.arguments.dismiss() }, for: .Click)
+        if mode != item.state.mode {
+            let image = TelegramThemeHooks.shared.image(item.state.mode == .custom ? .iconVideoPlayerPlay : .iconVideoPlayerPause).precomposed(.white)
+            playView.updateIcon(image, size: NSMakeSize(14, 14), animated: animated)
+            mode = item.state.mode
+        }
+        playView.setAccessibilityLabel(item.state.mode == .custom ? strings().starGiftModelBuilderRandomizeTraits : strings().starGiftModelBuilderSelectedTraits)
+        playView.setSingle(handler: { [weak item] _ in item?.arguments.toggleMode() }, for: .Click)
+        textView.update(item.title, animated: animated)
+        infoView.update(item.info, animated: animated)
+        for (view, action) in zip(actions, item.actions) {
+            view.update(item: action, animated: animated)
+        }
+        updateLayout(size: frame.size, transition: .immediate)
+        updateBackground(animated: animated)
+        updateGift(item: item, animated: animated)
+        timer?.invalidate()
+        timer = nil
+        if item.state.mode == .random {
+            timer = SwiftSignalKit.Timer(timeout: 2.5, repeat: true, completion: { [weak self] in
+                guard let self, self.window != nil, !self.visibleRect.isEmpty,
+                      let item = self.item as? HeaderItem else { return }
+                item.arguments.makeNextPattern()
+            }, queue: .mainQueue())
+            timer?.start()
+        }
+    }
+
+    private func updateGift(item: HeaderItem, animated: Bool) {
+        guard modelId != item.model.fileId else { return }
+        modelId = item.model.fileId
+        giftReadyDisposable.set(nil)
+        pendingGift?.removeFromSuperview()
+        pendingGift = nil
+        outgoingGift?.removeFromSuperview()
+        outgoingGift = nil
+        let current = StarsHooks.shared.makeStickerView(giftContainer.bounds)
+        (current as? Control)?.scaleOnClick = true
+        (current as? Control)?.tooltipOnclick = true
+        (current as? StarsStickerView)?.updateStarsSticker(file: item.model, size: giftContainer.bounds.size, context: item.context, colors: [], playback: .standard, animated: false)
+        if animated, giftView != nil, let sticker = current as? StarsStickerView {
+            current.layer?.opacity = 0
+            (current as? View)?.userInteractionEnabled = false
+            pendingGift = current
+            giftContainer.addSubview(current)
+            giftReadyDisposable.set((sticker.starsStickerReady
+            |> filter { $0 }
+            |> take(1)
+            |> deliverOnMainQueue).start(next: { [weak self, weak current] _ in
+                guard let self, let current, self.pendingGift === current else { return }
+                self.pendingGift = nil
+                self.showGift(current, animated: true)
+            }))
+        } else {
+            giftContainer.addSubview(current)
+            showGift(current, animated: false)
+        }
+    }
+
+    private func showGift(_ current: NSView, animated: Bool) {
+        let old = giftView
+        giftView = current
+        current.layer?.opacity = 1
+        (current as? View)?.userInteractionEnabled = true
+        if animated, let old {
+            outgoingGift = old
+            (old as? View)?.userInteractionEnabled = false
+            old.layer?.animateAlpha(from: CGFloat(old.layer?.presentation()?.opacity ?? 1), to: 0, duration: 0.22, removeOnCompletion: false, completion: { [weak self, weak old] _ in
+                old?.removeFromSuperview()
+                if self?.outgoingGift === old { self?.outgoingGift = nil }
+            })
+            current.layer?.animateAlpha(from: 0, to: 1, duration: 0.3)
+            if !GiftBuilderMotion.reduceMotion {
+                old.layer?.animateScaleCenter(from: old.layer?.presentation()?.transform.m11 ?? 1, to: 0.86, duration: 0.22, removeOnCompletion: false)
+                current.layer?.animateScaleSpring(from: 0.8, to: 1, duration: 0.6)
+                current.layer?.animatePosition(from: NSMakePoint(0, 12), to: .zero, duration: 0.5, timingFunction: .spring, additive: true)
             }
         } else {
-            infoView.centerX(y: size.height - 20 - 15)
+            old?.removeFromSuperview()
         }
-        
-        transition.updateFrame(view: backgroundView, frame: size.bounds)
-
-        dismiss.setFrameOrigin(NSMakePoint(10, 10))
-
-        giftView.centerX(y: 30)
-        textView.centerX(y: infoView.frame.minY - textView.frame.height - 5)
-        updateBackground(animated: false)
     }
-    
-    public override func layout() {
+
+    override func updateLayout(size: NSSize, transition: ContainedViewLayoutTransition) {
+        super.updateLayout(size: size, transition: transition)
+        backgroundView.frame = size.bounds
+        dismiss.frame = NSMakeRect(16, 14, 36, 36)
+        playView.frame = NSMakeRect(size.width - 52, 14, 36, 36)
+        dismiss.layout()
+        playView.layout()
+        giftContainer.centerX(y: 26)
+        textView.centerX(y: 162)
+        infoView.centerX(y: 190)
+        let width = (size.width - 48) / 3
+        for (index, action) in actions.enumerated() {
+            action.frame = NSMakeRect(16 + CGFloat(index) * (width + 8), 232, width, 56)
+            action.layout()
+        }
+    }
+
+    override func layout() {
         super.layout()
-        self.updateLayout(size: self.frame.size, transition: .immediate)
+        updateLayout(size: frame.size, transition: .immediate)
     }
 
     private func updateBackground(animated: Bool) {
-        guard let item = item as? HeaderItem, let content = item.backgroundContent else {
-            backgroundView.isHidden = true
-            return
-        }
-        backgroundView.isHidden = false
-        backgroundView.update(context: item.context, content: content, style: .header(patternCenterY: giftView.frame.midY + 16), animated: animated)
+        guard let item = item as? HeaderItem, let content = item.backgroundContent else { return }
+        backgroundView.update(context: item.context, content: content, center: NSMakePoint(frame.width / 2, giftContainer.frame.midY + 16), animated: animated)
     }
 }
 
@@ -1204,7 +1075,7 @@ private struct State : Equatable {
 private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
     var entries:[InputDataEntry] = []
 
-    var sectionId:Int32 = 0
+    let sectionId:Int32 = 0
     var index: Int32 = 0
 
     if state.isLoading {
@@ -1218,37 +1089,7 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
         return HeaderItem(initialSize, stableId: stableId, context: arguments.context, arguments: arguments, state: state, attributes: state.attributes)
     }))
 
-    entries.append(.sectionId(sectionId, type: .customModern(10)))
-    sectionId += 1
-
-    entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: .init("segment"), equatable: .init(state), comparable: nil, item: { initialSize, stableId in
-        return SegmentRowItem(initialSize, stableId: stableId, state: state, arguments: arguments)
-    }))
-
-    if state.hasCraftableModels {
-        let currentCount = state.modelFilter == .primary ? state.primaryModelsCount : state.craftableModelsCount
-        let currentType = state.modelFilter == .primary ? strings().starGiftModelBuilderPrimary : strings().starGiftModelBuilderCraftable
-        let otherType = state.modelFilter == .primary ? strings().starGiftModelBuilderCraftable : strings().starGiftModelBuilderPrimary
-
-        let text = strings().starGiftModelBuilderCollectionFeatures(currentCount, currentType)
-        let linkText = strings().starGiftModelBuilderViewOtherModels(otherType)
-
-        let attr = NSMutableAttributedString()
-        attr.append(.initialize(string: text, color: theme.colors.listGrayText, font: .normal(.text)))
-        attr.append(.initialize(string: linkText, color: theme.colors.accent, font: .normal(.text)))
-        attr.addAttribute(NSAttributedString.Key.link, value: "toggle://filter", range: NSRange(location: text.count, length: linkText.count))
-
-        entries.append(.desc(sectionId: sectionId, index: index, text: .attributed(attr), data: .init(viewType: .modern(position: .single, insets: .init(top: 0, bottom: 0)), fontSize: 13, centerViewAlignment: true, alignment: .center, linkExecutor: TextViewInteractions(processURL: { _ in
-            arguments.toggleModelFilter()
-        }))))
-    } else {
-        let modelsCount = state.attributes.filter({ $0.attributeType == .model}).count
-        entries.append(.desc(sectionId: sectionId, index: index, text: .plain(strings().starGiftModelBuilderCollectionFeaturesOther(modelsCount)), data: .init( viewType: .modern(position: .single, insets: .init(top: 0, bottom: 0)), fontSize: 13, centerViewAlignment: true, alignment: .center)))
-    }
     index += 1
-
-    entries.append(.sectionId(sectionId, type: .customModern(5)))
-    sectionId += 1
 
     entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: .init("grid"), equatable: .init(state), comparable: nil, item: { initialSize, stableId in
         return GridRowItem(initialSize, stableId: stableId, state: state, arguments: arguments)
@@ -1336,6 +1177,11 @@ public func StarGift_ModelBuilderController(context: (any AccountContextProtocol
     actionsDisposable.add((context.engine.payments.getStarGiftUpgradeAttributes(giftId: giftId)
     |> deliverOnMainQueue).startStrict(next: { attributes in
         if let attributes = attributes {
+            for attribute in attributes {
+                if let file = attribute.file {
+                    actionsDisposable.add(freeMediaFileInteractiveFetched(context: context, fileReference: .standalone(media: file)).start())
+                }
+            }
             updateState { current in
                 var current = current
 
@@ -1399,7 +1245,7 @@ public func StarGift_ModelBuilderController(context: (any AccountContextProtocol
 //        _ = controller?.returnKeyAction()
 //    }, singleButton: true)
     
-    let modalController = InputDataModalController(controller, modalInteractions: nil, size: NSMakeSize(360, 380))
+    let modalController = InputDataModalController(controller, modalInteractions: nil, size: NSMakeSize(380, 654))
     modalController._hasBorder = false
     
     controller.leftModalHeader = ModalHeaderData(image: theme.icons.modalClose, handler: { [weak modalController] in

@@ -17,6 +17,53 @@ private final class LineLayer : SimpleLayer {
     }
     
     private let content = SimpleLayer()
+    private var selectionLayer: SimpleLayer?
+    private var badgeLayer: SimpleLayer?
+    private var order: Int?
+
+    func setSelection(order: Int?, color: NSColor, accent: NSColor, animated: Bool) {
+        guard self.order != order || (order != nil && self.selectionLayer?.backgroundColor != color.withAlphaComponent(0.2).cgColor) else {
+            return
+        }
+        let previousScale = self.content.presentation()?.transform.m11 ?? self.content.transform.m11
+        let scale: CGFloat = order == nil ? 1.0 : 0.8
+        self.order = order
+        if let order {
+            let side = emojiSelectionOrderCircleSide
+            let selection: SimpleLayer
+            if let current = self.selectionLayer {
+                selection = current
+            } else {
+                selection = SimpleLayer()
+                self.insertSublayer(selection, below: self.content)
+                self.selectionLayer = selection
+            }
+            selection.frame = NSMakeRect(floorToScreenPixels((xAdd - side) / 2 + 0.5), floorToScreenPixels((yAdd - side) / 2 - 1.5), side, side)
+            selection.cornerRadius = side / 2
+            selection.backgroundColor = color.withAlphaComponent(0.2).cgColor
+            let badge: SimpleLayer
+            if let current = self.badgeLayer {
+                badge = current
+            } else {
+                badge = SimpleLayer()
+                badge.zPosition = 10
+                self.addSublayer(badge)
+                self.badgeLayer = badge
+            }
+            badge.contents = emojiSelectionOrderBadge(order, color: accent)
+            badge.frame = emojiSelectionOrderBadgeFrame(selection: selection.frame)
+        } else {
+            self.selectionLayer?.removeFromSuperlayer()
+            self.selectionLayer = nil
+            self.badgeLayer?.removeFromSuperlayer()
+            self.badgeLayer = nil
+        }
+        self.content.transform = CATransform3DMakeScale(scale, scale, 1)
+        if animated, previousScale != scale {
+            self.content.animateScale(from: previousScale, to: scale, duration: 0.18, timingFunction: .easeOut)
+        }
+    }
+
     init(emoji: NSAttributedString) {
         self.emoji = emoji
         super.init()
@@ -55,7 +102,7 @@ public class EBlockRowView: TableRowView {
     
     public var selectedEmoji:String = ""
     
-    private let content = Control()
+    private let content = EntertainmentGridControl()
     
     
     private var lines:[LineLayer.Key : LineLayer] = [:]
@@ -64,6 +111,9 @@ public class EBlockRowView: TableRowView {
         super.init(frame: frameRect)
         addSubview(content)
 
+        content.accessibilityCells = { [weak self] in
+            return self?.accessibilityCells() ?? []
+        }
         
         content.set(handler: { [weak self] _ in
             self?.updateDown()
@@ -130,6 +180,32 @@ public class EBlockRowView: TableRowView {
         return nil
     }
     
+    private func accessibilityCells() -> [EntertainmentAccessibilityCell] {
+        guard let item = item as? EBlockItem else {
+            return []
+        }
+        var cells: [EntertainmentAccessibilityCell] = []
+        var point: NSPoint = NSMakePoint(10, 0)
+        var index: Int = 0
+        for line in item.lineAttr {
+            for symbol in line {
+                let emoji = symbol.string
+                let rect = CGRect(origin: point, size: NSMakeSize(xAdd, yAdd))
+                cells.append(EntertainmentAccessibilityCell(id: AnyHashable(index), label: emoji, frame: rect, press: { [weak self, weak item] in
+                    guard let self = self, let item = item else {
+                        return
+                    }
+                    item.selectHandler(emoji, self.content.convert(rect, to: nil))
+                }))
+                point.x += xAdd
+                index += 1
+            }
+            point.y += yAdd
+            point.x = 10
+        }
+        return cells
+    }
+    
     private func click() {
         if let currentDownItem = currentDownItem, let item = item as? EBlockItem {
             let wrect = self.content.convert(currentDownItem.0.frame, to: nil)
@@ -190,6 +266,7 @@ public class EBlockRowView: TableRowView {
                 }
                 let size = NSMakeSize(xAdd, yAdd)
                 view.frame = CGRect(origin: point, size: size)
+                view.setSelection(order: item.selectedOrders[emojiSelectionKey(symbol.string)], color: item.selectionColor ?? theme.colors.text, accent: theme.colors.accent, animated: animated)
                 point.x += xAdd
                 
                 validIds.append(id)

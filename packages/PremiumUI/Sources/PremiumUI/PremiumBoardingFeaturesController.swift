@@ -53,6 +53,7 @@ public final class PremiumBoardingFeaturesView: View {
         dismiss.autohighlight = false
         
         dismiss.set(image: TelegramThemeHooks.shared.image(.iconChatNavigationBack).precomposed(.white), for: .Normal)
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonBack)
         dismiss.sizeToFit(NSMakeSize(20, 20), .zero, thatFit: false)
         
         

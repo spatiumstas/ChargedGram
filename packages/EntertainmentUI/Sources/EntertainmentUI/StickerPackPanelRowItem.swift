@@ -13,6 +13,86 @@ import LocalAnimations
 import InlineStickerLayer
 import InputDataUI
 
+public struct StickerPackPanelAddTile {
+    public enum Position {
+        case leading
+        case trailing
+    }
+    public let position: Position
+    public let accessibilityLabel: String
+    public let action: (Control) -> Void
+
+    public init(position: Position, accessibilityLabel: String, action: @escaping (Control) -> Void) {
+        self.position = position
+        self.accessibilityLabel = accessibilityLabel
+        self.action = action
+    }
+}
+
+public struct StickerPackPanelEditing {
+    public let isEditing: Bool
+    public let menuItems: (TelegramMediaFile) -> [ContextMenuItem]
+    public let reorder: (TelegramMediaFile, Int) -> Void
+
+    public init(isEditing: Bool, menuItems: @escaping (TelegramMediaFile) -> [ContextMenuItem], reorder: @escaping (TelegramMediaFile, Int) -> Void) {
+        self.isEditing = isEditing
+        self.menuItems = menuItems
+        self.reorder = reorder
+    }
+}
+
+private func stickerEditBadgeColor(_ image: CGImage) -> NSColor? {
+    let side = 16
+    let size = CGFloat(side)
+    guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB), let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4, space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue), let data = context.data else {
+        return nil
+    }
+    context.setFillColor(NSColor.white.cgColor)
+    context.fill(CGRect(x: 0, y: 0, width: size, height: size))
+    context.draw(image, in: CGRect(x: -size / 2, y: -size / 2, width: size * 1.8, height: size * 1.8))
+
+    let pixels = data.assumingMemoryBound(to: UInt8.self)
+    var r: CGFloat = 0
+    var g: CGFloat = 0
+    var b: CGFloat = 0
+    for i in 0 ..< side * side {
+        r += CGFloat(pixels[i * 4])
+        g += CGFloat(pixels[i * 4 + 1])
+        b += CGFloat(pixels[i * 4 + 2])
+    }
+    let total = CGFloat(side * side) * 255
+    r /= total
+    g /= total
+    b /= total
+
+    let saturation: CGFloat = 1.7
+    let rw = (1 - saturation) * 0.3086
+    let gw = (1 - saturation) * 0.6094
+    let bw = (1 - saturation) * 0.0820
+    let clamp: (CGFloat) -> CGFloat = { min(1, max(0, $0)) }
+    let red = clamp((rw + saturation) * r + gw * g + bw * b) * 0.9 + 0.1
+    let green = clamp(rw * r + (gw + saturation) * g + bw * b) * 0.9 + 0.1
+    let blue = clamp(rw * r + gw * g + (bw + saturation) * b) * 0.9 + 0.1
+
+    var color = NSColor(srgbRed: red, green: green, blue: blue, alpha: 1)
+    if color.lightness > 0.8 {
+        color = color.withMultipliedBrightnessBy(0.8)
+    }
+    return color
+}
+
+private func stickerEditBadgeImage(_ color: NSColor) -> CGImage? {
+    return generateImage(NSMakeSize(20, 20), rotatedContext: { size, ctx in
+        ctx.clear(size.bounds)
+        ctx.setFillColor(color.cgColor)
+        ctx.fillEllipse(in: size.bounds)
+        ctx.setFillColor(NSColor.white.cgColor)
+        let dot: CGFloat = 2.2
+        for i in 0 ..< 3 {
+            ctx.fillEllipse(in: NSMakeRect(5.4 + CGFloat(i) * 3.5, (size.height - dot) / 2, dot, dot))
+        }
+    })
+}
 
 public class StickerPackPanelRowItem: TableRowItem {
     public private(set) var files: [(TelegramMediaFile, NSPoint)] = []
@@ -38,7 +118,11 @@ public class StickerPackPanelRowItem: TableRowItem {
     public let playOnHover: Bool
     public let isPreview: Bool
     public let canSchedule: Bool
-    public init(_ initialSize: NSSize, context: any AccountContextProtocol, arguments: StickerPanelArguments, files:[TelegramMediaFile], packInfo: StickerPackInfo, collectionId: StickerPackCollectionId, canSend: Bool, playOnHover: Bool = false, isPreview: Bool = false) {
+    public let addTile: StickerPackPanelAddTile?
+    public let editing: StickerPackPanelEditing?
+    public private(set) var addTileRect: NSRect?
+    public private(set) var slots: [NSPoint] = []
+    public init(_ initialSize: NSSize, context: any AccountContextProtocol, arguments: StickerPanelArguments, files:[TelegramMediaFile], packInfo: StickerPackInfo, collectionId: StickerPackCollectionId, canSend: Bool, playOnHover: Bool = false, isPreview: Bool = false, addTile: StickerPackPanelAddTile? = nil, editing: StickerPackPanelEditing? = nil) {
         
         
         let files = files.sorted(by: { lhs, rhs in
@@ -64,6 +148,8 @@ public class StickerPackPanelRowItem: TableRowItem {
         self._files = files
         self.playOnHover = playOnHover
         self.isPreview = isPreview
+        self.addTile = addTile
+        self.editing = editing
         self.canSchedule = arguments.canSchedule()
         let title: String?
         var count: Int32 = 0
@@ -138,34 +224,36 @@ public class StickerPackPanelRowItem: TableRowItem {
         
         let width = max(width, 350)
         
-        var filesAndPoints:[(TelegramMediaFile, NSPoint)] = []
-
-        
         let size: NSSize = NSMakeSize(60, 60)
 
         var point: NSPoint = NSMakePoint(5, packNameLayout == nil ? 5 : !packInfo.featured ? 35 : 55)
-        var rowCount: CGFloat = 1
-        var countFixed = false
+        var slots: [NSPoint] = []
                 
-        for file in _files {
-            var filePoint = point
-            let fileSize = file.dimensions?.size.aspectFitted(size) ?? size
-            filePoint.y += (size.height - fileSize.height) / 2
-            filePoint.x += (size.width - fileSize.width) / 2
-            filesAndPoints.append((file, filePoint))
+        for _ in 0 ..< _files.count + (addTile != nil ? 1 : 0) {
+            slots.append(point)
 
             point.x += size.width + 10
             if point.x + size.width >= width {
                 point.y += size.height + 5
                 point.x = 5
-                countFixed = true
-            }
-            if !countFixed {
-                rowCount += 1
             }
         }
         
-        self.files = filesAndPoints
+        self.addTileRect = nil
+        if let addTile = addTile, let slot = addTile.position == .leading ? slots.first : slots.last {
+            self.addTileRect = CGRect(origin: slot, size: size)
+            switch addTile.position {
+            case .leading:
+                slots.removeFirst()
+            case .trailing:
+                slots.removeLast()
+            }
+        }
+        
+        self.slots = slots
+        self.files = zip(_files, slots).map { file, slot in
+            return (file, self.filePoint(file, slot: slot))
+        }
 
 
         if point.x == 5 {
@@ -177,6 +265,25 @@ public class StickerPackPanelRowItem: TableRowItem {
 
         
         return true
+    }
+    
+    public func filePoint(_ file: TelegramMediaFile, slot: NSPoint) -> NSPoint {
+        let size: NSSize = NSMakeSize(60, 60)
+        let fileSize = file.dimensions?.size.aspectFitted(size) ?? size
+        return NSMakePoint(slot.x + (size.width - fileSize.width) / 2, slot.y + (size.height - fileSize.height) / 2)
+    }
+    
+    public func slotIndex(at point: NSPoint) -> Int? {
+        var nearest: (index: Int, distance: CGFloat)?
+        for (index, slot) in slots.enumerated() {
+            let dx = point.x - (slot.x + 30)
+            let dy = point.y - (slot.y + 30)
+            let distance = dx * dx + dy * dy
+            if nearest == nil || distance < nearest!.distance {
+                nearest = (index, distance)
+            }
+        }
+        return nearest?.index
     }
         
     public override func menuItems(in location: NSPoint) -> Signal<[ContextMenuItem], NoError> {
@@ -275,8 +382,9 @@ public class StickerPackPanelRowItem: TableRowItem {
                                 }
                             }, itemImage: MenuAnimation.menu_schedule_message.value))
                         }
-                        
-                        
+                    }
+                    if let editing = self?.editing {
+                        items.append(contentsOf: editing.menuItems(file))
                     }
                     break
                 }
@@ -297,14 +405,42 @@ public class StickerPackPanelRowItem: TableRowItem {
     public override func viewClass() -> AnyClass {
         return StickerPackPanelRowView.self
     }
+    
+    public override var accessibilityLabel: String? {
+        switch packInfo {
+        case let .pack(info, _, _):
+            return info?.title ?? info?.shortName ?? strings().voiceOverStickers
+        case let .speficicPack(info):
+            return info?.title ?? info?.shortName ?? strings().voiceOverStickers
+        case .recent:
+            return strings().stickersRecent
+        case .premium:
+            return strings().stickersPremium
+        case .saved:
+            return strings().stickersFavorite
+        case .emojiRelated:
+            return strings().voiceOverStickers
+        }
+    }
 }
 
 
 
 private final class StickerPackPanelRowView : TableRowView, ModalPreviewRowViewProtocol {
     
+    private struct ReorderState {
+        let file: TelegramMediaFile
+        let layer: InlineStickerItemLayer
+        let start: NSPoint
+        let origin: NSPoint
+        var order: [TelegramMediaFile]
+        var isDragging: Bool
+    }
     
     private var inlineStickerItemViews: [InlineStickerItemLayer.Key: InlineStickerItemLayer] = [:]
+    private var editBadges: [InlineStickerItemLayer.Key: SimpleLayer] = [:]
+    private var reorderState: ReorderState?
+    private var addTileView: ImageButton?
     private var previewAnchor: NSView?
     
     private func previewAnchor(for layer: InlineStickerItemLayer) -> NSView {
@@ -339,7 +475,7 @@ private final class StickerPackPanelRowView : TableRowView, ModalPreviewRowViewP
         return nil
     }
     
-    private let contentView:Control = Control()
+    private let contentView = EntertainmentGridControl()
     
     private let packNameView = TextView()
     private var clearRecentButton: ImageButton?
@@ -351,6 +487,10 @@ private final class StickerPackPanelRowView : TableRowView, ModalPreviewRowViewP
         addSubview(packNameView)
         packNameView.userInteractionEnabled = false
         packNameView.isSelectable = false
+        
+        contentView.accessibilityCells = { [weak self] in
+            return self?.accessibilityCells() ?? []
+        }
         
         contentView.set(handler: { [weak self] _ in
             self?.updateDown()
@@ -372,14 +512,25 @@ private final class StickerPackPanelRowView : TableRowView, ModalPreviewRowViewP
             let item = self?.item as? StickerPackPanelRowItem
             let table = item?.table
             let window = self?.window as? Window
-            if let item = item, let table = table, let window = window {
+            if let item = item, let table = table, let window = window, item.editing?.isEditing != true {
                 startModalPreviewHandle(table, window: window, context: item.context)
             }
         }, for: .LongMouseDown)
     }
     
+    private var isEditing: Bool {
+        return (item as? StickerPackPanelRowItem)?.editing?.isEditing == true
+    }
+    
     private var currentDownItem: (InlineStickerItemLayer, TelegramMediaFile, Bool)?
     private func updateDown() {
+        if isEditing {
+            if let (layer, file) = itemUnderMouse, let item = item as? StickerPackPanelRowItem, let window = window {
+                let point = contentView.convert(window.mouseLocationOutsideOfEventStream, from: nil)
+                reorderState = ReorderState(file: file, layer: layer, start: point, origin: layer.position, order: item.files.map { $0.0 }, isDragging: false)
+            }
+            return
+        }
         if let item = itemUnderMouse {
             self.currentDownItem = (item.0, item.1, true)
         }
@@ -388,6 +539,10 @@ private final class StickerPackPanelRowView : TableRowView, ModalPreviewRowViewP
         }
     }
     private func updateDragging() {
+        if reorderState != nil {
+            updateReorder()
+            return
+        }
         if let current = self.currentDownItem {
             if self.itemUnderMouse?.1 != current.1, current.2  {
                 current.0.animateScale(from: 0.95, to: 1, duration: 0.2, removeOnCompletion: true)
@@ -400,6 +555,11 @@ private final class StickerPackPanelRowView : TableRowView, ModalPreviewRowViewP
             
     }
     private func updateUp() {
+        if let state = reorderState {
+            reorderState = nil
+            endReorder(state)
+            return
+        }
         if let itemUnderMouse = self.currentDownItem {
             itemUnderMouse.0.animateScale(from: 0.95, to: 1, duration: 0.2, removeOnCompletion: true)
             if itemUnderMouse.1 == self.itemUnderMouse?.1 {
@@ -407,6 +567,151 @@ private final class StickerPackPanelRowView : TableRowView, ModalPreviewRowViewP
             }
         }
         self.currentDownItem = nil
+    }
+    
+    private func slotPosition(_ file: TelegramMediaFile, index: Int, item: StickerPackPanelRowItem) -> NSPoint? {
+        guard index < item.slots.count else {
+            return nil
+        }
+        let origin = item.filePoint(file, slot: item.slots[index])
+        return NSMakePoint(origin.x + 30, origin.y + 30)
+    }
+    
+    private func move(_ layer: CALayer, to position: NSPoint, completion: ((Bool) -> Void)? = nil) {
+        guard layer.position != position else {
+            completion?(true)
+            return
+        }
+        layer.animatePosition(from: layer.presentation()?.position ?? layer.position, to: position, duration: 0.2, completion: completion)
+        layer.position = position
+    }
+    
+    private func updateReorder() {
+        guard var state = reorderState, let item = item as? StickerPackPanelRowItem, let window = window else {
+            return
+        }
+        let point = contentView.convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        if !state.isDragging {
+            guard abs(point.x - state.start.x) > 4 || abs(point.y - state.start.y) > 4 else {
+                return
+            }
+            state.isDragging = true
+            state.layer.zPosition = 1
+        }
+        state.layer.removeAnimation(forKey: "position")
+        state.layer.position = NSMakePoint(state.origin.x + point.x - state.start.x, state.origin.y + point.y - state.start.y)
+        
+        if let target = item.slotIndex(at: point), let current = state.order.firstIndex(where: { $0.fileId == state.file.fileId }), target != current {
+            state.order.insert(state.order.remove(at: current), at: target)
+            for (index, file) in state.order.enumerated() where file.fileId != state.file.fileId {
+                if let layer = inlineStickerItemViews[InlineStickerItemLayer.Key(id: file.fileId.id, index: 0)], let position = slotPosition(file, index: index, item: item) {
+                    move(layer, to: position)
+                }
+            }
+        }
+        reorderState = state
+    }
+    
+    private func endReorder(_ state: ReorderState) {
+        guard let item = item as? StickerPackPanelRowItem else {
+            return
+        }
+        guard state.isDragging else {
+            showEditingMenu(state.file)
+            return
+        }
+        guard let index = state.order.firstIndex(where: { $0.fileId == state.file.fileId }), let position = slotPosition(state.file, index: index, item: item) else {
+            state.layer.zPosition = 0
+            return
+        }
+        let layer = state.layer
+        move(layer, to: position, completion: { _ in
+            layer.zPosition = 0
+        })
+        if let previous = item.files.firstIndex(where: { $0.0.fileId == state.file.fileId }), previous != index {
+            item.editing?.reorder(state.file, index)
+        }
+    }
+    
+    private func showEditingMenu(_ file: TelegramMediaFile) {
+        guard let item = item as? StickerPackPanelRowItem, let event = NSApp.currentEvent, let point = item.files.first(where: { $0.0.fileId == file.fileId })?.1 else {
+            return
+        }
+        _ = (item.menuItems(in: NSMakePoint(point.x + 1, point.y + 1)) |> deliverOnMainQueue).start(next: { [weak self] items in
+            guard let self = self, !items.isEmpty else {
+                return
+            }
+            ContextMenu.show(items: items, view: self.contentView, event: event)
+        })
+    }
+    
+    private func startShaking(_ layer: CALayer) {
+        guard layer.animation(forKey: "shaking_rotation") == nil else {
+            return
+        }
+        let angle = CGFloat.pi * 2.0 / 180.0
+        let animation = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+        animation.values = [-angle, angle, -angle]
+        animation.duration = 0.4
+        animation.repeatCount = .infinity
+        animation.timeOffset = Double.random(in: 0 ... 0.4)
+        animation.isRemovedOnCompletion = false
+        layer.add(animation, forKey: "shaking_rotation")
+    }
+    
+    private func updateEditBadge(_ layer: InlineStickerItemLayer, key: InlineStickerItemLayer.Key, visible: Bool, animated: Bool) {
+        if visible {
+            guard editBadges[key] == nil else {
+                return
+            }
+            let badge = SimpleLayer()
+            badge.zPosition = 1
+            badge.frame = NSMakeRect(3, 3, 20, 20)
+            layer.addSublayer(badge)
+            editBadges[key] = badge
+
+            let apply: (CGImage) -> Bool = { [weak badge] image in
+                guard let badge = badge, let color = stickerEditBadgeColor(image) else {
+                    return false
+                }
+                badge.contents = stickerEditBadgeImage(color)
+                return true
+            }
+            if let contents = layer.contents, apply(contents as! CGImage) {
+                if animated {
+                    badge.animateScale(from: 0.01, to: 1, duration: 0.2)
+                }
+            } else {
+                layer.contentDidUpdate = { [weak layer] image in
+                    if apply(image) {
+                        layer?.contentDidUpdate = nil
+                    }
+                }
+            }
+        } else if let badge = editBadges.removeValue(forKey: key) {
+            layer.contentDidUpdate = nil
+            performSublayerRemoval(badge, animated: animated, scale: true)
+        }
+    }
+    
+    private func accessibilityCells() -> [EntertainmentAccessibilityCell] {
+        guard let item = self.item as? StickerPackPanelRowItem else {
+            return []
+        }
+        return item.files.enumerated().map { index, value in
+            let file = value.0
+            let size = file.dimensions?.size.aspectFitted(NSMakeSize(60, 60)) ?? NSMakeSize(60, 60)
+            return EntertainmentAccessibilityCell(id: AnyHashable(index), label: file.stickerText ?? strings().voiceOverCommonSticker, frame: CGRect(origin: value.1, size: size), press: { [weak self, weak item] in
+                guard let self = self, let item = item else {
+                    return
+                }
+                if let reference = item.packReference, item.packInfo.featured {
+                    item.arguments.showPack(reference)
+                } else {
+                    item.arguments.sendMedia(file, self.contentView, false, false, item.collectionId.itemCollectionId)
+                }
+            })
+        }
     }
     
     private func click() {
@@ -484,6 +789,9 @@ private final class StickerPackPanelRowView : TableRowView, ModalPreviewRowViewP
         self.clearRecentButton?.setFrameOrigin(frame.width - 34, item.namePoint.y - 10)
         
         self.contentView.frame = bounds
+        if let rect = item.addTileRect {
+            self.addTileView?.frame = rect
+        }
 
     }
 
@@ -492,12 +800,12 @@ private final class StickerPackPanelRowView : TableRowView, ModalPreviewRowViewP
     }
     
 
-    func updateInlineStickers(context: any AccountContextProtocol, contentView: NSView, items: [(TelegramMediaFile, NSPoint)], animated: Bool) {
+    func updateInlineStickers(context: any AccountContextProtocol, contentView: NSView, items: [(TelegramMediaFile, NSPoint)], animated: Bool, editing: StickerPackPanelEditing?) {
         var validIds: [InlineStickerItemLayer.Key] = []
         var index: Int = 0
 
         for item in items {
-            let id = InlineStickerItemLayer.Key(id: item.0.fileId.id, index: index)
+            let id = InlineStickerItemLayer.Key(id: item.0.fileId.id, index: editing != nil ? 0 : index)
             validIds.append(id)
 
             let rect = CGRect(origin: item.1, size: NSMakeSize(60, 60))
@@ -521,6 +829,13 @@ private final class StickerPackPanelRowView : TableRowView, ModalPreviewRowViewP
             index += 1
 
             view.frame = rect
+            
+            if editing?.isEditing == true {
+                startShaking(view)
+            } else {
+                view.removeAnimation(forKey: "shaking_rotation")
+            }
+            updateEditBadge(view, key: id, visible: editing?.isEditing == true, animated: animated)
         }
 
         var removeKeys: [InlineStickerItemLayer.Key] = []
@@ -532,6 +847,7 @@ private final class StickerPackPanelRowView : TableRowView, ModalPreviewRowViewP
         }
         for key in removeKeys {
             self.inlineStickerItemViews.removeValue(forKey: key)
+            self.editBadges.removeValue(forKey: key)
         }
         self.updateAnimatableContent()
     }
@@ -551,6 +867,7 @@ private final class StickerPackPanelRowView : TableRowView, ModalPreviewRowViewP
             case .recent:
                 if self.clearRecentButton == nil {
                     self.clearRecentButton = ImageButton()
+                    self.clearRecentButton?.setAccessibilityLabel(strings().voiceOverCommonClear)
                     addSubview(self.clearRecentButton!)
                 }
                 self.clearRecentButton?.set(image: theme.icons.wallpaper_color_close, for: .Normal)
@@ -582,6 +899,7 @@ private final class StickerPackPanelRowView : TableRowView, ModalPreviewRowViewP
                 self.addButton!.set(font: .medium(.text), for: .Normal)
                 self.addButton!.set(color: theme.colors.underSelectedColor, for: .Normal)
                 self.addButton!.set(text: strings().stickersSearchAdd, for: .Normal)
+                self.addButton?.setAccessibilityLabel(strings().stickersSearchAdd)
                 _ = self.addButton!.sizeToFit(NSMakeSize(14, 8), thatFit: true)
                 self.addButton!.layer?.cornerRadius = .cornerRadius
                 self.addButton!.setFrameOrigin(frame.width - self.addButton!.frame.width - 10, 13)
@@ -596,6 +914,7 @@ private final class StickerPackPanelRowView : TableRowView, ModalPreviewRowViewP
                 self.addButton!.set(font: .medium(.text), for: .Normal)
                 self.addButton!.set(color: theme.colors.underSelectedColor, for: .Normal)
                 self.addButton!.set(text: strings().stickersSearchAdded, for: .Normal)
+                self.addButton?.setAccessibilityLabel(strings().stickersSearchAdded)
                 _ = self.addButton!.sizeToFit(NSMakeSize(14, 8), thatFit: true)
                 self.addButton!.layer?.cornerRadius = .cornerRadius
                 self.addButton!.setFrameOrigin(frame.width - self.addButton!.frame.width - 10, 13)
@@ -609,9 +928,50 @@ private final class StickerPackPanelRowView : TableRowView, ModalPreviewRowViewP
             addSubview(addButton!)
         }
         
+        if let addTile = item.addTile {
+            let current: ImageButton
+            if let view = self.addTileView {
+                current = view
+            } else {
+                current = ImageButton()
+                current.autohighlight = false
+                current.scaleOnClick = true
+                current.layer?.cornerRadius = 10
+                addSubview(current)
+                self.addTileView = current
+            }
+            if let image = generateImage(NSMakeSize(24, 24), rotatedContext: { size, ctx in
+                ctx.clear(size.bounds)
+                ctx.setStrokeColor(theme.colors.accent.cgColor)
+                ctx.setLineWidth(2)
+                ctx.setLineCap(.round)
+                ctx.move(to: NSMakePoint(size.width / 2, 4))
+                ctx.addLine(to: NSMakePoint(size.width / 2, size.height - 4))
+                ctx.move(to: NSMakePoint(4, size.height / 2))
+                ctx.addLine(to: NSMakePoint(size.width - 4, size.height / 2))
+                ctx.strokePath()
+            }) {
+                current.set(image: image, for: .Normal)
+            }
+            current.set(background: theme.colors.grayBackground, for: .Normal)
+            current.setAccessibilityLabel(addTile.accessibilityLabel)
+            current.toolTip = addTile.accessibilityLabel
+            current.removeAllHandlers()
+            current.set(handler: { control in
+                addTile.action(control)
+            }, for: .Click)
+        } else {
+            self.addTileView?.removeFromSuperview()
+            self.addTileView = nil
+        }
+        
+        if item.editing?.isEditing != true {
+            self.reorderState = nil
+        }
+        
         self.layout()
         
-        self.updateInlineStickers(context: item.context, contentView: contentView, items: item.files, animated: animated)
+        self.updateInlineStickers(context: item.context, contentView: contentView, items: item.files, animated: animated, editing: item.editing)
         
     }
     

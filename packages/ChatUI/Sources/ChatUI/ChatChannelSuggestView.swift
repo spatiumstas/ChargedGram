@@ -83,6 +83,7 @@ private final class ChannelView : Control {
             super.init(frame: frameRect)
             addSubview(textView)
             addSubview(imageView)
+            imageView.isAccessibilityDecorative = true
             textView.userInteractionEnabled = false
             textView.isSelectable = false
         }
@@ -264,6 +265,7 @@ public final class ChatChannelSuggestView : Control {
         addSubview(scrollView)
         dismiss.autohighlight = false
         dismiss.scaleOnClick = true
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
         
         titleView.userInteractionEnabled = false
         titleView.isSelectable = false

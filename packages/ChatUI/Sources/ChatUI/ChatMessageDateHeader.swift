@@ -9,6 +9,7 @@ import Localization
 import TelegramContext
 import TelegramTheme
 import TelegramUtils
+import SwiftSignalKit
 
 
 
@@ -25,6 +26,18 @@ private let formatter = DateFormatter()
 private let granularity: Int32 = 60 * 60 * 24
 
 
+
+func chatDateMessageRange(timestamp: Int32, timeDifference: TimeInterval, calendar: Calendar = .current) -> (min: Int32, max: Int32)? {
+    guard let interval = calendar.dateInterval(of: .day, for: Date(timeIntervalSince1970: TimeInterval(timestamp))) else {
+        return nil
+    }
+    let lower = ceil(interval.start.timeIntervalSince1970 + timeDifference)
+    let upper = ceil(interval.end.timeIntervalSince1970 + timeDifference) - 1
+    guard lower > 0, upper < Double(Int32.max), lower <= upper else {
+        return nil
+    }
+    return (Int32(lower), Int32(upper))
+}
 
 public class ChatDateStickItem : TableStickItem {
     
@@ -96,12 +109,29 @@ public class ChatDateStickItem : TableStickItem {
         }
         
         
-        self.layout = TextViewLayout(.initialize(string: text, color: presentation.chatServiceItemTextColor, font: .medium(presentation.fontSize)), maximumNumberOfLines: 1, truncationType: .end, alignment: .center)
+        self.layout = TextViewLayout(.initialize(string: text, color: TelegramUtilsHooks.shared.isLite(.blur) ? presentation.chatServiceItemTextColor : presentation.colors.text, font: .medium(presentation.fontSize)), maximumNumberOfLines: 1, truncationType: .end, alignment: .center)
 
         
         super.init(initialSize)
     }
     
+    fileprivate var messageCountLocation: SearchMessagesLocation? {
+        guard let interaction = chatInteraction, !interaction.isLogInteraction, !interaction.isGlobalSearchMessage,
+              interaction.peerId.namespace != Namespaces.Peer.SecretChat else {
+            return nil
+        }
+        switch interaction.mode {
+        case .history, .thread:
+            break
+        default:
+            return nil
+        }
+        guard let range = chatDateMessageRange(timestamp: timestamp, timeDifference: interaction.interactionContext.timeDifference) else {
+            return nil
+        }
+        return .peer(peerId: interaction.peerId, fromId: nil, tags: nil, reactions: nil, threadId: interaction.chatLocation.threadId, minDate: range.min, maxDate: range.max)
+    }
+
     public var shouldBlurService: Bool {
         if TelegramUtilsHooks.shared.isLite(.blur) {
             return false
@@ -146,54 +176,182 @@ public class ChatDateStickItem : TableStickItem {
 
 public class ChatDateStickView : TableStickView {
     private let textView:TextView
-    private let containerView: Control = Control()
-    private var appliedColors: (presentation: TelegramPresentationTheme, shouldBlurService: Bool)?
+    private let containerView = Control()
+    private let contentView = View()
+    private let countView = TextView()
+    private let countDisposable = MetaDisposable()
+    private var countLocation: SearchMessagesLocation?
+    private var cachedCount: (value: Int, timestamp: CFAbsoluteTime)?
+    private var countLayout: TextViewLayout?
+    private var expanded = false
+    private var scrollVisible = true
+    private var dateTrackingArea: NSTrackingArea?
+    private var requestId = 0
+    private let glassView = LiquidGlassView(frame: .zero, hasShadow: true, hasBorder: true)
+    private var appliedColors: (presentation: TelegramPresentationTheme, usesGlass: Bool)?
     public required init(frame frameRect: NSRect) {
         
         
         
         self.textView = TextView()
         self.textView.isSelectable = false
-       // self.textView.userInteractionEnabled = false
-        self.containerView.wantsLayer = true
-//        self.textView.disableBackgroundDrawing = true
-       // textView.isEventLess = false
+        self.textView.disableBackgroundDrawing = true
+        self.textView.userInteractionEnabled = false
+        self.textView.isEventLess = true
+        self.countView.isSelectable = false
+        self.countView.userInteractionEnabled = false
+        self.countView.isEventLess = true
+        self.contentView.isEventLess = true
+        self.countView.disableBackgroundDrawing = true
+        self.glassView.isEventLess = true
         super.init(frame: frameRect)
-        addSubview(textView)
+        layer?.masksToBounds = false
+        containerView.layer?.masksToBounds = false
+        addSubview(containerView)
+        containerView.addSubview(glassView)
+        containerView.addSubview(contentView)
+        contentView.addSubview(textView)
+        contentView.addSubview(countView)
+        countView.layer?.opacity = 0
+        containerView.set(handler: { [weak self] _ in
+            self?.updateDateVisibility(animated: true)
+            self?.showCachedCount()
+        }, for: .Hover)
+        containerView.set(handler: { [weak self] _ in
+            self?.requestCount()
+        }, for: .LongOver)
+        containerView.set(handler: { [weak self] _ in
+            self?.cancelCount()
+            self?.updateDateVisibility(animated: true)
+        }, for: .Normal)
         
-        textView.set(handler: { [weak self] control in
-             if let strongSelf = self, let item = strongSelf.item as? ChatDateStickItem, let table = item.table {
-                
-                let row = table.visibleRows()
-                var ignore: Bool = false
-                if row.length > 1 {
-                    if let underItem = table.item(at: row.location + row.length - 1) as? ChatDateStickItem {
-                       ignore = item.timestamp == underItem.timestamp
-                    }
+        containerView.set(handler: { [weak self] _ in
+            guard let self, let item = self.item as? ChatDateStickItem, let interaction = item.chatInteraction else { return }
+            let canOpenCalendar: Bool
+            switch interaction.mode {
+            case .history, .thread:
+                canOpenCalendar = true
+            default:
+                canOpenCalendar = false
+            }
+            if canOpenCalendar, !interaction.isLogInteraction, !interaction.isGlobalSearchMessage {
+                let chatLocation = interaction.chatLocation
+                if let controller = ChatNavigationHooks.shared.makeCalendarPopover(interaction.interactionContext, interaction.peerId, chatLocation.threadId, Date(timeIntervalSince1970: TimeInterval(item.timestamp)), { [weak interaction] date in
+                    guard let interaction, interaction.chatLocation == chatLocation else { return }
+                    interaction.jumpToDate(date)
+                }) {
+                    self.cancelCount()
+                    showPopover(for: self.containerView, with: controller, edge: .maxY)
+                    return
                 }
-                
-                if strongSelf.header && !ignore {
-                    var calendar = NSCalendar.current
-                    
-                    calendar.timeZone = TimeZone(abbreviation: "UTC")!
-                    let date = Date(timeIntervalSince1970: TimeInterval(item.timestamp + 86400))
-                    let components = calendar.dateComponents([.year, .month, .day], from: date)
-                    
-                    item.chatInteraction?.jumpToDate(CalendarUtils.monthDay(components.day!, date: date))
-                } else if let chatInteraction = item.chatInteraction, chatInteraction.mode == .history {
-                    if !hasPopover(chatInteraction.interactionContext.window) {
-                        if let controller = ChatNavigationHooks.shared.makeCalendarPopover(chatInteraction.interactionContext.window, Date(timeIntervalSince1970: TimeInterval(item.timestamp)), chatInteraction.jumpToDate) {
-                            showPopover(for: control, with: controller, edge: .maxY, inset: NSMakePoint(-84, -40))
-                        }
-                    }
-                }
-               
+            }
+            if let location = item.messageCountLocation, case let .peer(_, _, _, _, _, minDate?, _) = location {
+                interaction.jumpToDate(Date(timeIntervalSince1970: TimeInterval(minDate)))
+            } else {
+                let timeDifference = interaction.mode == .scheduled ? 0 : interaction.interactionContext.timeDifference
+                interaction.jumpToDate(Date(timeIntervalSince1970: TimeInterval(item.timestamp) + timeDifference))
             }
         }, for: .Click)
     }
     
+    deinit {
+        countDisposable.dispose()
+    }
+
+    private func cancelCount(animated: Bool = true) {
+        requestId += 1
+        countDisposable.set(nil)
+        setExpanded(false, animated: animated)
+    }
+
+    private func showCachedCount() {
+        guard window != nil, containerView.layer?.opacity != 0,
+              let item = item as? ChatDateStickItem, item.messageCountLocation == countLocation,
+              let cachedCount, CFAbsoluteTimeGetCurrent() - cachedCount.timestamp < 30 else {
+            return
+        }
+        setExpanded(true, animated: true)
+    }
+
+    private func requestCount() {
+        guard window != nil, containerView.layer?.opacity != 0, containerView.controlState == .Hover,
+              let item = item as? ChatDateStickItem, let interaction = item.chatInteraction,
+              let location = countLocation, item.messageCountLocation == location else {
+            return
+        }
+        if let cachedCount, CFAbsoluteTimeGetCurrent() - cachedCount.timestamp < 30 {
+            showCachedCount()
+            return
+        }
+        requestId += 1
+        let currentRequestId = requestId
+        countDisposable.set((chatDateMessageCount(context: interaction.interactionContext, location: location)
+        |> deliverOnMainQueue).start(next: { [weak self] count in
+            guard let self, self.requestId == currentRequestId,
+                  let item = self.item as? ChatDateStickItem, item.messageCountLocation == location,
+                  self.containerView.controlState == .Hover, let count, count > 0 else {
+                return
+            }
+            self.cachedCount = (count, CFAbsoluteTimeGetCurrent())
+            self.setExpanded(true, animated: true)
+        }))
+    }
+
+    private func setExpanded(_ expanded: Bool, animated: Bool) {
+        guard self.expanded != expanded, let item = item as? ChatDateStickItem else {
+            return
+        }
+        if expanded, let cachedCount {
+            let text = "(\(strings().statsGroupTopPosterMessagesOther(cachedCount.value)))"
+            let layout = TextViewLayout(.initialize(string: text, color: TelegramUtilsHooks.shared.isLite(.blur) ? item.presentation.chatServiceItemTextColor : item.presentation.colors.text, font: .medium(item.presentation.fontSize)), maximumNumberOfLines: 1, truncationType: .end, alignment: .center)
+            countLayout = layout
+            updateLayout(size: frame.size, transition: .immediate)
+        }
+        self.expanded = expanded
+        let animate = animated && !TelegramUtilsHooks.shared.isLite(.animations) && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let transition: ContainedViewLayoutTransition = animate ? .animated(duration: 0.25, curve: .easeOut) : .immediate
+        updateLayout(size: frame.size, transition: transition)
+    }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            cancelCount(animated: false)
+        }
+        updateTrackingAreas()
+        updateDateVisibility(animated: false)
+    }
+
+    public override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let dateTrackingArea {
+            removeTrackingArea(dateTrackingArea)
+            self.dateTrackingArea = nil
+        }
+        if header, window != nil {
+            let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self)
+            addTrackingArea(area)
+            dateTrackingArea = area
+        }
+    }
+
+    public override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        updateDateVisibility(animated: true)
+    }
+
+    public override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        updateDateVisibility(animated: true)
+    }
+
+    public override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        updateDateVisibility(animated: true)
+    }
+
     public override func hitTest(_ point: NSPoint) -> NSView? {
-        return header && textView.layer?.opacity == 0 ? nil : super.hitTest(point)
+        return header && containerView.layer?.opacity == 0 ? nil : super.hitTest(point)
     }
     
     public override func mouseDown(with event: NSEvent) {
@@ -225,13 +383,36 @@ public class ChatDateStickView : TableStickView {
     }
     
     public override func updateIsVisible(_ visible: Bool, animated: Bool) {
-        textView.change(opacity: visible ? 1 : 0, animated: animated)
+        scrollVisible = visible
+        updateDateVisibility(animated: animated)
+    }
+
+    private func updateDateVisibility(animated: Bool) {
+        let pointerNearDate: Bool
+        if header, let window, window.isKeyWindow, !isHiddenOrHasHiddenAncestor {
+            let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+            pointerNearDate = containerView.frame.insetBy(dx: -12, dy: -6).intersection(bounds).contains(point)
+        } else {
+            pointerNearDate = false
+        }
+        let visible = scrollVisible || pointerNearDate
+        let opacity: Float = visible ? 1 : 0
+        if containerView.layer?.opacity != opacity {
+            containerView.change(opacity: CGFloat(opacity), animated: animated)
+        }
+        if !visible {
+            cancelCount(animated: false)
+        }
     }
     
     
     public override var header: Bool {
         didSet {
             updateColors()
+            if header != oldValue {
+                updateTrackingAreas()
+                updateDateVisibility(animated: false)
+            }
         }
     }
     
@@ -253,18 +434,16 @@ public class ChatDateStickView : TableStickView {
                     return true
                 })
             }
-            let shouldBlurService = item.shouldBlurService
-            if let appliedColors = self.appliedColors, appliedColors.presentation === presentation, appliedColors.shouldBlurService == shouldBlurService {
+            let usesGlass = !TelegramUtilsHooks.shared.isLite(.blur)
+            if let appliedColors = self.appliedColors, appliedColors.presentation === presentation, appliedColors.usesGlass == usesGlass {
                 return
             }
-            self.appliedColors = (presentation, shouldBlurService)
-            if shouldBlurService {
-                textView.blurBackground = presentation.blurServiceColor
-                textView.backgroundColor = .clear
-            } else {
-                textView.backgroundColor = presentation.chatServiceItemColor
-                textView.blurBackground = nil
-            }
+            self.appliedColors = (presentation, usesGlass)
+            glassView.isHidden = !usesGlass
+            glassView.updateLocalizationAndTheme(theme: presentation)
+            containerView.backgroundColor = usesGlass ? .clear : presentation.chatServiceItemColor
+            textView.backgroundColor = .clear
+            textView.blurBackground = nil
         }
         
     }
@@ -282,30 +461,49 @@ public class ChatDateStickView : TableStickView {
             return
         }
         
-        let rect = textView.centerFrame().offsetBy(dx: item.monoforumState == .vertical ? 40 : 0, dy: 0)
-        
-        transition.updateFrame(view: textView, frame: rect)
+        let availableWidth = max(0, size.width - (item.monoforumState == .vertical ? 120 : 40))
+        let dateWidth = min(item.layout.layoutSize.width, availableWidth)
+        countLayout?.measure(width: max(0, availableWidth - dateWidth - 6))
+        if let countLayout {
+            countView.update(countLayout)
+        }
+        let countSize = countLayout?.layoutSize ?? .zero
+        let countWidth = expanded && countSize.width > 0 ? countSize.width + 6 : 0
+        let pillSize = NSMakeSize(dateWidth + countWidth + 16, item.layout.layoutSize.height + 6)
+        let rect = NSRect(x: floor((size.width - pillSize.width) / 2) + (item.monoforumState == .vertical ? 40 : 0), y: floor((size.height - pillSize.height) / 2), width: pillSize.width, height: pillSize.height)
+        containerView.layer?.cornerRadius = pillSize.height / 2
+        contentView.layer?.cornerRadius = pillSize.height / 2
+        glassView.cornerRadius = pillSize.height / 2
+        transition.updateFrame(view: containerView, frame: rect)
+        transition.updateFrame(view: glassView, frame: rect.size.bounds)
+        glassView.updateLayout(size: rect.size, transition: transition)
+        transition.updateFrame(view: contentView, frame: rect.size.bounds)
+        transition.updateFrame(view: textView, frame: NSRect(x: 8, y: 3, width: dateWidth, height: item.layout.layoutSize.height))
+        transition.updateFrame(view: countView, frame: NSRect(x: 8 + dateWidth + 6, y: expanded ? 3 : 11, width: countSize.width, height: countSize.height))
+        transition.updateAlpha(view: countView, alpha: expanded ? 1 : 0)
     }
-    
+
     public override func set(item: TableRowItem, animated: Bool) {
         if let item = item as? ChatDateStickItem {
+            let previous = self.item as? ChatDateStickItem
+            let location = item.messageCountLocation
+            if previous?.chatInteraction !== item.chatInteraction || previous?.timestamp != item.timestamp || previous?.presentation !== item.presentation || countLocation != location {
+                cancelCount(animated: false)
+                cachedCount = nil
+                countLayout = nil
+                countLocation = location
+            }
             textView.update(item.layout)
-            textView.setFrameSize(item.layout.layoutSize.width + 16, item.layout.layoutSize.height + 6)
-            textView.layer?.cornerRadius = textView.frame.height / 2
-
         }
-        super.set(item: item, animated:animated)
-        
-        let transition: ContainedViewLayoutTransition = animated ? .animated(duration: 0.2, curve: .easeOut) : .immediate
-        
-        self.updateLayout(size: self.frame.size, transition: transition)
+        super.set(item: item, animated: animated)
+        self.updateLayout(size: self.frame.size, transition: .immediate)
     }
     
     public override func onInsert(_ animation: NSTableView.AnimationOptions, appearAnimated: Bool) {
         if let item = item as? ChatDateStickItem, !TelegramUtilsHooks.shared.isLite(.animations) {
             if item.isBubbled, appearAnimated {
-                self.textView.layer?.animateScaleSpring(from: 0.5, to: 1, duration: 0.4, bounce: false)
-                self.textView.layer?.animateAlpha(from: 0, to: 1, duration: 0.35)
+                self.containerView.layer?.animateScaleSpring(from: 0.5, to: 1, duration: 0.4, bounce: false)
+                self.containerView.layer?.animateAlpha(from: 0, to: 1, duration: 0.35)
             }
         }
     }

@@ -43,8 +43,17 @@ public class EmptyChatView : View {
         }
         containerView.change(opacity: isEnabled ? 0 : 1, animated: animated)
         toggleTips.set(image: self.cards == nil ? TelegramThemeHooks.shared.image(.iconEmptyShowTips).precomposed(theme.colors.text) : theme.icons.glass_close, for: .Normal)
+        updateToggleTipsAccessibility()
 
         
+    }
+    
+    private func updateToggleTipsAccessibility() {
+        if cards == nil {
+            toggleTips.setAccessibilityLabel(strings().voiceOverCommonShowTips)
+        } else {
+            toggleTips.setAccessibilityLabel(strings().voiceOverCommonClose)
+        }
     }
     
     public required init(frame frameRect: NSRect) {
@@ -62,6 +71,7 @@ public class EmptyChatView : View {
         addSubview(containerView)
         containerView.addSubview(imageView)
         containerView.addSubview(label)
+        imageView.isAccessibilityDecorative = true
         addSubview(toggleTips)
         label.userInteractionEnabled = false
         label.isSelectable = false
@@ -80,6 +90,7 @@ public class EmptyChatView : View {
         }
         
         toggleTips.set(image: cards == nil ? TelegramThemeHooks.shared.image(.iconEmptyShowTips).precomposed(theme.colors.text) : theme.icons.glass_close, for: .Normal)
+        updateToggleTipsAccessibility()
 
 
         imageView.sizeToFit()

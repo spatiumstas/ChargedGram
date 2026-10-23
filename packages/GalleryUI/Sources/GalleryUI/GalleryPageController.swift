@@ -76,6 +76,7 @@ fileprivate final class LivePhotoButton : Control {
         addSubview(iconView)
         addSubview(textView)
         iconView.isEventLess = true
+        iconView.isAccessibilityDecorative = true
         textView.userInteractionEnabled = false
         textView.isSelectable = false
         textView.isEventLess = true
@@ -105,6 +106,23 @@ fileprivate final class LivePhotoButton : Control {
     }
 }
 
+
+fileprivate final class GalleryNavigationButton : ImageButton {
+    var accessibilityPress: (() -> Void)?
+    var accessibilityAvailable: (() -> Bool)?
+    
+    override func isAccessibilityElement() -> Bool {
+        return super.isAccessibilityElement() && (accessibilityAvailable?() ?? true)
+    }
+    
+    override func accessibilityPerformPress() -> Bool {
+        guard let accessibilityPress = accessibilityPress, !isHidden else {
+            return false
+        }
+        accessibilityPress()
+        return true
+    }
+}
 
 fileprivate class GMagnifyView : MagnifyView  {
     private var progressView: RadialProgressView?
@@ -337,8 +355,8 @@ public class GalleryPageController : NSObject, NSPageControllerDelegate {
     private let indexDisposable = MetaDisposable()
     fileprivate let reversed: Bool
     private let navigationDisposable = MetaDisposable()
-    private let _prev: ImageButton = ImageButton()
-    private let _next: ImageButton = ImageButton()
+    private let _prev: GalleryNavigationButton = GalleryNavigationButton()
+    private let _next: GalleryNavigationButton = GalleryNavigationButton()
     
     private var hasInited: Bool = false
     
@@ -381,6 +399,21 @@ public class GalleryPageController : NSObject, NSPageControllerDelegate {
         
         _next.userInteractionEnabled = false
         _prev.userInteractionEnabled = false
+        
+        _prev.setAccessibilityLabel(strings().voiceOverCommonPrevious)
+        _next.setAccessibilityLabel(strings().voiceOverCommonNext)
+        _prev.accessibilityPress = { [weak self] in
+            self?.prev()
+        }
+        _next.accessibilityPress = { [weak self] in
+            self?.next()
+        }
+        _prev.accessibilityAvailable = { [weak self] in
+            return self?.hasPrev ?? false
+        }
+        _next.accessibilityAvailable = { [weak self] in
+            return self?.hasNext ?? false
+        }
 
         textContainer.addSubview(textView)
         textScrollView.documentView = textContainer
@@ -677,16 +710,18 @@ public class GalleryPageController : NSObject, NSPageControllerDelegate {
                     return nil
                 }
                 
+                var removedItems: [MGalleryItem] = []
                 for rdx in transition.deleted.reversed() {
                     if items.count > rdx {
                         let item = items[rdx]
                         identifiers.removeValue(forKey: item.identifier)
                         cache.removeObject(forKey: item.identifier as AnyObject)
+                        removedItems.append(item)
                         items.remove(at: rdx)
                     }
                 }
                 for (idx,item) in transition.inserted {
-                    let item = searchItem(item.stableId, items) ?? item
+                    let item = searchItem(item.stableId, items) ?? searchItem(item.stableId, removedItems) ?? item
                     identifiers[item.identifier] = item
                     items.insert(item, at: min(idx, items.count))
                 }
@@ -751,7 +786,7 @@ public class GalleryPageController : NSObject, NSPageControllerDelegate {
     }
     
     public func next() {
-        if !lockedTransition {
+        if !lockedTransition, !controller.arrangedObjects.isEmpty {
             if let item = self.selectedItem as? MGalleryVideoItem, item.isFullscreen {
                 return
             }
@@ -765,7 +800,7 @@ public class GalleryPageController : NSObject, NSPageControllerDelegate {
     }
     
     public func prev() {
-        if !lockedTransition {
+        if !lockedTransition, !controller.arrangedObjects.isEmpty {
             if let item = self.selectedItem as? MGalleryVideoItem, item.isFullscreen {
                 return
             }

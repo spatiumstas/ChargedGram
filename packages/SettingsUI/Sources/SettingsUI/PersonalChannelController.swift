@@ -43,6 +43,10 @@ private final class EmptyChannelRow : GeneralRowItem {
     override func viewClass() -> AnyClass {
         return EmptyChannelRowView.self
     }
+    
+    override var accessibilityLabel: String? {
+        return layout.attributedString.string
+    }
 }
 
 private final class EmptyChannelRowView : GeneralContainableRowView {

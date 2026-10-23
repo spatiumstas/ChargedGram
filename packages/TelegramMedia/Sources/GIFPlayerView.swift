@@ -90,6 +90,8 @@ open class GIFPlayerView: TransformImageView {
     private let _stopRequesting:Atomic<Bool> = Atomic(value:false)
     private let _swapNext:Atomic<Bool> = Atomic(value:true)
     private let _data:Atomic<AVGifData?> = Atomic(value:nil)
+    private let _generation: Atomic<UInt64> = Atomic(value: 0)
+    private let _failedGeneration: Atomic<UInt64?> = Atomic(value: nil)
 
     
     private let maskLayer = SimpleShapeLayer()
@@ -138,8 +140,11 @@ open class GIFPlayerView: TransformImageView {
     public func set(data: AVGifData?, timebase:CMTimebase? = nil) -> Void {
         assertOnMainThread()
       
-         if data != _data.swap(data) {
-            _ = _timebase.swap(timebase)
+         if data != _data.swap(data) || _failedGeneration.with({ $0 }) == _generation.with({ $0 }) {
+            let generation = _generation.modify { $0 &+ 1 }
+            let currentGeneration = _generation
+            let failedGeneration = _failedGeneration
+            let requestedTimebase = data?.swapOnComplete == true ? self.controlTimebase : timebase
             let _data = self._data
             let layer:AVSampleBufferDisplayLayer = self.sampleLayer
             let reader = self._reader
@@ -152,117 +157,141 @@ open class GIFPlayerView: TransformImageView {
             let timer = self._timer
             let timebase = self._timebase
             let loopAction = self._loopAction
-            if let data = data {
-                let _ = track.swap(data.track)
-                let _ = asset.swap(data.asset)
-                
-                _ = stopRequesting.swap(false)
-                if data.swapOnComplete {
-                    _ = timebase.swap(self.controlTimebase)
-                }
-                _ = swapNext.swap(true)
-            } else {
-                _ = asset.swap(nil)
-                _ = track.swap(nil)
-                _ = stopRequesting.swap(true)
-                _ = swapNext.swap(false)
-                return
+            let finishFailure = {
+                _ = failedGeneration.swap(generation)
+                stopReading(reader: reader, asset: asset, track: track, output: output, reset: reset, timer: timer, layer: layer, timebase: timebase, stopRequesting: stopRequesting, swapNext: swapNext)
             }
-            
-            layer.requestMediaDataWhenReady(on: sampleBufferQueue, using: {
-                if stopRequesting.swap(false) {
-                    
-                    if let controlTimebase = layer.controlTimebase, let current = timer.swap(nil) {
-                        CMTimebaseRemoveTimer(controlTimebase, timer: current)
-                        CFRunLoopTimerInvalidate(current)
-                        _ = timebase.swap(nil)
-                    }
-                    
-                    
-                    layer.stopRequestingMediaData()
-                    layer.flushAndRemoveImage()
-                    var reader = reader.swap(nil)
-                    Queue.concurrentBackgroundQueue().async {
-                        reader?.cancelReading()
-                        reader = nil
-                    }
-                    
+            sampleBufferQueue.async {
+                guard currentGeneration.with({ $0 }) == generation else {
                     return
                 }
+                stopReading(reader: reader, asset: asset, track: track, output: output, reset: reset, timer: timer, layer: layer, timebase: timebase, stopRequesting: stopRequesting, swapNext: swapNext)
+                _ = timebase.swap(requestedTimebase)
+                if let data = data {
+                    let _ = track.swap(data.track)
+                    let _ = asset.swap(data.asset)
                 
-                if swapNext.swap(false) {
-                    _ = output.swap(nil)
-                    var reader = reader.swap(nil)
-                    Queue.concurrentBackgroundQueue().async {
-                        reader?.cancelReading()
-                        reader = nil
-                    }
+                    _ = stopRequesting.swap(false)
+                    _ = swapNext.swap(true)
+                } else {
+                    return
                 }
+            
+                layer.requestMediaDataWhenReady(on: sampleBufferQueue, using: {
+                    guard currentGeneration.with({ $0 }) == generation else {
+                        return
+                    }
+                    if stopRequesting.swap(false) {
+                        stopReading(reader: reader, asset: asset, track: track, output: output, reset: reset, timer: timer, layer: layer, timebase: timebase, stopRequesting: stopRequesting, swapNext: swapNext)
+                        return
+                    }
                 
-                if  let readerValue = reader.with({ $0 }), let outputValue = output.with({ $0 }) {
-                    
-                    let affineTransform = track.with { $0?.preferredTransform.inverted() }
-                    if let affineTransform = affineTransform {
-                        layer.setAffineTransform(affineTransform)
-                    }
-                    
-                    while layer.isReadyForMoreMediaData {
-                        if !stopRequesting.with({ $0 }) {
-                            
-                            if readerValue.status == .reading, let sampleBuffer = outputValue.copyNextSampleBuffer() {
-                                layer.enqueue(sampleBuffer)
-                                continue
-                            }
-                            _ = stopRequesting.modify { _ in _data.with { $0 } == nil }
-                            break
-                        } else {
-                            break
+                    if swapNext.swap(false) {
+                        _ = output.swap(nil)
+                        var reader = reader.swap(nil)
+                        Queue.concurrentBackgroundQueue().async {
+                            reader?.cancelReading()
+                            reader = nil
                         }
-                        
                     }
-                    if readerValue.status == .completed || readerValue.status == .cancelled  {
-                        if reset.swap(false) {
-                            let loopActionResult = loopAction.with({ $0?() })
+                
+                    if  let readerValue = reader.with({ $0 }), let outputValue = output.with({ $0 }) {
+                    
+                        let affineTransform = track.with { $0?.preferredTransform.inverted() }
+                        if let affineTransform = affineTransform {
+                            layer.setAffineTransform(affineTransform)
+                        }
+                    
+                        while layer.isReadyForMoreMediaData, currentGeneration.with({ $0 }) == generation {
+                            if !stopRequesting.with({ $0 }) {
                             
-                            if let loopActionResult = loopActionResult {
-                                switch loopActionResult {
-                                case .pause:
-                                    return
+                                if readerValue.status == .reading, let sampleBuffer = outputValue.copyNextSampleBuffer() {
+                                    layer.enqueue(sampleBuffer)
+                                    continue
+                                }
+                                _ = stopRequesting.modify { _ in _data.with { $0 } == nil }
+                                break
+                            } else {
+                                break
+                            }
+                        
+                        }
+                        guard currentGeneration.with({ $0 }) == generation else {
+                            return
+                        }
+                        if readerValue.status == .failed {
+                            finishFailure()
+                        } else if readerValue.status == .completed || readerValue.status == .cancelled  {
+                            if reset.swap(false) {
+                                let loopActionResult = loopAction.with({ $0?() })
+                            
+                                if let loopActionResult = loopActionResult {
+                                    switch loopActionResult {
+                                    case .pause:
+                                        return
+                                    }
+                                }
+                                let result = restartReading(_reader: reader, _asset: asset, _track: track, _output: output, _needReset: reset, _timer: timer, layer: layer, _timebase: timebase)
+                                if result {
+                                    layer.flush()
+                                } else {
+                                    finishFailure()
                                 }
                             }
-                            let result = restartReading(_reader: reader, _asset: asset, _track: track, _output: output, _needReset: reset, _timer: timer, layer: layer, _timebase: timebase)
-                            if result {
-                                layer.flush()
-                            }
+                        }
+                    } else if !stopRequesting.modify({$0}) {
+                        let result = restartReading(_reader: reader, _asset: asset, _track: track, _output: output, _needReset: reset, _timer: timer, layer: layer, _timebase: timebase)
+                   
+                        if result {
+                            layer.flush()
+                        } else {
+                            finishFailure()
                         }
                     }
-                } else if !stopRequesting.modify({$0}) {
-                    let result = restartReading(_reader: reader, _asset: asset, _track: track, _output: output, _needReset: reset, _timer: timer, layer: layer, _timebase: timebase)
-                   
-                    if result {
-                        layer.flush()
-                    }
-                }
                 
-            })
+                })
+            }
         }
     }
     
     public func reset(with timebase:CMTimebase? = nil, _ resetImage: Bool = true) {
-     //   if resetImage {
-            sampleLayer.flushAndRemoveImage()
-      //  } else {
-       //     sampleLayer.flush()
-      //  }
-        
-        _ = _swapNext.swap(true)
-        _ = _timebase.swap(timebase)
+        let generation = _generation.with { $0 }
+        let currentGeneration = _generation
+        let layer = sampleLayer
+        let swapNext = _swapNext
+        let currentTimebase = _timebase
+        sampleBufferQueue.async {
+            guard currentGeneration.with({ $0 }) == generation else {
+                return
+            }
+            if resetImage {
+                layer.flushAndRemoveImage()
+            } else {
+                layer.flush()
+            }
+            _ = swapNext.swap(true)
+            _ = currentTimebase.swap(timebase)
+        }
     }
     
     
     
     deinit {
-        _ = _stopRequesting.swap(true)
+        _ = _generation.modify { $0 &+ 1 }
+        _ = _data.swap(nil)
+        let layer = sampleLayer
+        let reader = _reader
+        let asset = _asset
+        let track = _track
+        let output = _output
+        let reset = _needReset
+        let timer = _timer
+        let timebase = _timebase
+        let stopRequesting = _stopRequesting
+        let swapNext = _swapNext
+        sampleBufferQueue.async {
+            stopReading(reader: reader, asset: asset, track: track, output: output, reset: reset, timer: timer, layer: layer, timebase: timebase, stopRequesting: stopRequesting, swapNext: swapNext)
+        }
     }
     
     
@@ -275,11 +304,36 @@ open class GIFPlayerView: TransformImageView {
     
 }
 
+private func stopReading(reader: Atomic<AVAssetReader?>, asset: Atomic<AVURLAsset?>, track: Atomic<AVAssetTrack?>, output: Atomic<AVAssetReaderTrackOutput?>, reset: Atomic<Bool>, timer: Atomic<CFRunLoopTimer?>, layer: AVSampleBufferDisplayLayer, timebase: Atomic<CMTimebase?>, stopRequesting: Atomic<Bool>, swapNext: Atomic<Bool>) {
+    _ = stopRequesting.swap(true)
+    layer.stopRequestingMediaData()
+    if let current = timer.swap(nil) {
+        if let controlTimebase = layer.controlTimebase {
+            CMTimebaseRemoveTimer(controlTimebase, timer: current)
+        }
+        CFRunLoopTimerInvalidate(current)
+    }
+    layer.controlTimebase = nil
+    layer.flushAndRemoveImage()
+    _ = output.swap(nil)
+    _ = asset.swap(nil)
+    _ = track.swap(nil)
+    _ = timebase.swap(nil)
+    _ = reset.swap(false)
+    _ = swapNext.swap(false)
+    if let current = reader.swap(nil) {
+        Queue.concurrentBackgroundQueue().async {
+            current.cancelReading()
+        }
+    }
+}
+
 fileprivate func restartReading(_reader:Atomic<AVAssetReader?>, _asset:Atomic<AVURLAsset?>, _track:Atomic<AVAssetTrack?>, _output:Atomic<AVAssetReaderTrackOutput?>, _needReset:Atomic<Bool>, _timer:Atomic<CFRunLoopTimer?>, layer: AVSampleBufferDisplayLayer, _timebase:Atomic<CMTimebase?>) -> Bool {
     
-    if let timebase = layer.controlTimebase, let timer = _timer.modify({$0}) {
-        _ = _timer.swap(nil)
-        CMTimebaseRemoveTimer(timebase, timer: timer)
+    if let timer = _timer.swap(nil) {
+        if let timebase = layer.controlTimebase {
+            CMTimebaseRemoveTimer(timebase, timer: timer)
+        }
         CFRunLoopTimerInvalidate(timer)
     }
     
@@ -299,8 +353,11 @@ fileprivate func restartReading(_reader:Atomic<AVAssetReader?>, _asset:Atomic<AV
                     
                     var timebase:CMTimebase? = _timebase.swap(nil)
                     if timebase == nil {
-                        timebase = createTimebase()?.takeRetainedValue()
-                        CMTimebaseSetRate(timebase!, rate: 1.0)
+                        guard let createdTimebase = createTimebase()?.takeRetainedValue() else {
+                            return false
+                        }
+                        timebase = createdTimebase
+                        CMTimebaseSetRate(createdTimebase, rate: 1.0)
                     }
                     
          
@@ -336,10 +393,7 @@ fileprivate func restartReading(_reader:Atomic<AVAssetReader?>, _asset:Atomic<AV
                         
                     }
                     
-                    reader.startReading()
-
-                    
-                    return true
+                    return reader.startReading()
                 }
             }
         }

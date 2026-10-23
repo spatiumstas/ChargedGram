@@ -18,7 +18,7 @@ extension MediaAnimatedStickerView: @retroactive GalleryStickerView {
 }
 
 func installGalleryUIHooks() {
-    GalleryHooks.install(GalleryHooks(makeStickerView: {
+    var hooks = GalleryHooks(makeStickerView: {
         return MediaAnimatedStickerView(frame: NSZeroRect)
     }, openAdUrl: { url, context, openInfo in
         guard let context = context as? AccountContext else {
@@ -171,5 +171,12 @@ func installGalleryUIHooks() {
         return { [weak controller] path in
             controller?.chatInteraction.sendMedia([MediaSenderContainer(path: path, isFile: false)])
         }
-    }))
+    })
+    hooks.showShareWithContext = { context, message, messages, window in
+        guard let context = context as? AccountContext else { return }
+        let object = ShareMessageObject(context, message, messages ?? [])
+        let controller = ShareModalController(object)
+        showModal(with: controller, for: window)
+    }
+    GalleryHooks.install(hooks)
 }

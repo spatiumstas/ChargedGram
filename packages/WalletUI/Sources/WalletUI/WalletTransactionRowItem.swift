@@ -291,7 +291,7 @@ final class WalletTransactionRowItem: GeneralRowItem {
         self.transaction = transaction
         self.callback = callback
         self.transferAnimation = transferAnimation
-        self.isPending = transaction.status == .pending && transaction.collectible == nil && transaction.kind != .keyChange && transferAnimation == nil
+        self.isPending = transaction.status == .pending && transaction.kind != .keyChange && transferAnimation == nil
         self.isFailed = transaction.status == .failed
         let displayedDirection: WalletContext.Transaction.Direction = transaction.isSelfTransfer(walletAddress: walletAddress) ? .incoming : transaction.direction
 
@@ -303,12 +303,17 @@ final class WalletTransactionRowItem: GeneralRowItem {
             let displayName = environment.peerTitle(peer._asPeer(), compact: false)
             titleText = displayName.isEmpty ? strings().walletTransactionRowItemTelegramUser : displayName
             peerId = peer.id
+        case let .channel(peer, _, _):
+            titleText = environment.peerTitle(peer._asPeer(), compact: false)
+            peerId = peer.id
         case let .address(address, _):
             let addressTitle = walletTransactionAddressTitle(address: address, domain: transaction.peer.domain)
             titleText = addressTitle.title
             titleAddress = addressTitle.chipAddress
         case let .onramp(_, _, providerName):
             titleText = providerName == "MoonPay" ? strings().walletTransactionRowItemCardTopUp : strings().walletTransactionRowItemCryptoTopUp
+        case .telegramGift:
+            titleText = strings().walletTransactionRowItemTelegram
         case .unsupported:
             titleText = strings().walletTransactionRowItemUnknownAddress
         }
@@ -351,6 +356,13 @@ final class WalletTransactionRowItem: GeneralRowItem {
         }
         if case let .onramp(_, _, providerName) = transaction.peer {
             subtitleText = providerName
+        }
+        if case .telegramGift(true) = transaction.peer {
+            switch displayedDirection {
+            case .incoming: subtitleText = strings().walletTransactionRowItemMovedFromProfile
+            case .outgoing: subtitleText = strings().walletTransactionRowItemMovedToProfile
+            case .unknown: break
+            }
         }
         if transaction.kind == .keyChange {
             subtitleText = strings().walletTransactionRowItemKeyUpdate
@@ -463,6 +475,39 @@ final class WalletTransactionRowItem: GeneralRowItem {
     override func viewClass() -> AnyClass {
         return WalletTransactionRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        let title = titleLayout.attributedString.string
+        return title.isEmpty ? nil : title
+    }
+
+    override var accessibilityValue: String? {
+        var amount = amountLayout.attributedString.string
+        if transaction.collectible == nil {
+            switch transaction.currency {
+            case .ton:
+                amount = walletTonAccessibilityText(amount)
+            case .usdt:
+                amount += " " + strings().walletTransactionAmountRowItemUsdt
+            }
+        }
+        let status = isPending ? sendingLayout.attributedString.string : dateLayout.attributedString.string
+        let parts = [subtitleLayout.attributedString.string, amount, collectibleTitleLayout?.attributedString.string, status].compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        callback(transaction, nil)
+        return true
+    }
 }
 
 @available(macOS 10.15, *)
@@ -496,6 +541,8 @@ final class WalletTransactionRowView: GeneralContainableRowView {
         super.init(frame: frameRect)
 
         amountIconView.contentGravity = .resizeAspect
+        amountIconView.isAccessibilityDecorative = true
+        avatarView.isAccessibilityDecorative = true
         collectibleBackgroundView.layer?.cornerRadius = 10
         collectibleImagePlaceholderView.layer?.cornerRadius = 8
 
@@ -706,6 +753,14 @@ final class WalletTransactionRowView: GeneralContainableRowView {
         return amountIconView.frame
     }
 
+    var transferAmountFrame: NSRect {
+        let frame = amountView.frame
+        guard let presentation = transferPresentation, let item = item as? WalletTransactionRowItem else { return frame }
+        let transform = walletPendingTransferAmountTransform(expansion: presentation.expansion, width: frame.width, verticalOffset: containerView.bounds.midY - frame.midY, isCollectible: item.transaction.collectible != nil)
+        let size = NSMakeSize(frame.width * transform.scale, frame.height * transform.scale)
+        return NSMakeRect(frame.midX - size.width / 2 + transform.translation.x, frame.midY - size.height / 2 + transform.translation.y, size.width, size.height)
+    }
+
     var transferRightInset: CGFloat {
         return (item as? WalletTransactionRowItem)?.viewType.innerInset.right ?? 0.0
     }
@@ -716,7 +771,7 @@ final class WalletTransactionRowView: GeneralContainableRowView {
             return
         }
         if let layer = amountView.layer {
-            let transform = walletPendingTransferAmountTransform(expansion: expansion, width: amountView.frame.width, verticalOffset: containerView.bounds.midY - amountView.frame.midY)
+            let transform = walletPendingTransferAmountTransform(expansion: expansion, width: amountView.frame.width, verticalOffset: containerView.bounds.midY - amountView.frame.midY, isCollectible: item.transaction.collectible != nil)
             layer.transform = walletAmountCenteredTransform(CATransform3DConcat(CATransform3DMakeScale(transform.scale, transform.scale, 1.0), CATransform3DMakeTranslation(transform.translation.x, transform.translation.y, 0.0)), layer: layer)
         }
         amountIconView.alphaValue = iconAlpha

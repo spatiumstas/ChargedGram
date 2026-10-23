@@ -311,14 +311,21 @@ public final class InlineStickerView: Control {
     }
 
     deinit {
-        contentObserver.removeObservers()
+        contentObserver?.removeObservers()
         NotificationCenter.default.removeObserver(self)
     }
 
-    private let contentObserver = AnimatableContentTokenObserver()
+    private var contentObserver: AnimatableContentTokenObserver?
 
     private func updateListeners() {
-        contentObserver.update(for: self, handler: { [weak self] _ in
+        guard controlContent, window != nil else {
+            contentObserver = nil
+            return
+        }
+        if contentObserver == nil {
+            contentObserver = AnimatableContentTokenObserver()
+        }
+        contentObserver?.update(for: self, handler: { [weak self] _ in
             self?.updateAnimatableContent()
         })
     }
@@ -352,6 +359,7 @@ public final class InlineStickerItemLayer : SimpleLayer {
         self.color = nil
         self.isSelected = layer.isSelected
         self.uniqueStarAnimation = layer.uniqueStarAnimation
+        self.didReceiveFileResolutionResult = layer.hasFileResolutionResult
         super.init()
     }
 
@@ -411,8 +419,13 @@ public final class InlineStickerItemLayer : SimpleLayer {
 
     public private(set) var file: TelegramMediaFile? {
         didSet {
+            self.didReceiveFileResolutionResult = true
             self.fileDidUpdate?(file)
         }
+    }
+    private var didReceiveFileResolutionResult = false
+    public var hasFileResolutionResult: Bool {
+        return didReceiveFileResolutionResult || file != nil
     }
     public let fileId: Int64
 

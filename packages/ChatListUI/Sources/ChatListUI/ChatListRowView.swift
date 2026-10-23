@@ -648,6 +648,8 @@ private final class ChatListExpandView: View {
         container.addSubview(iconView)
         container.addSubview(titleView)
         container.addSubview(arrowView)
+        iconView.isAccessibilityDecorative = true
+        arrowView.isAccessibilityDecorative = true
         self.addSubview(container)
         updateLocalizationAndTheme(theme: theme)
     }
@@ -760,6 +762,7 @@ private final class ChatListMediaPreviewView: View {
         self.imageView = TransformImageView()
         if chatListMediaShowsPlayIcon(media) {
             let playIcon = ImageView()
+            playIcon.isAccessibilityDecorative = true
             playIcon.image = theme.icons.chat_list_thumb_play
             playIcon.sizeToFit()
             self.playIcon = playIcon
@@ -902,6 +905,7 @@ private final class GroupCallActivity : View {
         isEventLess = true
         animation.isEventLess = true
         backgroundView.isEventLess = true
+        backgroundView.isAccessibilityDecorative = true
     }
 
     
@@ -1025,6 +1029,9 @@ final class ChatListTextLayer: SimpleLayer {
     }
 
     func update(_ layout: TextViewLayout) {
+        if drawLayer.textLayout === layout, drawLayer.textSize == layout.layoutSize, bounds.size == layout.layoutSize, drawLayer.contents != nil {
+            return
+        }
         drawLayer.textLayout = layout
         bounds = CGRect(origin: .zero, size: layout.layoutSize)
         if drawLayer.textSize != bounds.size {
@@ -1033,6 +1040,10 @@ final class ChatListTextLayer: SimpleLayer {
         drawLayer.frame = bounds
         drawLayer.bounds = bounds.insetBy(dx: -2, dy: -3)
         drawLayer.setNeedsDisplay()
+    }
+    
+    var hasPendingDisplay: Bool {
+        return drawLayer.needsDisplay()
     }
 
     func updateScale(_ scale: CGFloat) {
@@ -1107,6 +1118,7 @@ public class ChatListRowView: TableRowView, RevealTableView {
             addSubview(imageView)
             self.isEventLess = true
             self.imageView.isEventLess = true
+            self.imageView.isAccessibilityDecorative = true
             updateLocalizationAndTheme(theme: theme)
         }
         
@@ -1172,6 +1184,7 @@ public class ChatListRowView: TableRowView, RevealTableView {
     private var activeImage: ImageView?
     private var groupActivityView: GroupCallActivity?
     private var activitiesModel:ChatActivitiesModel?
+    private var activityLayout: (width: CGFloat, scale: CGFloat)?
     private let photo: AvatarStoryControl = AvatarStoryControl(font: .avatar(22), size: NSMakeSize(50, 50))
 
     private var photoVideoView: MediaPlayerView?
@@ -1256,49 +1269,45 @@ public class ChatListRowView: TableRowView, RevealTableView {
                 }
             }
             
-            if let inputActivities = inputActivities, let item = item as? ChatListRowItem {
-                let oldValue = oldValue?.1.map {
-                    PeerListState.InputActivities.Activity($0, $1)
+            if let inputActivities = inputActivities, !inputActivities.1.isEmpty, let item = item as? ChatListRowItem {
+                let activitiesChanged: Bool
+                if let previous = oldValue, previous.0 == inputActivities.0, previous.1.count == inputActivities.1.count {
+                    activitiesChanged = !zip(previous.1, inputActivities.1).allSatisfy { previous, current in
+                        previous.1 == current.1 && previous.0.isEqual(current.0)
+                    }
+                } else {
+                    activitiesChanged = true
                 }
-                
-                if inputActivities.1.isEmpty {
-                    activitiesModel?.clean()
-                    activitiesModel?.view?.removeFromSuperview()
-                    activitiesModel = nil
-                    self.hiddenMessage = false
-                } else if activitiesModel == nil {
+                if activitiesModel == nil {
                     activitiesModel = ChatActivitiesModel()
                     contentView.addSubview(activitiesModel!.view!)
                 }
-                
-                
-                let activity:ActivitiesTheme
-                
-                let highlighted = self.highlighed
 
-                
-                if highlighted {
+                let activity: ActivitiesTheme
+                if self.highlighed {
                     activity = theme.activity(key: 10, foregroundColor: theme.chatList.activitySelectedColor, backgroundColor: backdorColor)
                 } else {
                     activity = theme.activity(key: 15, foregroundColor: theme.colors.grayIcon, backgroundColor: theme.colors.background)
                 }
-                if oldValue != item.activities || activity != activitiesModel?.theme {
-                    activitiesModel?.update(with: inputActivities, for: item.inputActivityWidth, theme:  activity, layout: { [weak self] show in
+                let width = item.inputActivityWidth
+                let scale = System.backingScale
+                if activitiesChanged || activity != activitiesModel?.theme || activityLayout?.width != width || activityLayout?.scale != scale {
+                    activityLayout = (width, scale)
+                    activitiesModel?.update(with: inputActivities, for: width, theme: activity, layout: { [weak self] show in
                         self?.hiddenMessage = show
                         self?.needsLayout = true
                     })
                 }
-              
-                
             } else {
                 activitiesModel?.clean()
                 activitiesModel?.view?.removeFromSuperview()
                 activitiesModel = nil
+                activityLayout = nil
                 hiddenMessage = false
             }
         }
     }
-    
+
     public override func onShowContextMenu() {
         super.onShowContextMenu()
         let inputActivities = self.inputActivities
@@ -1731,6 +1740,7 @@ public class ChatListRowView: TableRowView, RevealTableView {
              let animated = animated && previous?.splitState == item.splitState
                           
              let unhideProgress = item.getHideProgress?()
+             guard self.item === item else { return }
              
              
              contentView.change(opacity: unhideProgress ?? (item.shouldHideContent ? 0 : 1), animated: animated)
@@ -1824,7 +1834,7 @@ public class ChatListRowView: TableRowView, RevealTableView {
              
              if let peer = peer, peer.id != item.context.peerId, !item.isTopic {
                  let highlighted = self.highlighed
-                 let control = PremiumStatusControl.control(peer, account: item.context.account, inlinePacksContext: item.context.inlinePacksContext, left: false, isSelected: highlighted, cached: self.statusControl, animated: animated)
+                 let control = PremiumStatusControl.control(peer, account: item.context.account, inlinePacksContext: item.context.inlinePacksContext, left: false, isSelected: highlighted, cached: self.statusControl, animated: animated, autoupdate: false)
                  if let control = control {
                      self.statusControl = control
                      self.contentView.addSubview(control)
@@ -1839,7 +1849,7 @@ public class ChatListRowView: TableRowView, RevealTableView {
              
              if let peer = peer, peer.id != item.context.peerId, !item.isTopic {
                  let highlighted = self.highlighed
-                 let control = PremiumStatusControl.control(peer, account: item.context.account, inlinePacksContext: item.context.inlinePacksContext, left: true, isSelected: highlighted, cached: self.leftStatusControl, animated: animated)
+                 let control = PremiumStatusControl.control(peer, account: item.context.account, inlinePacksContext: item.context.inlinePacksContext, left: true, isSelected: highlighted, cached: self.leftStatusControl, animated: animated, autoupdate: false)
                  if let control = control {
                      self.leftStatusControl = control
                      self.contentView.addSubview(control)
@@ -1859,6 +1869,7 @@ public class ChatListRowView: TableRowView, RevealTableView {
                  } else {
                      current = ImageView()
                      current.isEventLess = true
+                     current.isAccessibilityDecorative = true
                      self.storyReplyImageView = current
                      self.contentView.addSubview(current)
                  }
@@ -2171,6 +2182,7 @@ public class ChatListRowView: TableRowView, RevealTableView {
                  var presented: Bool = false
                  if badgeView == nil {
                      badgeView = Control()
+                     badgeView?.setAccessibilityLabel(strings().chatListContextPreview)
                      badgeView?.scaleOnClick = true
                      contentView.addSubview(badgeView!)
                      presented = true
@@ -2204,7 +2216,7 @@ public class ChatListRowView: TableRowView, RevealTableView {
                  self.badgeView = nil
              }
              
-             if let badgeNode = item.ctxShortBadgeNode, item.shouldHideContent , !item.hasLiveItems {
+             if item.shouldHideContent, !item.hasLiveItems, let badgeNode = item.ctxShortBadgeNode {
                  var presented: Bool = false
                  if badgeShortView == nil {
                      badgeShortView = View()
@@ -2217,20 +2229,18 @@ public class ChatListRowView: TableRowView, RevealTableView {
                  badgeNode.setNeedDisplay()
                  
                  let point = badgeShortPoint(item)
+                 let opacity = unhideProgress.map { 1 - $0 } ?? 1
 
                  if presented {
                      badgeShortView?.setFrameOrigin(point)
+                     badgeShortView?.change(opacity: opacity, animated: false)
                      if animated {
                          self.badgeShortView?.layer?.animateScaleSpring(from: 0.1, to: 1, duration: 0.4)
-                         self.badgeShortView?.layer?.animateAlpha(from: 0, to: 1, duration: 0.2)
+                         self.badgeShortView?.layer?.animateAlpha(from: 0, to: opacity, duration: 0.2)
                      }
                  } else {
                      badgeShortView?.change(pos: point, animated: animated)
-                     if let unhideProgress = unhideProgress {
-                         badgeShortView?.change(opacity: 1 - unhideProgress, animated: animated)
-                     } else {
-                         badgeShortView?.change(opacity: 1, animated: animated)
-                     }
+                     badgeShortView?.change(opacity: opacity, animated: animated)
                  }
              } else if let view = self.badgeShortView {
                  performSubviewRemoval(view, animated: animated, scale: true)
@@ -2267,6 +2277,7 @@ public class ChatListRowView: TableRowView, RevealTableView {
                      var animate: Bool = false
                      if activeImage == nil {
                          activeImage = ImageView()
+                         activeImage?.isAccessibilityDecorative = true
                          self.containerView.addSubview(activeImage!, positioned: .above, relativeTo: photo)
                          animate = true
                      }
@@ -2296,6 +2307,7 @@ public class ChatListRowView: TableRowView, RevealTableView {
                      current = view
                  } else {
                      current = ImageView()
+                     current.isAccessibilityDecorative = true
                      self.starBadgeView = current
                      self.containerView.addSubview(current, positioned: .above, relativeTo: photo)
                      animate = true
@@ -2326,6 +2338,7 @@ public class ChatListRowView: TableRowView, RevealTableView {
                      current = view
                  } else {
                      current = ImageButton()
+                     current.setAccessibilityLabel(strings().communityViewTitle)
                      current.autohighlight = false
                      current.scaleOnClick = true
                      current.set(image: TelegramThemeHooks.shared.image(.iconCommunityAvatarDropdown).precomposed(), for: .Normal)
@@ -2356,6 +2369,7 @@ public class ChatListRowView: TableRowView, RevealTableView {
                      current = view
                  } else {
                      current = ImageView()
+                     current.isAccessibilityDecorative = true
                      self.communityHiddenView = current
                      self.containerView.addSubview(current, positioned: .above, relativeTo: photo)
                  }
@@ -2419,6 +2433,7 @@ public class ChatListRowView: TableRowView, RevealTableView {
                  var presented: Bool = false
                  if self.mentionsView == nil {
                      self.mentionsView = ImageView()
+                     self.mentionsView?.isAccessibilityDecorative = true
                      self.contentView.addSubview(self.mentionsView!)
                      presented = true
                  }
@@ -2455,6 +2470,7 @@ public class ChatListRowView: TableRowView, RevealTableView {
                  var presented: Bool = false
                  if self.reactionsView == nil {
                      self.reactionsView = ImageView()
+                     self.reactionsView?.isAccessibilityDecorative = true
                      self.contentView.addSubview(self.reactionsView!)
                      presented = true
                  }
@@ -2491,6 +2507,7 @@ public class ChatListRowView: TableRowView, RevealTableView {
                  var presented: Bool = false
                  if self.pollVotesView == nil {
                      self.pollVotesView = ImageView()
+                     self.pollVotesView?.isAccessibilityDecorative = true
                      self.contentView.addSubview(self.pollVotesView!)
                      presented = true
                  }
@@ -2607,6 +2624,7 @@ public class ChatListRowView: TableRowView, RevealTableView {
                      current = view
                  } else {
                      current = ImageView()
+                     current.isAccessibilityDecorative = true
                      self.liveStreamView = current
                      photo.addSubview(current)
                  }
@@ -2860,15 +2878,16 @@ public class ChatListRowView: TableRowView, RevealTableView {
             revealHighlighted = true
         }
 
+        layoutReveal(delta: delta)
+    }
+
+    private func layoutReveal(delta: CGFloat) {
         if revealLeftView.subviews.isEmpty && revealRightView.subviews.isEmpty {
             initRevealState()
         }
       
         self.internalDelta = delta
-        
-        let delta = delta// - additionalRevealDelta
-        
-        
+
         containerView.change(pos: NSMakePoint(delta, containerView.frame.minY), animated: false)
         revealLeftView.change(pos: NSMakePoint(min(-leftRevealWidth + delta, 0), revealLeftView.frame.minY), animated: false)
         revealRightView.change(pos: NSMakePoint(frame.width + delta, revealRightView.frame.minY), animated: false)
@@ -3193,9 +3212,15 @@ public class ChatListRowView: TableRowView, RevealTableView {
     }
         
     public func updateHideProgress(animated: Bool) {
-        if let item = self.item as? ChatListRowItem {
+        guard let item = self.item as? ChatListRowItem else { return }
+        guard item.context.layout == item.splitState else {
             self.set(item: item, animated: animated)
+            return
         }
+        let progress = item.getHideProgress?()
+        guard self.item === item else { return }
+        contentView.change(opacity: progress ?? (item.shouldHideContent ? 0 : 1), animated: animated)
+        badgeShortView?.change(opacity: progress.map { 1 - $0 } ?? 1, animated: animated)
     }
     
     
@@ -3516,7 +3541,7 @@ public class ChatListRowView: TableRowView, RevealTableView {
         updateInlineTextAnimatableContent()
 
         if let delta = internalDelta {
-            moveReveal(delta: delta)
+            layoutReveal(delta: delta)
         }
     }
     

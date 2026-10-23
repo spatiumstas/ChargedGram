@@ -31,6 +31,23 @@ class AddContactTableItem: TableRowItem {
         return 50
     }
     
+    override var accessibilityLabel: String? {
+        return text.attributedString.string
+    }
+    
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+    
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+    
+    override func accessibilityPerformPress() -> Bool {
+        addContact()
+        return true
+    }
+    
 }
 
 class AddContactTableRowView : TableRowView {
@@ -41,6 +58,7 @@ class AddContactTableRowView : TableRowView {
         
         addSubview(imageView)
         addSubview(textView)
+        imageView.isAccessibilityDecorative = true
         textView.userInteractionEnabled = false
         textView.isSelectable = false
         

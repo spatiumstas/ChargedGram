@@ -25,6 +25,19 @@ public final class EmojiStatusStatusRowItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return EmojiStatusStatusRowView.self
     }
+    
+    public override var accessibilityLabel: String? {
+        let text = textLayout.attributedString.string
+        return text.isEmpty ? nil : text
+    }
+    
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .staticText
+    }
+    
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 private final class EmojiStatusStatusRowView: TableRowView {

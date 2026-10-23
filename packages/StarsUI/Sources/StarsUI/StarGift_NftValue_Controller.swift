@@ -73,6 +73,14 @@ private final class HeaderItem : GeneralRowItem {
         return HeaderItemView.self
     }
     
+    override var accessibilityLabel: String? {
+        return uniqueGift.title
+    }
+    
+    override var accessibilityValue: String? {
+        return priceLayout?.attributedString.string
+    }
+    
     public override var height: CGFloat {
         var height: CGFloat = 120
         
@@ -116,6 +124,7 @@ private final class HeaderItemView : GeneralRowView {
         dismiss.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
         dismiss.autohighlight = false
         dismiss.scaleOnClick = true
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
         
         dismiss.setSingle(handler: { [weak item] _ in
             item?.dismiss()
@@ -206,6 +215,7 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
             control = ImageView(frame: NSMakeRect(0, 0, 20, 20))
         }
         control.image = TelegramThemeHooks.shared.image(.iconStarCurrency).precomposed()
+        control.setAccessibilityLabel(strings().voiceOverCommonStars)
         return control
     })))
 

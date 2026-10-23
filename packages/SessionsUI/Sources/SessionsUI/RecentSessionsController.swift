@@ -477,10 +477,18 @@ open class RecentSessionsController<Context: AccountContextProtocol>: TableViewC
                 return $0.withUpdatedRemovingSessionId(sessionId)
             }
             
-            removeSessionDisposable.set((context.activeSessionsContext.remove(hash: sessionId) |> deliverOnMainQueue).start(error: { _ in
+            removeSessionDisposable.set((context.activeSessionsContext.remove(hash: sessionId) |> deliverOnMainQueue).start(error: { error in
                 updateState {
                     return $0.withUpdatedRemovingSessionId(nil)
                 }
+                let text: String
+                switch error {
+                case .freshReset:
+                    text = strings().recentSessionsErrorFreshReset
+                case .generic:
+                    text = strings().unknownError
+                }
+                alert(for: context.window, info: text)
             }, completed: {
                 updateState {
                     return $0.withUpdatedRemovingSessionId(nil)
@@ -489,11 +497,21 @@ open class RecentSessionsController<Context: AccountContextProtocol>: TableViewC
         }, terminateOthers: {
             verifyAlert_button(for: context.window, information: strings().recentSessionsConfirmTerminateOthers, successHandler: { _ in
                 _ = showModalProgress(signal: context.activeSessionsContext.removeOther(), for: context.window).start(error: { error in
-                    
+                    let text: String
+                    switch error {
+                    case .freshReset:
+                        text = strings().recentSessionsErrorFreshReset
+                    case .generic:
+                        text = strings().unknownError
+                    }
+                    alert(for: context.window, info: text)
                 })
             })
         }, toggleTtl: { ttl in
-            _ = context.activeSessionsContext.updateAuthorizationTTL(days: Int32(ttl)).start()
+            _ = showModalProgress(signal: context.activeSessionsContext.updateAuthorizationTTL(days: Int32(ttl)), for: context.window).start(error: { _ in
+                context.activeSessionsContext.loadMore()
+                alert(for: context.window, info: strings().unknownError)
+            })
         }, preview: { [weak self] session, stableId in
             showModal(with: SessionModalController(context: context, session: session), for: context.window, morphSource: {
                 (self?.genericView.item(stableId: stableId)?.view as? GeneralContainableRowView)?.containerView

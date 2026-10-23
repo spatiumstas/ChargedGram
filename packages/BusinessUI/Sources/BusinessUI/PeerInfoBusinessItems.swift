@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import TelegramCore
 import Postbox
 import SwiftSignalKit
@@ -121,6 +122,27 @@ public final class PeerInfoLocationRowItem : GeneralRowItem {
         return max(viewType.innerInset.top * 2 + 50, viewType.innerInset.top * 2 + titleLayout.layoutSize.height + 6 + addressLayout.layoutSize.height)
     }
     
+    public override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return addressLayout.attributedString.string
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        open()
+        return true
+    }
+
     public override func viewClass() -> AnyClass {
         return PeerInfoLocationRowView.self
     }
@@ -137,6 +159,7 @@ private final class PeerInfoLocationRowView: GeneralContainableRowView {
         addSubview(text)
         addSubview(imageView)
         imageView.addSubview(pinView)
+        pinView.isAccessibilityDecorative = true
         imageView.setFrameSize(NSMakeSize(50, 50))
         
         imageView.layer?.cornerRadius = 4
@@ -373,6 +396,29 @@ public final class PeerInfoHoursRowItem : GeneralRowItem {
         return viewType.innerInset.top * 2 + titleLayout.layoutSize.height + 6 + statusLayout.layoutSize.height
     }
     
+    public override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        var parts = [statusLayout.attributedString.string, todayHoursLayout.attributedString.string]
+        if revealed {
+            for day in days {
+                parts.append(day.day.attributedString.string + " " + day.hours.map { $0.attributedString.string }.joined(separator: ", "))
+            }
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        open()
+        return true
+    }
+
     public override func viewClass() -> AnyClass {
         return PeerInfoHoursRowView.self
     }

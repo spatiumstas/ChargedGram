@@ -39,12 +39,15 @@ public func chatTextInputAddFormattingAttribute(_ state: Updated_ChatTextInputSt
         var hasCustomEmoji = false
         var allCustomEmojiHaveAttribute = true
         
-        state.inputText.enumerateAttributes(in: nsRange, options: []) { attributes, _, _ in
+        state.inputText.enumerateAttributes(in: nsRange, options: []) { attributes, range, _ in
             if attributes[TextInputAttributes.customEmoji] != nil {
                 hasCustomEmoji = true
                 if attributes[attribute] == nil {
                     allCustomEmojiHaveAttribute = false
                 }
+                return
+            }
+            if attribute == TextInputAttributes.quote && (state.inputText.string as NSString).substring(with: range).allSatisfy({ $0 == "\n" }) {
                 return
             }
             hasText = true
@@ -64,10 +67,10 @@ public func chatTextInputAddFormattingAttribute(_ state: Updated_ChatTextInputSt
         } else {
             if attribute == TextInputAttributes.quote {
                 result.addAttribute(attribute, value: TextInputTextQuoteAttribute(collapsed: false), range: nsRange)
-                if nsRange.upperBound != result.length && (result.string as NSString).character(at: nsRange.upperBound) != 0x0a {
+                if nsRange.upperBound != result.length && (result.string as NSString).character(at: nsRange.upperBound) != 0x0a && (result.string as NSString).character(at: nsRange.upperBound - 1) != 0x0a {
                     result.insert(NSAttributedString(string: "\n"), at: nsRange.upperBound)
                 }
-                if nsRange.lowerBound != 0 && (result.string as NSString).character(at: nsRange.lowerBound - 1) != 0x0a {
+                if nsRange.lowerBound != 0 && (result.string as NSString).character(at: nsRange.lowerBound - 1) != 0x0a && (result.string as NSString).character(at: nsRange.lowerBound) != 0x0a {
                     result.insert(NSAttributedString(string: "\n"), at: nsRange.lowerBound)
                     selectionRange = nsRange.lowerBound + 1 ..< nsRange.upperBound + 1
 
@@ -114,6 +117,7 @@ public func chatTextInputClearFormattingAttributes(_ state: Updated_ChatTextInpu
 }
 
 public func chatTextInputAddLinkAttribute(_ state: Updated_ChatTextInputState, selectionRange: Range<Int>, url: String, text: String) -> Updated_ChatTextInputState {
+    guard selectionRange.lowerBound >= 0, selectionRange.upperBound <= state.inputText.length else { return state }
     if !selectionRange.isEmpty {
         let nsRange = NSRange(location: selectionRange.lowerBound, length: selectionRange.count)
         var linkRange = nsRange
@@ -202,7 +206,17 @@ public func chatTextInputAddQuoteAttribute(_ state: Updated_ChatTextInputState, 
     return Updated_ChatTextInputState(inputText: result, selectionRange: doNotUpdateSelection ? state.selectionRange : selectionRange)
 }
 
+public func chatTextInputReplaceSelectedText(_ state: Updated_ChatTextInputState, selectionRange: Range<Int>, text: NSAttributedString) -> Updated_ChatTextInputState {
+    guard selectionRange.lowerBound >= 0, selectionRange.upperBound <= state.inputText.length else { return state }
+    let range = NSRange(location: selectionRange.lowerBound, length: selectionRange.count)
+    let result = NSMutableAttributedString(attributedString: state.inputText)
+    result.replaceCharacters(in: range, with: text)
+    let cursor = range.location + text.length
+    return Updated_ChatTextInputState(inputText: result, selectionRange: cursor..<cursor)
+}
+
 public func chatTextInputAddDateAttribute(_ state: Updated_ChatTextInputState, selectionRange: Range<Int>, date: Int32) -> Updated_ChatTextInputState {
+    guard selectionRange.lowerBound >= 0, selectionRange.upperBound <= state.inputText.length else { return state }
     if !selectionRange.isEmpty {
         let nsRange = NSRange(location: selectionRange.lowerBound, length: selectionRange.count)
         let result = NSMutableAttributedString(attributedString: state.inputText)

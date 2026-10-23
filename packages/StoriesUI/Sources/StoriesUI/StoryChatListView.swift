@@ -195,6 +195,10 @@ public final class StoryListChatListRowItem : TableRowItem {
     public override func viewClass() -> AnyClass {
         return StoryListChatListRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return strings().voiceOverCommonStories
+    }
     
     public override var animatable: Bool {
         return true
@@ -981,6 +985,14 @@ private final class StoryListEntryRowItem : TableRowItem {
     public var itemWidth: CGFloat {
         return 50
     }
+
+    public override var accessibilityLabel: String? {
+        return entry.name.text + ", " + strings().voiceOverCommonStory
+    }
+
+    public override var accessibilityValue: String? {
+        return entry.hasUnseen ? strings().voiceOverCommonUnread : nil
+    }
 }
 
 private final class ComponentView : Control {
@@ -995,6 +1007,7 @@ private final class ComponentView : Control {
         self.addSubview(stateView)
         stateView.isEventLess = true
         self.userInteractionEnabled = false
+        self.isAccessibilityDecorative = true
         self.scaleOnClick = true
         self.layer?.masksToBounds = false
 
@@ -1128,6 +1141,7 @@ private final class ItemView : Control {
         self.addSubview(smallImageView)
         textView.userInteractionEnabled = false
         textView.isSelectable = false
+        textView.isAccessibilityDecorative = true
         
         
         self.layer?.masksToBounds = false
@@ -1158,6 +1172,14 @@ private final class ItemView : Control {
     public override func stateDidUpdate(_ state: ControlState) {
         super.stateDidUpdate(state)
         component?.stateDidUpdate(state)
+    }
+
+    override func accessibilityLabel() -> String? {
+        return item?.accessibilityLabel ?? super.accessibilityLabel()
+    }
+
+    override func accessibilityValue() -> Any? {
+        return item?.accessibilityValue
     }
     
     
@@ -1198,6 +1220,7 @@ private final class ItemView : Control {
                 isNew = false
             } else {
                 current = ImageView()
+                current.isAccessibilityDecorative = true
                 self.addSubview(current)
                 self.liveTextIndicator = current
                 isNew = true

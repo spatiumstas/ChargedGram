@@ -29,15 +29,18 @@ import InlineStickerLayer
 
 
 public func editAccountUpdateBirthday(_ date: Date, context: any AccountContextProtocol) {
-    _ = (context.engine.accountData.updateBirthday(birthday: date.birthday) |> deliverOnMainQueue).startStandalone(error: { error in
+    let window = context.window
+    _ = (context.engine.accountData.updateBirthday(birthday: date.birthday) |> deliverOnMainQueue).startStandalone(error: { [weak context, weak window] error in
+        guard let context, let window, context.window === window else { return }
         switch error {
         case .flood:
             showModalText(for: context.window, text: strings().loginFloodWait)
         case .generic:
             showModalText(for: context.window, text: strings().unknownError)
         }
-    }, completed: {
-        showModalText(for: context.window, text: strings().birthdayAlertAdded)
+    }, completed: { [weak context, weak window] in
+        guard let context, let window, context.window === window else { return }
+        showModalText(for: window, text: strings().birthdayAlertAdded)
     })
 }
 
@@ -78,6 +81,8 @@ private func valuesRequiringUpdate(state: EditInfoState, view: PeerView) -> ((fn
             if state.about != (cachedData.about ?? "") {
                 about = state.about
             }
+        } else if state.aboutEdited {
+            about = state.about
         }
         
         return (names, about)
@@ -128,12 +133,13 @@ public struct EditInfoState : Equatable {
             return false
         }
         
-        return lhs.firstName == rhs.firstName && lhs.lastName == rhs.lastName && lhs.username == rhs.username && lhs.phone == rhs.phone && lhs.representation == rhs.representation && lhs.updatingPhotoState == rhs.updatingPhotoState && lhs.stateInited == rhs.stateInited && lhs.peerStatusSettings == rhs.peerStatusSettings
+        return lhs.firstName == rhs.firstName && lhs.lastName == rhs.lastName && lhs.about == rhs.about && lhs.aboutEdited == rhs.aboutEdited && lhs.username == rhs.username && lhs.phone == rhs.phone && lhs.representation == rhs.representation && lhs.updatingPhotoState == rhs.updatingPhotoState && lhs.stateInited == rhs.stateInited && lhs.peerStatusSettings == rhs.peerStatusSettings
     }
     
     public let firstName: String
     public let lastName: String
     public let about: String
+    public let aboutEdited: Bool
     public let username: String?
     public let phone: String?
     public let representation:TelegramMediaImageRepresentation?
@@ -147,10 +153,11 @@ public struct EditInfoState : Equatable {
     public let hasBusinessHours: Bool
     public let hasBusinessLocation: Bool
     public let note: Updated_ChatTextInputState
-    public init(stateInited: Bool = false, firstName: String = "", lastName: String = "", about: String = "", username: String? = nil, phone: String? = nil, representation: TelegramMediaImageRepresentation? = nil, updatingPhotoState: PeerInfoUpdatingPhotoState? = nil, peer: Peer? = nil, peerStatusSettings: PeerStatusSettings? = nil, addToException: Bool = true, birthday: TelegramBirthday? = nil, personalChannel: EnginePeer? = nil, hasBusinessHours: Bool = false, hasBusinessLocation: Bool = false, note: Updated_ChatTextInputState = .init()) {
+    public init(stateInited: Bool = false, firstName: String = "", lastName: String = "", about: String = "", aboutEdited: Bool = false, username: String? = nil, phone: String? = nil, representation: TelegramMediaImageRepresentation? = nil, updatingPhotoState: PeerInfoUpdatingPhotoState? = nil, peer: Peer? = nil, peerStatusSettings: PeerStatusSettings? = nil, addToException: Bool = true, birthday: TelegramBirthday? = nil, personalChannel: EnginePeer? = nil, hasBusinessHours: Bool = false, hasBusinessLocation: Bool = false, note: Updated_ChatTextInputState = .init()) {
         self.firstName = firstName
         self.lastName = lastName
         self.about = about
+        self.aboutEdited = aboutEdited
         self.username = username
         self.phone = phone
         self.representation = representation
@@ -174,6 +181,7 @@ public struct EditInfoState : Equatable {
         self.username = peer?.usernames.first(where: { $0.isActive })?.username
         self.phone = peer?.phone
         self.about = (peerView.cachedData as? CachedUserData)?.about ?? ""
+        self.aboutEdited = false
         self.representation = peer?.smallProfileImage
         self.updatingPhotoState = nil
         self.stateInited = true
@@ -192,44 +200,44 @@ public struct EditInfoState : Equatable {
     }
     
     public func withUpdatedInited(_ stateInited: Bool) -> EditInfoState {
-        return EditInfoState(stateInited: stateInited, firstName: self.firstName, lastName: self.lastName, about: self.about, username: self.username, phone: self.phone, representation: self.representation, updatingPhotoState: self.updatingPhotoState, peer: self.peer, peerStatusSettings: self.peerStatusSettings, addToException: self.addToException, birthday: self.birthday, personalChannel: self.personalChannel, hasBusinessHours: self.hasBusinessHours, hasBusinessLocation: self.hasBusinessLocation, note: self.note)
+        return EditInfoState(stateInited: stateInited, firstName: self.firstName, lastName: self.lastName, about: self.about, aboutEdited: self.aboutEdited, username: self.username, phone: self.phone, representation: self.representation, updatingPhotoState: self.updatingPhotoState, peer: self.peer, peerStatusSettings: self.peerStatusSettings, addToException: self.addToException, birthday: self.birthday, personalChannel: self.personalChannel, hasBusinessHours: self.hasBusinessHours, hasBusinessLocation: self.hasBusinessLocation, note: self.note)
     }
     public func withUpdatedAbout(_ about: String) -> EditInfoState {
-        return EditInfoState(stateInited: self.stateInited, firstName: self.firstName, lastName: self.lastName, about: about, username: self.username, phone: self.phone, representation: self.representation, updatingPhotoState: self.updatingPhotoState, peer: self.peer, peerStatusSettings: self.peerStatusSettings, addToException: self.addToException, birthday: self.birthday, personalChannel: self.personalChannel, hasBusinessHours: self.hasBusinessHours, hasBusinessLocation: self.hasBusinessLocation, note: self.note)
+        return EditInfoState(stateInited: self.stateInited, firstName: self.firstName, lastName: self.lastName, about: about, aboutEdited: true, username: self.username, phone: self.phone, representation: self.representation, updatingPhotoState: self.updatingPhotoState, peer: self.peer, peerStatusSettings: self.peerStatusSettings, addToException: self.addToException, birthday: self.birthday, personalChannel: self.personalChannel, hasBusinessHours: self.hasBusinessHours, hasBusinessLocation: self.hasBusinessLocation, note: self.note)
     }
     
     
     public func withUpdatedFirstName(_ firstName: String) -> EditInfoState {
-        return EditInfoState(stateInited: self.stateInited, firstName: firstName, lastName: self.lastName, about: self.about, username: self.username, phone: self.phone, representation: self.representation, updatingPhotoState: self.updatingPhotoState, peer: self.peer, peerStatusSettings: self.peerStatusSettings, addToException: self.addToException, birthday: self.birthday, personalChannel: self.personalChannel, hasBusinessHours: self.hasBusinessHours, hasBusinessLocation: self.hasBusinessLocation, note: self.note)
+        return EditInfoState(stateInited: self.stateInited, firstName: firstName, lastName: self.lastName, about: self.about, aboutEdited: self.aboutEdited, username: self.username, phone: self.phone, representation: self.representation, updatingPhotoState: self.updatingPhotoState, peer: self.peer, peerStatusSettings: self.peerStatusSettings, addToException: self.addToException, birthday: self.birthday, personalChannel: self.personalChannel, hasBusinessHours: self.hasBusinessHours, hasBusinessLocation: self.hasBusinessLocation, note: self.note)
     }
     public func withUpdatedLastName(_ lastName: String) -> EditInfoState {
-        return EditInfoState(stateInited: self.stateInited, firstName: self.firstName, lastName: lastName, about: self.about, username: self.username, phone: self.phone, representation: self.representation, updatingPhotoState: self.updatingPhotoState, peer: self.peer, peerStatusSettings: self.peerStatusSettings, addToException: self.addToException, birthday: self.birthday, personalChannel: self.personalChannel, hasBusinessHours: self.hasBusinessHours, hasBusinessLocation: self.hasBusinessLocation, note: self.note)
+        return EditInfoState(stateInited: self.stateInited, firstName: self.firstName, lastName: lastName, about: self.about, aboutEdited: self.aboutEdited, username: self.username, phone: self.phone, representation: self.representation, updatingPhotoState: self.updatingPhotoState, peer: self.peer, peerStatusSettings: self.peerStatusSettings, addToException: self.addToException, birthday: self.birthday, personalChannel: self.personalChannel, hasBusinessHours: self.hasBusinessHours, hasBusinessLocation: self.hasBusinessLocation, note: self.note)
     }
     
     public func withUpdatedPeerView(_ peerView: PeerView) -> EditInfoState {
         let cachedData = peerView.cachedData as? CachedUserData
         let peer = peerView.peers[peerView.peerId] as? TelegramUser
-        let about = stateInited ? self.about : cachedData?.about ?? self.about
+        let about = self.aboutEdited ? self.about : cachedData?.about ?? self.about
         let username = peer?.usernames.first(where: { $0.isActive })?.username
         let peerStatusSettings = cachedData?.peerStatusSettings
         let birthday = cachedData?.birthday
-        return EditInfoState(stateInited: true, firstName: stateInited ? self.firstName : peer?.firstName ?? self.firstName, lastName: stateInited ? self.lastName : peer?.lastName ?? self.lastName, about: about, username: username, phone: peer?.phone, representation: peer?.smallProfileImage, updatingPhotoState: self.updatingPhotoState, peer: peer, peerStatusSettings: peerStatusSettings, addToException: self.addToException, birthday: birthday, personalChannel: self.personalChannel, hasBusinessHours: cachedData?.businessHours != nil, hasBusinessLocation: cachedData?.businessLocation != nil)
+        return EditInfoState(stateInited: true, firstName: stateInited ? self.firstName : peer?.firstName ?? self.firstName, lastName: stateInited ? self.lastName : peer?.lastName ?? self.lastName, about: about, aboutEdited: self.aboutEdited, username: username, phone: peer?.phone, representation: peer?.smallProfileImage, updatingPhotoState: self.updatingPhotoState, peer: peer, peerStatusSettings: peerStatusSettings, addToException: self.addToException, birthday: birthday, personalChannel: self.personalChannel, hasBusinessHours: cachedData?.businessHours != nil, hasBusinessLocation: cachedData?.businessLocation != nil)
     }
     public func withUpdatedUpdatingPhotoState(_ f: (PeerInfoUpdatingPhotoState?) -> PeerInfoUpdatingPhotoState?) -> EditInfoState {
-        return EditInfoState(stateInited: self.stateInited, firstName: self.firstName, lastName: self.lastName, about: self.about, username: self.username, phone: self.phone, representation: self.representation, updatingPhotoState: f(self.updatingPhotoState), peer: self.peer, peerStatusSettings: self.peerStatusSettings, addToException: self.addToException, birthday: self.birthday, personalChannel: self.personalChannel, hasBusinessHours: self.hasBusinessHours, hasBusinessLocation: self.hasBusinessLocation, note: self.note)
+        return EditInfoState(stateInited: self.stateInited, firstName: self.firstName, lastName: self.lastName, about: self.about, aboutEdited: self.aboutEdited, username: self.username, phone: self.phone, representation: self.representation, updatingPhotoState: f(self.updatingPhotoState), peer: self.peer, peerStatusSettings: self.peerStatusSettings, addToException: self.addToException, birthday: self.birthday, personalChannel: self.personalChannel, hasBusinessHours: self.hasBusinessHours, hasBusinessLocation: self.hasBusinessLocation, note: self.note)
     }
     public func withoutUpdatingPhotoState() -> EditInfoState {
-        return EditInfoState(stateInited: self.stateInited, firstName: self.firstName, lastName: self.lastName, about: self.about, username: self.username, phone: self.phone, representation: self.representation, updatingPhotoState: nil, peer:self.peer, peerStatusSettings: self.peerStatusSettings, addToException: self.addToException, birthday: self.birthday, personalChannel: self.personalChannel, hasBusinessHours: self.hasBusinessHours, hasBusinessLocation: self.hasBusinessLocation, note: self.note)
+        return EditInfoState(stateInited: self.stateInited, firstName: self.firstName, lastName: self.lastName, about: self.about, aboutEdited: self.aboutEdited, username: self.username, phone: self.phone, representation: self.representation, updatingPhotoState: nil, peer:self.peer, peerStatusSettings: self.peerStatusSettings, addToException: self.addToException, birthday: self.birthday, personalChannel: self.personalChannel, hasBusinessHours: self.hasBusinessHours, hasBusinessLocation: self.hasBusinessLocation, note: self.note)
     }
     public func withUpdatedAddToException(_ addToException: Bool) -> EditInfoState {
-        return EditInfoState(stateInited: self.stateInited, firstName: self.firstName, lastName: self.lastName, about: self.about, username: self.username, phone: self.phone, representation: self.representation, updatingPhotoState: self.updatingPhotoState, peer:self.peer, peerStatusSettings: self.peerStatusSettings, addToException: addToException, birthday: self.birthday, personalChannel: self.personalChannel, hasBusinessHours: self.hasBusinessHours, hasBusinessLocation: self.hasBusinessLocation, note: self.note)
+        return EditInfoState(stateInited: self.stateInited, firstName: self.firstName, lastName: self.lastName, about: self.about, aboutEdited: self.aboutEdited, username: self.username, phone: self.phone, representation: self.representation, updatingPhotoState: self.updatingPhotoState, peer:self.peer, peerStatusSettings: self.peerStatusSettings, addToException: addToException, birthday: self.birthday, personalChannel: self.personalChannel, hasBusinessHours: self.hasBusinessHours, hasBusinessLocation: self.hasBusinessLocation, note: self.note)
     }
     public func withUpdatedPersonalChannel(_ channel: EnginePeer?) -> EditInfoState {
-        return EditInfoState(stateInited: self.stateInited, firstName: self.firstName, lastName: self.lastName, about: self.about, username: self.username, phone: self.phone, representation: self.representation, updatingPhotoState: self.updatingPhotoState, peer:self.peer, peerStatusSettings: self.peerStatusSettings, addToException: addToException, birthday: self.birthday, personalChannel: channel, hasBusinessHours: self.hasBusinessHours, hasBusinessLocation: self.hasBusinessLocation, note: self.note)
+        return EditInfoState(stateInited: self.stateInited, firstName: self.firstName, lastName: self.lastName, about: self.about, aboutEdited: self.aboutEdited, username: self.username, phone: self.phone, representation: self.representation, updatingPhotoState: self.updatingPhotoState, peer:self.peer, peerStatusSettings: self.peerStatusSettings, addToException: addToException, birthday: self.birthday, personalChannel: channel, hasBusinessHours: self.hasBusinessHours, hasBusinessLocation: self.hasBusinessLocation, note: self.note)
     }
     
     public func withUpdatedNotes(_ note: Updated_ChatTextInputState) -> EditInfoState {
-        return EditInfoState(stateInited: self.stateInited, firstName: self.firstName, lastName: self.lastName, about: self.about, username: self.username, phone: self.phone, representation: self.representation, updatingPhotoState: self.updatingPhotoState, peer: self.peer, peerStatusSettings: self.peerStatusSettings, addToException: addToException, birthday: self.birthday, personalChannel: self.personalChannel, hasBusinessHours: self.hasBusinessHours, hasBusinessLocation: self.hasBusinessLocation, note: note)
+        return EditInfoState(stateInited: self.stateInited, firstName: self.firstName, lastName: self.lastName, about: self.about, aboutEdited: self.aboutEdited, username: self.username, phone: self.phone, representation: self.representation, updatingPhotoState: self.updatingPhotoState, peer: self.peer, peerStatusSettings: self.peerStatusSettings, addToException: addToException, birthday: self.birthday, personalChannel: self.personalChannel, hasBusinessHours: self.hasBusinessHours, hasBusinessLocation: self.hasBusinessLocation, note: note)
     }
     
 }
@@ -394,15 +402,17 @@ public func EditAccountInfoController<Context: AccountContextProtocol>(context: 
     let state: Promise<EditInfoState> = Promise()
     let stateValue: Atomic<EditInfoState> = Atomic(value: EditInfoState())
     let actionsDisposable = DisposableSet()
-    let photoDisposable = MetaDisposable()
+    let photoAction = EditAccountPhotoAction()
+    let avatarAcquisition = EditAccountAvatarAcquisition()
     let peerDisposable = MetaDisposable()
     let logoutDisposable = MetaDisposable()
-    let updateNameDisposable = MetaDisposable()
+    let profileSaveAction = EditAccountProfileSaveAction()
+    let birthdaySaveAction = EditAccountProfileSaveAction()
     
-    actionsDisposable.add(photoDisposable)
+    actionsDisposable.add(photoAction)
+    actionsDisposable.add(avatarAcquisition)
     actionsDisposable.add(peerDisposable)
     actionsDisposable.add(logoutDisposable)
-    actionsDisposable.add(updateNameDisposable)
     let updateState:((EditInfoState)->EditInfoState)->Void = { f in
         state.set(.single(stateValue.modify(f)))
     }
@@ -434,165 +444,167 @@ public func EditAccountInfoController<Context: AccountContextProtocol>(context: 
     
     
     
-    let cancel = {
-        photoDisposable.set(nil)
-        updateState { state -> EditInfoState in
-            return state.withoutUpdatingPhotoState()
-        }
+    let cancel = { [weak photoAction, weak state, weak stateValue] in
+        guard let photoAction, let state, let stateValue, photoAction.cancel() else { return }
+        state.set(.single(stateValue.modify { $0.withoutUpdatingPhotoState() }))
     }
 
     var close:(()->Void)? = nil
     
     let updatePhoto:(Signal<NSImage, NoError>)->Void = { image in
-        let signal = image |> mapToSignal {
-            putToTemp(image: $0, compress: true)
-        } |> deliverOnMainQueue
-        _ = signal.start(next: { path in
-            guard let controller = EditImageModalController(URL(fileURLWithPath: path), context: context, settings: .disableSizes(dimensions: .square, circle: true)) else { return }
-            showModal(with: controller, for: context.window, animationType: .scaleCenter)
-            
-            let updateSignal = controller.result |> map { path, _ -> TelegramMediaResource in
+        photoAction.start { isCurrent in
+            updateState { $0.withoutUpdatingPhotoState() }
+            guard isCurrent() else { return EmptyDisposable }
+            let updateSignal = image |> take(1) |> mapToSignal {
+                putToTemp(image: $0, compress: true) |> take(1)
+            } |> deliverOnMainQueue |> mapToSignal { path -> Signal<URL, NoError> in
+                guard isCurrent(), let controller = EditImageModalController(URL(fileURLWithPath: path), context: context, settings: .disableSizes(dimensions: .square, circle: true)) else { return .complete() }
+                showModal(with: controller, for: context.window, animationType: .scaleCenter)
+                guard isCurrent() else { return .complete() }
+                return controller.result |> take(1) |> map { $0.0 }
+            } |> map { path -> TelegramMediaResource in
                 return LocalFileReferenceMediaResource(localFilePath: path.path, randomId: arc4random64())
-                } |> beforeNext { resource in
-                    updateState { state -> EditInfoState in
-                        return state.withUpdatedUpdatingPhotoState { _ in
-                            return PeerInfoUpdatingPhotoState(progress: 0, cancel: cancel)
-                        }
+            } |> castError(UploadPeerPhotoError.self) |> mapToSignal { resource -> Signal<UpdatePeerPhotoStatus, UploadPeerPhotoError> in
+                guard isCurrent() else { return .complete() }
+                updateState { state in
+                    state.withUpdatedUpdatingPhotoState { _ in
+                        PeerInfoUpdatingPhotoState(progress: 0, cancel: cancel)
                     }
-                } |> castError(UploadPeerPhotoError.self) |> mapToSignal { resource -> Signal<UpdatePeerPhotoStatus, UploadPeerPhotoError> in
-                    return context.engine.accountData.updateAccountPhoto(resource: EngineMediaResource(resource), videoResource: nil, videoStartTimestamp: nil, markup: nil, mapResourceToAvatarSizes: { resource, representations in
-                        return mapResourceToAvatarSizes(engine: context.engine, resource: resource, representations: representations)
-                    })
-                } |> deliverOnMainQueue
-            
-            photoDisposable.set(updateSignal.start(next: { status in
+                }
+                guard isCurrent() else { return .complete() }
+                return context.engine.accountData.updateAccountPhoto(resource: EngineMediaResource(resource), videoResource: nil, videoStartTimestamp: nil, markup: nil, mapResourceToAvatarSizes: { resource, representations in
+                    return mapResourceToAvatarSizes(engine: context.engine, resource: resource, representations: representations)
+                })
+            } |> deliverOnMainQueue
+
+            return updateSignal.start(next: { status in
+                guard isCurrent() else { return }
                 updateState { state -> EditInfoState in
                     switch status {
                     case .complete:
                         return state.withoutUpdatingPhotoState()
                     case let .progress(progress):
-                        return state.withUpdatedUpdatingPhotoState { current -> PeerInfoUpdatingPhotoState? in
-                            return current?.withUpdatedProgress(progress)
+                        return state.withUpdatedUpdatingPhotoState { current in
+                            current?.withUpdatedProgress(progress)
                         }
                     }
                 }
-            }, error: { error in
-                updateState { state in
-                    return state.withoutUpdatingPhotoState()
-                }
+            }, error: { _ in
+                guard isCurrent() else { return }
+                updateState { $0.withoutUpdatingPhotoState() }
             }, completed: {
-                updateState { state -> EditInfoState in
-                    return state.withoutUpdatingPhotoState()
-                }
-            }))
-        })
-    }
-    
-    
-        
-    let updateVideo:(Signal<VideoAvatarGeneratorState, NoError>) -> Void = { signal in
-                        
-        let updateSignal: Signal<UpdatePeerPhotoStatus, UploadPeerPhotoError> = signal
-        |> castError(UploadPeerPhotoError.self)
-        |> mapToSignal { state in
-            switch state {
-            case .error:
-                return .fail(.generic)
-            case let .start(path):
-                updateState { (state) -> EditInfoState in
-                    return state.withUpdatedUpdatingPhotoState { previous -> PeerInfoUpdatingPhotoState? in
-                        return PeerInfoUpdatingPhotoState(progress: 0, image: NSImage(contentsOfFile: path)?._cgImage, cancel: cancel)
-                    }
-                }
-                return .next(.progress(0))
-            case let .progress(value):
-                return .next(.progress(value * 0.2))
-            case let .complete(thumb, video, keyFrame):
-                let (thumbResource, videoResource) = (LocalFileReferenceMediaResource(localFilePath: thumb, randomId: arc4random64(), isUniquelyReferencedTemporaryFile: true),
-                                                      LocalFileReferenceMediaResource(localFilePath: video, randomId: arc4random64(), isUniquelyReferencedTemporaryFile: true))
-                return context.engine.peers.updatePeerPhoto(peerId: peerId, photo: context.engine.peers.uploadedPeerPhoto(resource: EngineMediaResource(thumbResource)), video: context.engine.peers.uploadedPeerVideo(resource: EngineMediaResource(videoResource)) |> map(Optional.init), videoStartTimestamp: keyFrame, mapResourceToAvatarSizes: { resource, representations in
-                    return mapResourceToAvatarSizes(engine: context.engine, resource: resource, representations: representations)
-                }) |> map { result in
-                    switch result {
-                    case let .progress(current):
-                        return .progress(0.2 + (current * 0.8))
-                    default:
-                        return result
-                    }
-                }
-            }
+                guard isCurrent() else { return }
+                updateState { $0.withoutUpdatingPhotoState() }
+            })
         }
-        photoDisposable.set(updateSignal.start(next: { status in
-            updateState { state -> EditInfoState in
-                switch status {
-                case .complete:
-                    return state.withoutUpdatingPhotoState()
-                case let .progress(progress):
-                    return state.withUpdatedUpdatingPhotoState { current -> PeerInfoUpdatingPhotoState? in
-                        return current?.withUpdatedProgress(progress)
-                    }
-                }
-            }
-        }, error: { error in
-            updateState { state in
-                return state.withoutUpdatingPhotoState()
-            }
-        }, completed: {
-            updateState { state -> EditInfoState in
-                return state.withoutUpdatingPhotoState()
-            }
-        }))
     }
-    
-    let makeVideo:(MediaObjectToAvatar)->Void = { object in
-        
-        
-        switch object.object.foreground.type {
-        case .emoji, .sticker:
-            updatePhoto(object.start() |> mapToSignal { value in
-                if let result = value.result {
-                    switch result {
-                    case let .image(image):
-                        return .single(image)
-                    default:
-                        return .never()
-                    }
-                } else {
-                    return .never()
+
+    let updateVideo:(Signal<VideoAvatarGeneratorState, NoError>) -> Void = { signal in
+        photoAction.start { isCurrent in
+            updateState { $0.withoutUpdatingPhotoState() }
+            guard isCurrent() else { return EmptyDisposable }
+            let updateSignal: Signal<UpdatePeerPhotoStatus, UploadPeerPhotoError> = signal
+            |> deliverOnMainQueue
+            |> take(until: { state in
+                switch state {
+                case .error, .complete:
+                    return SignalTakeAction(passthrough: true, complete: true)
+                default:
+                    return SignalTakeAction(passthrough: true, complete: false)
                 }
             })
-        default:
-            let signal:Signal<VideoAvatarGeneratorState, NoError> = object.start() |> map { value in
-                if let result = value.result {
-                    switch result {
-                    case let .video(path, thumb):
-                        return .complete(thumb: thumb, video: path, keyFrame: nil)
-                    default:
-                        return .error
+            |> castError(UploadPeerPhotoError.self)
+            |> mapToSignal { state in
+                guard isCurrent() else { return .complete() }
+                switch state {
+                case .error:
+                    return .fail(.generic)
+                case let .start(path):
+                    updateState { state in
+                        state.withUpdatedUpdatingPhotoState { _ in
+                            PeerInfoUpdatingPhotoState(progress: 0, image: NSImage(contentsOfFile: path)?._cgImage, cancel: cancel)
+                        }
                     }
-                } else if let status = value.status {
-                    switch status {
-                    case let .initializing(thumb):
-                        return .start(thumb: thumb)
-                    case let .converting(progress):
-                        return .progress(progress)
-                    default:
-                        return .error
+                    return .single(.progress(0))
+                case let .progress(value):
+                    return .single(.progress(value * 0.2))
+                case let .complete(thumb, video, keyFrame):
+                    updateState { state in
+                        state.withUpdatedUpdatingPhotoState { current in
+                            current ?? PeerInfoUpdatingPhotoState(progress: 0.2, image: NSImage(contentsOfFile: thumb)?._cgImage, cancel: cancel)
+                        }
                     }
-                } else {
-                    return .error
+                    guard isCurrent() else { return .complete() }
+                    let thumbResource = LocalFileReferenceMediaResource(localFilePath: thumb, randomId: arc4random64(), isUniquelyReferencedTemporaryFile: true)
+                    let videoResource = LocalFileReferenceMediaResource(localFilePath: video, randomId: arc4random64(), isUniquelyReferencedTemporaryFile: true)
+                    return context.engine.peers.updatePeerPhoto(peerId: peerId, photo: context.engine.peers.uploadedPeerPhoto(resource: EngineMediaResource(thumbResource)), video: context.engine.peers.uploadedPeerVideo(resource: EngineMediaResource(videoResource)) |> map(Optional.init), videoStartTimestamp: keyFrame, mapResourceToAvatarSizes: { resource, representations in
+                        return mapResourceToAvatarSizes(engine: context.engine, resource: resource, representations: representations)
+                    }) |> map { result in
+                        switch result {
+                        case let .progress(current):
+                            return .progress(0.2 + (current * 0.8))
+                        default:
+                            return result
+                        }
+                    }
                 }
-            }
-            updateVideo(signal)
+            } |> deliverOnMainQueue
+            return updateSignal.start(next: { status in
+                guard isCurrent() else { return }
+                updateState { state -> EditInfoState in
+                    switch status {
+                    case .complete:
+                        return state.withoutUpdatingPhotoState()
+                    case let .progress(progress):
+                        return state.withUpdatedUpdatingPhotoState { current in
+                            current?.withUpdatedProgress(progress)
+                        }
+                    }
+                }
+            }, error: { _ in
+                guard isCurrent() else { return }
+                updateState { $0.withoutUpdatingPhotoState() }
+            }, completed: {
+                guard isCurrent() else { return }
+                updateState { $0.withoutUpdatingPhotoState() }
+            })
         }
     }
-    
+
+    let makeVideo: (MediaObjectToAvatar) -> Void = { object in
+        makeAvatarVideo(object, updatePhoto: updatePhoto, updateVideo: updateVideo)
+    }
+
+    let updateBirthday: (TelegramBirthday?) -> Void = { birthday in
+        guard let controller = getController?(), let window = controller.view.window as? Window else { return }
+        let canPresent: () -> Bool = { [weak controller, weak window] in
+            guard let controller, let window else { return false }
+            return controller.isLoaded() && controller.view.window === window
+        }
+        birthdaySaveAction.perform(signal: context.engine.accountData.updateBirthday(birthday: birthday), window: window, canPresent: canPresent, failed: { error in
+            switch error {
+            case .flood:
+                showModalText(for: window, text: strings().loginFloodWait)
+            case .generic:
+                showModalText(for: window, text: strings().unknownError)
+            }
+        }, completed: {
+            if birthday != nil {
+                showModalText(for: window, text: strings().birthdayAlertAdded)
+            }
+        })
+    }
+
     let arguments = EditInfoControllerArguments(context: context, uploadNewPhoto: { control in
-        
+        guard let controller = getController?(), controller.isLoaded(), let window = controller.view.window as? Window, context.window === window else { return }
+        let canPresent = avatarAcquisition.presentationCheck { [weak controller, weak window, weak context] in
+            guard let controller, let window, let context else { return false }
+            return controller.isLoaded() && controller.view.window === window && context.window === window
+        }
         var items:[ContextMenuItem] = []
         
         items.append(.init(strings().editAvatarPhotoOrVideo, handler: {
-            filePanel(with: photoExts + videoExts, allowMultiple: false, canChooseDirectories: false, for: context.window, completion: { paths in
+            guard let selected = avatarAcquisition.start(canPresent: canPresent, selected: { (paths: [String]?) in
                 if let path = paths?.first, let image = NSImage(contentsOfFile: path) {
                     updatePhoto(.single(image))
                 } else if let path = paths?.first {
@@ -600,11 +612,13 @@ public func EditAccountInfoController<Context: AccountContextProtocol>(context: 
                         updateVideo(signal)
                     })
                 }
-            })
+            }) else { return }
+            filePanel(with: photoExts + videoExts, allowMultiple: false, canChooseDirectories: false, for: window, completion: selected)
         }, itemImage: MenuAnimation.menu_shared_media.value))
         
         items.append(.init(strings().editAvatarCustomize, handler: {
-            showModal(with: AvatarConstructorController(context, target: .avatar, videoSignal: makeVideo), for: context.window)
+            guard let selected = avatarAcquisition.start(canPresent: canPresent, selected: makeVideo) else { return }
+            showModal(with: AvatarConstructorController(context, target: .avatar, videoSignal: selected), for: window)
         }, itemImage: MenuAnimation.menu_view_sticker_set.value))
         
         if let event = NSApp.currentEvent {
@@ -644,7 +658,7 @@ public func EditAccountInfoController<Context: AccountContextProtocol>(context: 
         
         if view?.textView != nil {
             let controller = SettingsNavigationHooks.shared.makeBirthdayCalendarController(context.window, { date in
-                editAccountUpdateBirthday(date, context: context)
+                updateBirthday(date.birthday)
             })
             
             let nav = NavigationViewController(controller, context.window)
@@ -665,7 +679,7 @@ public func EditAccountInfoController<Context: AccountContextProtocol>(context: 
             }
         })
     }, removeBirthday: {
-        _ = context.engine.accountData.updateBirthday(birthday: nil).startStandalone()
+        updateBirthday(nil)
     }, personalChannel: {
         showModal(with: SettingsHooks.shared.makePersonalChannelController(context), for: context.window, morphSource: {
             (getController?()?.tableView.item(stableId: InputDataEntryId.general(_id_personal_channel))?.view as? GeneralContainableRowView)?.containerView
@@ -702,44 +716,62 @@ public func EditAccountInfoController<Context: AccountContextProtocol>(context: 
             } else {
                 if about.length > context.premiumLimits.about_length_limit_default {
                     SettingsNavigationHooks.shared.showPremiumLimit(context, .caption(about.length))
+                    return .fail(.fields([_id_about: .shake]))
                 }
             }
         }
         
         return .fail(.doSomething { f in
-            let current = stateValue.modify {$0}
-            if current.firstName.isEmpty {
-                f(.fail(.fields([_id_info : .shake])))
+            guard profileSaveAction.isActive, !profileSaveAction.isPending else { return }
+            let current = stateValue.with { $0 }
+            if current.firstName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                f(.fail(.fields([_id_info: .shake])))
+                return
             }
-            var signals:[Signal<Void, NoError>] = []
-            
-            if let peerView = peerView {
-                
-                let updates = valuesRequiringUpdate(state: current, view: peerView)
-                if let names = updates.0 {
-                    
-                    signals.append(context.engine.accountData.updateAccountPeerName(firstName: names.fn, lastName: names.ln))
-                }
-                if let about = updates.1 {
-                    signals.append(context.engine.accountData.updateAbout(about: about) |> `catch` { _ in .complete()})
-                }
-                if updates.0 == nil, updates.1 == nil {
-                    close?()
-                    return
-                }
-                updateNameDisposable.set(showModalProgress(signal: combineLatest(signals) |> deliverOnMainQueue, for: context.window).start(completed: {
-                    updateState { $0 }
-                    close?()
-                    _ = showModalSuccess(for: context.window, icon: theme.icons.successModalProgress, delay: 1.5).start()
-                }))
+            guard let peerView, peerView.peers[peerView.peerId] is TelegramUser else { return }
+            let updates = valuesRequiringUpdate(state: current, view: peerView)
+            if updates.0 == nil, updates.1 == nil {
+                close?()
+                return
             }
+            guard let controller = getController?(), let window = controller.view.window as? Window else { return }
+            let canPresent: () -> Bool = { [weak controller, weak window] in
+                guard let controller, let window else { return false }
+                return controller.isLoaded() && controller.view.window === window
+            }
+            var signal: Signal<Never, EditAccountProfileSaveError> = .complete()
+            if let name = updates.0 {
+                signal = signal |> then(context.engine.accountData.updateAccountPeerName(firstName: name.fn, lastName: name.ln)
+                |> castError(EditAccountProfileSaveError.self)
+                |> ignoreValues)
+            }
+            if let about = updates.1 {
+                signal = signal |> then(context.engine.accountData.updateAbout(about: about)
+                |> mapError { _ -> EditAccountProfileSaveError in .generic }
+                |> ignoreValues)
+            }
+            profileSaveAction.perform(signal: signal, window: window, canPresent: canPresent, failed: { _ in
+                f(.fail(.none))
+                if canPresent() {
+                    showModalText(for: window, text: strings().unknownError)
+                }
+            }, completed: {
+                let latest = stateValue.with { $0 }
+                if latest.firstName == current.firstName && latest.lastName == current.lastName && latest.about == current.about {
+                    close?()
+                }
+                _ = showModalSuccess(for: window, icon: theme.icons.successModalProgress, delay: 1.5).start()
             })
+        })
     }, updateDatas: { data in
         updateState { current in
-            return current.withUpdatedAbout(data[_id_about]?.stringValue ?? "")
+            guard let about = data[_id_about]?.stringValue, about != current.about else { return current }
+            return current.withUpdatedAbout(about)
         }
         return .fail(.none)
     }, afterDisappear: {
+        profileSaveAction.setActive(false)
+        birthdaySaveAction.setActive(false)
         actionsDisposable.dispose()
     }, updateDoneValue: { data in
         return { f in
@@ -773,7 +805,19 @@ public func EditAccountInfoController<Context: AccountContextProtocol>(context: 
         controller?.navigationController?.back()
     }
     
+    controller.willDisappear = { _ in
+        avatarAcquisition.setActive(false)
+        profileSaveAction.setActive(false)
+        birthdaySaveAction.setActive(false)
+    }
+    controller.willAppear = { _ in
+        avatarAcquisition.setActive(true)
+        profileSaveAction.setActive(true)
+        birthdaySaveAction.setActive(true)
+    }
     controller.onDeinit = {
+        profileSaveAction.setActive(false)
+        birthdaySaveAction.setActive(false)
         actionsDisposable.dispose()
     }
 

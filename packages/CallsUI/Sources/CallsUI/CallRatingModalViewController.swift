@@ -36,6 +36,7 @@ private class CallRatingModalView: View {
         var x:CGFloat = 0
         for i in 0 ..< 5 {
             let star = ImageButton()
+            star.setAccessibilityLabel(strings().voiceOverCallsRatingStarsOther(i + 1))
             star.set(image: TelegramThemeHooks.shared.image(.iconCallStar).precomposed(theme.colors.accent), for: .Normal)
             star.sizeToFit()
             star.setFrameOrigin(x, 0)

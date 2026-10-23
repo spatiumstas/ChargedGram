@@ -24,6 +24,31 @@ import InAppSettings
 import FoundationUtils
 import ObjcUtils
 
+private final class GalleryAccessibilityElement: NSAccessibilityElement {
+    var press: (() -> Void)?
+    weak var view: NSView?
+    var frameInView: NSRect = .zero
+    
+    override func accessibilityFrame() -> NSRect {
+        guard let view = view else {
+            return .zero
+        }
+        return NSAccessibility.screenRect(fromView: view, rect: frameInView)
+    }
+    
+    override func isAccessibilityElement() -> Bool {
+        return true
+    }
+    
+    override func accessibilityPerformPress() -> Bool {
+        guard let press = press else {
+            return false
+        }
+        press()
+        return true
+    }
+}
+
 public class GalleryModernControlsView: View {
     
     fileprivate let photoView: AvatarControl = AvatarControl(font: .avatar(18))
@@ -124,6 +149,13 @@ public class GalleryModernControlsView: View {
         _ = zoomOutControl.sizeToFit(NSZeroSize, NSMakeSize(60, 60), thatFit: true)
         _ = rotateControl.sizeToFit(NSZeroSize, NSMakeSize(60, 60), thatFit: true)
         _ = fastSaveControl.sizeToFit(NSZeroSize, NSMakeSize(60, 60), thatFit: true)
+        
+        shareControl.setAccessibilityLabel(strings().voiceOverCommonShare)
+        moreControl.setAccessibilityLabel(strings().voiceOverCommonMore)
+        zoomInControl.setAccessibilityLabel(strings().voiceOverCommonZoomIn)
+        zoomOutControl.setAccessibilityLabel(strings().voiceOverCommonZoomOut)
+        rotateControl.setAccessibilityLabel(strings().voiceOverCommonRotate)
+        fastSaveControl.setAccessibilityLabel(strings().voiceOverCommonSave)
 
         shareControl.set(handler: { [weak self] control in
             _ = self?.interactions?.share(control)
@@ -162,6 +194,46 @@ public class GalleryModernControlsView: View {
             }
         }
         
+    }
+    
+    private lazy var authorAccessibilityElement: GalleryAccessibilityElement = {
+        let element = GalleryAccessibilityElement()
+        element.view = self
+        element.setAccessibilityParent(self)
+        element.setAccessibilityRole(.button)
+        element.press = { [weak self] in
+            if let peerId = self?.currentState?.peer?.id {
+                self?.interactions?.openInfo(peerId)
+            }
+        }
+        return element
+    }()
+    
+    private lazy var dateAccessibilityElement: GalleryAccessibilityElement = {
+        let element = GalleryAccessibilityElement()
+        element.view = self
+        element.setAccessibilityParent(self)
+        element.setAccessibilityRole(.button)
+        element.press = { [weak self] in
+            self?.interactions?.openMessage()
+        }
+        return element
+    }()
+    
+    public override func accessibilityChildren() -> [Any]? {
+        var children = super.accessibilityChildren() ?? []
+        guard TGUIKitAccessibility.isEnabled, let currentState = currentState else {
+            return children
+        }
+        authorAccessibilityElement.setAccessibilityLabel(currentState.peer?.displayTitle ?? strings().peerDeletedUser)
+        authorAccessibilityElement.frameInView = photoView.frame.union(nameRect)
+        children.append(authorAccessibilityElement)
+        if currentState.timestamp != 0 {
+            dateAccessibilityElement.setAccessibilityLabel(GalleryModernControlsView.dateFormatter.string(from: Date(timeIntervalSince1970: currentState.timestamp)))
+            dateAccessibilityElement.frameInView = dateRect
+            children.append(dateAccessibilityElement)
+        }
+        return children
     }
     
     private var nameRect: NSRect {

@@ -26,6 +26,7 @@ public class StickerMediaContentView: ChatMediaContentView {
         override init(frame frameRect: NSRect) {
             super.init(frame: frameRect)
             addSubview(lockedView)
+            lockedView.isAccessibilityDecorative = true
             
             wantsLayer = true
             self.blendingMode = .withinWindow

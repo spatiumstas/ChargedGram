@@ -158,12 +158,15 @@ public class InputPasteboardParser: NSObject {
             
             let previous = files.count
             var exceedSize: Int64?
+            var rejectedForSize = false
+            let isMediaReplacement = chatInteraction.presentation.interfaceState.editState?.canEditMedia == true && (files.count == 1 || image != nil)
 
             
             
             files = files.filter { path -> Bool in
                 if let size = fileSize(path.path) {
                     let exceed = fileSizeLimitExceed(context: chatInteraction.interactionContext, fileSize: size)
+                    if !exceed { rejectedForSize = true }
                     if exceed {
                         exceedSize = size
                     }
@@ -175,24 +178,32 @@ public class InputPasteboardParser: NSObject {
             let afterSizeCheck = files.count
             
             if afterSizeCheck == 0 && previous != afterSizeCheck {
+                if isMediaReplacement {
+                }
                 showFileLimit(context: chatInteraction.interactionContext, fileSize: exceedSize)
                 return false
             }
+            if afterSizeCheck < previous {
+            }
             if let peer = chatInteraction.presentation.peer, let permissionText = permissionText(from: peer, for: .banSendMedia) {
                 if !files.isEmpty || image != nil {
+                    if isMediaReplacement {
+                    }
                     alert(for: mainWindow, info: permissionText)
                     return false
                 }
             }
             
             if files.count == 1, let editState = chatInteraction.presentation.interfaceState.editState, editState.canEditMedia {
+                let replacement = chatInteraction.beginMediaReplacement()
                 _ = (Sender.generateMedia(for: MediaSenderContainer(path: files[0].path, isFile: false), account: chatInteraction.interactionContext.account, isSecretRelated: chatInteraction.peerId.namespace == Namespaces.Peer.SecretChat) |> deliverOnMainQueue).start(next: { [weak chatInteraction] media, _ in
-                    chatInteraction?.update({$0.updatedInterfaceState({$0.updatedEditState({$0?.withUpdatedMedia(media)})})})
+                    chatInteraction?.applyMediaReplacement(media, request: replacement)
                 })
                 return false
             } else if let image = image, let editState = chatInteraction.presentation.interfaceState.editState, editState.canEditMedia {
+                let replacement = chatInteraction.beginMediaReplacement()
                 _ = (putToTemp(image: image) |> mapToSignal {Sender.generateMedia(for: MediaSenderContainer(path: $0, isFile: false), account: chatInteraction.interactionContext.account, isSecretRelated: chatInteraction.peerId.namespace == Namespaces.Peer.SecretChat) } |> deliverOnMainQueue).start(next: { [weak chatInteraction] media, _ in
-                    chatInteraction?.update({$0.updatedInterfaceState({$0.updatedEditState({$0?.withUpdatedMedia(media)})})})
+                    chatInteraction?.applyMediaReplacement(media, request: replacement)
                 })
                 return false
             }

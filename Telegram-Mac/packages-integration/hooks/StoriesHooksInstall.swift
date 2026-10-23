@@ -6,7 +6,7 @@ import SwiftSignalKit
 import StoriesUI
 
 func installStoriesUIHooks() {
-    StoriesHooks.install(StoriesHooks(navigateToChat: { navigation, context, chatLocation in
+    var hooks = StoriesHooks(navigateToChat: { navigation, context, chatLocation in
         navigateToChat(navigation: navigation, context: context as! AccountContext, chatLocation: chatLocation)
     }, pushPeerInfo: { navigation, context, peerId in
         PeerInfoController.push(navigation: navigation, context: context as! AccountContext, peerId: peerId)
@@ -49,5 +49,9 @@ func installStoriesUIHooks() {
         return SliderContextMenuItem(volume: volume, minValue: minValue, maxValue: maxValue, midValue: midValue, drawable: drawable, drawable_muted: drawable_muted, didUpdateValue)
     }, storiesBlockedPeersContext: { context in
         return (context as! AccountContext).storiesBlockedPeersContext
-    }))
+    })
+    hooks.showListStoryWithContext = { context, listContext, peerId, initialId in
+        StoryModalController.ShowListStory(context: context as! AccountContext, listContext: listContext, peerId: peerId, initialId: initialId)
+    }
+    StoriesHooks.install(hooks)
 }

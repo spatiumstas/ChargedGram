@@ -299,7 +299,7 @@ public class ChatGroupedItem: ChatRowItem {
     
     public override func share() {
         if let message = message {
-            showModal(with: ChatHistoryUIHooks.shared.makeShareGroupedMessagesModal(context, message, layout.messages), for: context.window)
+            showModal(with: ChatHistoryUIHooks.shared.makeShareMessagesModalObserved(context, message, groupedMessages: layout.messages), for: context.window)
         }
 
     }
@@ -1042,7 +1042,7 @@ public class ChatGroupedView : ChatRowView , ModalPreviewRowViewProtocol {
                     
                     if let caption = captionViews.first(where: { $0.id == item.layout.messages[i].stableId }) {
                         if let text = text, !text.isEmpty {
-                            caption.view.highlight(text: text, color: item.presentation.colors.focusAnimationColor, range: range)
+                            caption.highlight(text: text, color: item.presentation.colors.focusAnimationColor, range: range)
                         }
                     }
                                         

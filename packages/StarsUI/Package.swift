@@ -35,8 +35,10 @@ let deps: [(String, String)] = [
     ("InputTextView", "../InputTextView"),
     ("InputView", "../InputView"),
     ("SelectPeersUI", "../SelectPeersUI"),
+    ("ShortPeerRow", "../ShortPeerRow"),
     ("CalendarUI", "../CalendarUI"),
     ("MessageUtils", "../MessageUtils"),
+
 ]
 
 let package = Package(

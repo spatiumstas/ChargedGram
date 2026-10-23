@@ -32,6 +32,9 @@ private final class NewStyleIconRowItem : GeneralRowItem {
     override var height: CGFloat {
         return 100
     }
+    override var accessibilityLabel: String? {
+        return strings().voiceOverCommonEmoji
+    }
     override func viewClass() -> AnyClass {
         return NewStyleIconRowView.self
     }
@@ -47,6 +50,8 @@ private final class NewStyleIconRowView : TableRowView {
         super.init(frame: frameRect)
         circle.addSubview(iconView)
         addSubview(circle)
+        iconView.isAccessibilityDecorative = true
+        circle.setAccessibilityLabel(strings().voiceOverCommonChooseIcon)
 
         circle.scaleOnClick = true
         circle.set(handler: { [weak self] control in
@@ -207,6 +212,11 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
 
 func AIStyleModalController(context: any AccountContextProtocol, editing: TelegramComposeAIMessageMode.CloudStyle? = nil, onCompleted: ((Int64?) -> Void)? = nil) -> InputDataModalController {
 
+    let onCompleted: ((Int64?) -> Void)? = onCompleted.map { callback in
+        return { id in
+            callback(id)
+        }
+    }
     let actionsDisposable = DisposableSet()
 
     let titleMax = context.appConfiguration.getGeneralValue("aicompose_tone_title_length_max", orElse: 12)
@@ -260,7 +270,7 @@ func AIStyleModalController(context: any AccountContextProtocol, editing: Telegr
             return current
         }
     }, pickEmoji: { control in
-        TranslateUIHooks.shared.showStyleEmojiPicker(context, control, { file in
+        TranslateUIHooks.shared.showStyleEmojiPickerObserved(context, control, selected: { file in
             var packReference: StickerPackReference?
             for attr in file.attributes {
                 if case let .CustomEmoji(_, _, _, ref) = attr {
@@ -281,16 +291,16 @@ func AIStyleModalController(context: any AccountContextProtocol, editing: Telegr
         verifyAlert(for: context.window, header: strings().aiStyleModalDeleteStyleHeader, information: strings().aiStyleModalDeleteStyleConfirm, ok: strings().modalDelete, option: strings().aiStyleModalDeleteStyleForAll, successHandler: { result in
             switch result {
             case .thrid:
-                _ = context.engine.messages.deleteAITextStyle(id: editStyleId, accessHash: editAccessHash).startStandalone()
+                _ = (context.engine.messages.deleteAITextStyle(id: editStyleId, accessHash: editAccessHash)).startStandalone()
             case .basic:
-                _ = context.engine.messages.unsaveAITextStyle(id: editStyleId, accessHash: editAccessHash).startStandalone()
+                _ = (context.engine.messages.unsaveAITextStyle(id: editStyleId, accessHash: editAccessHash)).startStandalone()
             }
             onCompleted?(nil)
             close?()
         })
     } : nil)
 
-    let signal = statePromise.get() |> deliverOnPrepareQueue |> map { state in
+    let signal = (statePromise.get() |> deliverOnPrepareQueue) |> map { state in
         return InputDataSignalValue(entries: entries(state, arguments: arguments))
     }
 
@@ -316,6 +326,7 @@ func AIStyleModalController(context: any AccountContextProtocol, editing: Telegr
     }, singleButton: true)
 
     let modalController = InputDataModalController(controller, modalInteractions: modalInteractions, size: NSMakeSize(360, 0))
+
 
     controller.leftModalHeader = ModalHeaderData(image: theme.icons.modalClose, handler: { [weak modalController] in
         modalController?.close()
@@ -374,7 +385,7 @@ func AIStyleModalController(context: any AccountContextProtocol, editing: Telegr
             }
         }
 
-        _ = showModalProgress(signal: createOrEdit, for: context.window).start(next: { newStyleId in
+        _ = (showModalProgress(signal: (createOrEdit), for: context.window)).start(next: { newStyleId in
             onCompleted?(newStyleId)
             close?()
         }, error: { error in
@@ -385,7 +396,7 @@ func AIStyleModalController(context: any AccountContextProtocol, editing: Telegr
                 } else {
                     let limitText = strings().aiStyleModalSavedLimitPremiumOther(Int(savedLimit), Int(savedLimitPremium))
                     showModalText(for: context.window, text: limitText, button: strings().premiumLimitIncrease, callback: { _ in
-                        FeatureNavigationHooks.shared.showPremiumBoarding(context, context.window, nil, false, nil)
+                        FeatureNavigationHooks.shared.showPremiumBoardingObserved(context, context.window, nil, false, nil)
                     })
                 }
             case .generic:

@@ -259,6 +259,8 @@ public final class ReactionsWindowController : NSObject {
     
     public func show(_ initialView: NSView & StickerFramesCollector, animated: Bool = true) {
         reactions?.panel?.orderOut(nil)
+        if let previous = reactions {
+        }
         
         reactions = self
         

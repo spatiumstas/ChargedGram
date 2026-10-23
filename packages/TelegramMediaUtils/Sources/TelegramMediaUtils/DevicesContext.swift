@@ -40,7 +40,7 @@ extension AudioDeviceID {
     }
 }
 
-private func devicesList() -> Signal<IODevices, NoError> {
+private func devicesList(queue: Queue) -> Signal<IODevices, NoError> {
     return Signal { subscriber in
         
         let defAudioDevice = AVCaptureDevice.default(for: .audio)
@@ -62,7 +62,7 @@ private func devicesList() -> Signal<IODevices, NoError> {
         
         
         return EmptyDisposable
-    } |> runOn(.concurrentDefaultQueue())
+    } |> runOn(queue)
     
 }
 
@@ -296,7 +296,7 @@ public final class DevicesContext : NSObject {
     }
     
     private func update() {
-        _signal.set(devicesList() |> filter { !$0.loading })
+        _signal.set(devicesList(queue: devicesQueue) |> filter { !$0.loading })
     }
     
     @objc private func handleOutputNotification(_ notification: Notification) {

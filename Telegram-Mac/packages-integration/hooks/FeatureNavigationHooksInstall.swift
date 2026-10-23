@@ -1,3 +1,4 @@
+import TelegramContext
 import Cocoa
 import TGUIKit
 import TelegramCore
@@ -48,7 +49,9 @@ private extension PremiumBoardingSource {
         case .premiumEmoji: return .premium_emoji
         case .storiesQuality: return .stories_quality
         case .savedTags: return .saved_tags
+        case .messageEffects: return .message_effects
         case .aiCompose: return .ai_compose
+        case .translations: return .translations
         case .noforwards: return .noforwards
         case let .channelBoost(peerId): return .channel_boost(peerId)
         }
@@ -81,13 +84,44 @@ private func complicatedReport(_ page: SponsoredReportPage) -> ComplicatedReport
     return .init(subject: .list(page.options.map { .init(string: $0.text, id: $0.id) }), title: page.title)
 }
 
+private func makeFeatureDateSelector(context: any AccountContextProtocol, defaultDate: Date?, repeatPeriod: Int32?, request: DateSelectorRequest, selectedAt: @escaping (Date, Int32?) -> Void) -> DateSelectorModalController {
+    let mode: DateSelectorModalController.Mode
+    switch request {
+    case let .schedule(peerId):
+        mode = .schedule(peerId)
+    case let .date(title, doneTitle):
+        mode = .date(title: title, doneTitle: doneTitle)
+    }
+    if let defaultDate {
+        return DateSelectorModalController(context: context, defaultDate: defaultDate, repeatPeriod: repeatPeriod, mode: mode, selectedAt: selectedAt)
+    }
+    return DateSelectorModalController(context: context, repeatPeriod: repeatPeriod, mode: mode, selectedAt: selectedAt)
+}
+
 func installFeatureNavigationHooks() {
     var hooks = FeatureNavigationHooks()
     hooks.showPremiumBoarding = { context, window, source, openFeatures, presentation in
         prem(with: PremiumBoardingController(context: context, source: (source ?? .settings).logSource, openFeatures: openFeatures, presentation: presentation ?? theme), for: window)
     }
+    hooks.showPremiumBoardingWithContext = { context, window, source, openFeatures, presentation in
+        prem(with: PremiumBoardingController(context: context, source: (source ?? .settings).logSource, openFeatures: openFeatures, presentation: presentation ?? theme), for: window)
+    }
     hooks.showPremiumLimit = { context, kind in
         showPremiumLimit(context: context, type: kind.limitType)
+    }
+    hooks.showPremiumLimitWithContext = { context, kind in
+        if context.isPremium {
+            do {
+                showPremiumLimit(context: context, type: kind.limitType)
+            }
+        } else {
+            let controller = PremiumLimitController(context: context, type: kind.limitType)
+            let onDeinit = controller.onDeinit
+            controller.onDeinit = {
+                onDeinit?()
+            }
+            showModal(with: controller, for: context.window)
+        }
     }
     hooks.makePremiumLockModal = {
         return PremiumLockModalController()
@@ -95,19 +129,34 @@ func installFeatureNavigationHooks() {
     hooks.showStarsPurchase = { context, window, currency, suffix, amount in
         showModal(with: Star_ListScreen(context: context, currency: currency, source: .buy(suffix: suffix, amount: amount)), for: window)
     }
-    hooks.selectDate = { context, window, defaultDate, repeatPeriod, request, selectedAt in
-        let mode: DateSelectorModalController.Mode
-        switch request {
-        case let .schedule(peerId):
-            mode = .schedule(peerId)
-        case let .date(title, doneTitle):
-            mode = .date(title: title, doneTitle: doneTitle)
+    hooks.showStarsPurchaseWithContext = { context, window, currency, suffix, amount in
+        let controller = Star_ListScreen(context: context, currency: currency, source: .buy(suffix: suffix, amount: amount))
+        let onDeinit = controller.onDeinit
+        controller.onDeinit = {
+            onDeinit?()
         }
-        let controller: DateSelectorModalController
-        if let defaultDate {
-            controller = DateSelectorModalController(context: context, defaultDate: defaultDate, repeatPeriod: repeatPeriod, mode: mode, selectedAt: selectedAt)
-        } else {
-            controller = DateSelectorModalController(context: context, repeatPeriod: repeatPeriod, mode: mode, selectedAt: selectedAt)
+        showModal(with: controller, for: window)
+    }
+    hooks.selectDate = { context, window, defaultDate, repeatPeriod, request, selectedAt in
+        let controller = makeFeatureDateSelector(context: context, defaultDate: defaultDate, repeatPeriod: repeatPeriod, request: request, selectedAt: selectedAt)
+        showModal(with: controller, for: window)
+    }
+    hooks.selectDateWithContext = { context, window, defaultDate, repeatPeriod, request, selectedAt, cancelled in
+        let controller = makeFeatureDateSelector(context: context, defaultDate: defaultDate, repeatPeriod: repeatPeriod, request: request, selectedAt: selectedAt)
+        controller.onCancelled = cancelled
+        let onDeinit = controller.onDeinit
+        controller.onDeinit = {
+            onDeinit?()
+        }
+        showModal(with: controller, for: window)
+    }
+    hooks.selectDateWithDismissal = { context, window, defaultDate, repeatPeriod, request, selectedAt, cancelled, dismissed in
+        let controller = makeFeatureDateSelector(context: context, defaultDate: defaultDate, repeatPeriod: repeatPeriod, request: request, selectedAt: selectedAt)
+        controller.onCancelled = cancelled
+        controller.onDismissed = dismissed
+        let onDeinit = controller.onDeinit
+        controller.onDeinit = {
+            onDeinit?()
         }
         showModal(with: controller, for: window)
     }
@@ -115,6 +164,15 @@ func installFeatureNavigationHooks() {
         showModal(with: TimeRangeSelectorController(context: context, from: from, to: to, title: title, ok: ok, fromString: fromString, toString: toString, updatedValue: updated), for: window)
     }
     hooks.showInactiveChannels = { context, reason in
+        let source: InactiveSource
+        switch reason {
+        case .join: source = .join
+        case .create: source = .create
+        case .upgrade: source = .upgrade
+        }
+        showInactiveChannels(context: context, source: source)
+    }
+    hooks.showInactiveChannelsWithContext = { context, reason in
         let source: InactiveSource
         switch reason {
         case .join: source = .join
@@ -149,6 +207,9 @@ func installFeatureNavigationHooks() {
     hooks.openStoryStats = { context, item, peer in
         context.bindings.rootNavigation().push(MessageStatsController(context, subject: .story(item, peer)))
     }
+    hooks.openStoryStatsWithContext = { context, item, peer in
+        context.bindings.rootNavigation().push(MessageStatsController(context, subject: .story(item, peer)))
+    }
     hooks.showBoostInfo = { context, window, peer, boosts, myStatus, source, presentation in
         let boostSource: BoostChannelSource
         switch source {
@@ -175,6 +236,17 @@ func installFeatureNavigationHooks() {
         return SelectCountries(context: context, selected: selected, complete: complete)
     }
     hooks.makePaymentsCheckoutController = { context, source, invoice, completion in
+        return PaymentsCheckoutController(context: context, source: source, invoice: invoice, completion: completion.map { completion in
+            return { status in
+                switch status {
+                case .paid: completion(.paid)
+                case .cancelled: completion(.cancelled)
+                case .failed: completion(.failed)
+                }
+            }
+        })
+    }
+    hooks.makePaymentsCheckoutControllerWithContext = { context, source, invoice, completion in
         return PaymentsCheckoutController(context: context, source: source, invoice: invoice, completion: completion.map { completion in
             return { status in
                 switch status {
@@ -222,6 +294,9 @@ func installFeatureNavigationHooks() {
     hooks.openJoinChatBotWebView = { context, botId, url, queryId, joinedPeerId in
         openJoinChatBotWebView(context: context, botId: botId, url: url, queryId: queryId, joinedPeerId: joinedPeerId)
     }
+    hooks.openJoinChatBotWebViewWithContext = { context, botId, url, queryId, joinedPeerId in
+        openJoinChatBotWebView(context: context, botId: botId, url: url, queryId: queryId, joinedPeerId: joinedPeerId)
+    }
     hooks.makeGroupCallAvatarMenuItem = { peer, context in
         return GroupCallAvatarMenuItem(peer, context: context)
     }
@@ -245,6 +320,9 @@ func installFeatureNavigationHooks() {
     hooks.makeChannelAdminController = { context, peerId, adminId, initialParticipant, updated, upgradedToSupergroup in
         return ChannelAdminModalController(context as! AccountContext, peerId: peerId, adminId: adminId, initialParticipant: initialParticipant, updated: updated, upgradedToSupergroup: upgradedToSupergroup)
     }
+    hooks.makeChannelAdminControllerWithContext = { context, peerId, adminId, initialParticipant, updated, upgradedToSupergroup in
+        return ChannelAdminModalController(context as! AccountContext, peerId: peerId, adminId: adminId, initialParticipant: initialParticipant, updated: updated, upgradedToSupergroup: upgradedToSupergroup)
+    }
     hooks.applyGroupCallResult = { sharedContext, callContext in
         GroupCallUIHooks.shared.applyGroupCallResult(sharedContext, callContext as! (any GroupCallContextProtocol))
     }
@@ -253,6 +331,14 @@ func installFeatureNavigationHooks() {
     }
     hooks.updateAccountBirthday = { date, context in
         editAccountUpdateBirthday(date, context: context)
+    }
+    hooks.makePreviewSender = { urls, interaction, asMedia, attributedString, presentation in
+        guard let interaction = interaction as? ChatInteraction else { return nil }
+        return PreviewSenderController(urls: urls, chatInteraction: interaction, asMedia: asMedia, attributedString: attributedString, presentation: presentation)
+    }
+    hooks.makePreviewSenderWithContext = { urls, interaction, asMedia, attributedString, presentation in
+        guard let interaction = interaction as? ChatInteraction else { return nil }
+        return PreviewSenderController(urls: urls, chatInteraction: interaction, asMedia: asMedia, attributedString: attributedString, presentation: presentation)
     }
     FeatureNavigationHooks.install(hooks)
 }

@@ -424,21 +424,128 @@ public final class AvatarStoryIndicatorComponent : Equatable {
         }
     
         
-        let indicatorView = Drawer()
-        
-        private var colorLayer: SimpleGradientLayer?
-        private var progressLayer: ProgressLayer?
-        
-        
-        public private(set) var component: AvatarStoryIndicatorComponent?
-        public private(set) var availableSize: NSSize? = nil
-        public private(set) var progress: CGFloat? = nil
-        private(set) var displayProgress: Bool = false
+        final class Renderer {
+            let indicatorView = Drawer()
+
+            private var colorLayer: SimpleGradientLayer?
+            private var progressLayer: ProgressLayer?
+            private weak var host: CALayer?
+
+            private(set) var component: AvatarStoryIndicatorComponent?
+            private(set) var availableSize: NSSize? = nil
+            private(set) var progress: CGFloat? = nil
+            private(set) var displayProgress: Bool = false
+
+            init(host: CALayer) {
+                self.host = host
+                host.masksToBounds = false
+                host.insertSublayer(self.indicatorView, at: 0)
+            }
+
+            public func update(component: AvatarStoryIndicatorComponent, availableSize: CGSize, progress: CGFloat = 1.0, transition: ContainedViewLayoutTransition, displayProgress: Bool = false)  {
+            
+                if component == self.component, availableSize == self.availableSize, progress == self.progress, displayProgress == self.displayProgress {
+                    return
+                }
+                self.component = component
+                self.availableSize = availableSize
+                self.progress = progress
+                self.displayProgress = displayProgress
+                let imageDiameter = availableSize.width + 3.0 * 2.0
+            
+                let indicatorFrame = CGRect(origin: CGPoint(x: 0, y: 0), size: CGSize(width: imageDiameter, height: imageDiameter))
+                transition.updateFrame(layer: self.indicatorView, frame: indicatorFrame)
+            
+            
+                if displayProgress {
+                    let colorLayer: SimpleGradientLayer
+                    if let current = self.colorLayer {
+                        colorLayer = current
+                    } else {
+                        colorLayer = SimpleGradientLayer()
+                        self.colorLayer = colorLayer
+                        self.host?.addSublayer(colorLayer)
+                        colorLayer.opacity = 0.0
+                    }
+                
+                    transition.updateAlpha(layer: self.indicatorView, alpha: 0.0)
+                    transition.updateAlpha(layer: colorLayer, alpha: 1.0)
+                
+                    let colors: [CGColor]
+                
+                    if component.hasUnseen {
+                        if component.hasUnseenCloseFriendsItems {
+                            colors = [
+                                NSColor(rgb: 0x7CD636),
+                                NSColor(rgb: 0x26B470)
+                            ].map(\.cgColor)
+                        } else {
+                            colors = [
+                                NSColor(rgb: 0x34C76F),
+                                NSColor(rgb: 0x3DA1FD)
+                            ].map(\.cgColor)
+                        }
+                    } else {
+                        if component.theme.colors.isDark {
+                            colors = [component.theme.colors.grayText.withAlphaComponent(0.5), component.theme.colors.grayText.withAlphaComponent(0.5)].map(\.cgColor)
+                        } else {
+                            colors = [NSColor(rgb: 0xD8D8E1), NSColor(rgb: 0xD8D8E1)].map(\.cgColor)
+                        }
+                    }
+                
+                    let lineWidth: CGFloat = component.hasUnseen ? component.activeLineWidth : component.inactiveLineWidth
+                
+                    colorLayer.colors = colors
+                    colorLayer.startPoint = CGPoint(x: 0.0, y: 0.0)
+                    colorLayer.endPoint = CGPoint(x: 0.0, y: 1.0)
+                
+                    let progressLayer: ProgressLayer
+                    if let current = self.progressLayer {
+                        progressLayer = current
+                    } else {
+                        progressLayer = ProgressLayer()
+                        self.progressLayer = progressLayer
+                        colorLayer.mask = progressLayer
+                    }
+                
+                    colorLayer.frame = indicatorFrame
+                    progressLayer.frame = CGRect(origin: CGPoint(), size: indicatorFrame.size)
+                
+                    let maxOuterInset: CGFloat = 3.0
+                    let diameter = availableSize.width + maxOuterInset * 2.0
+                    let radius = (diameter - component.activeLineWidth) * 0.5
+
+                
+                    progressLayer.update(size: indicatorFrame.size, radius: radius, lineWidth: lineWidth, value: .indefinite, transition: .immediate)
+                } else {
+                    transition.updateAlpha(layer: self.indicatorView, alpha: 1.0)
+                
+                    self.progressLayer = nil
+                    if let colorLayer = self.colorLayer {
+                        self.colorLayer = nil
+                    
+                        transition.updateAlpha(layer: colorLayer, alpha: 0.0, completion: { [weak colorLayer] _ in
+                            colorLayer?.removeFromSuperlayer()
+                        })
+                    }
+                }
+
+            
+                _ = self.indicatorView.update(component: component, progress: progress, availableSize: availableSize)
+            }
+        }
+
+        private var renderer: Renderer!
+
+        var indicatorView: Drawer { renderer.indicatorView }
+        public var component: AvatarStoryIndicatorComponent? { renderer.component }
+        public var availableSize: NSSize? { renderer.availableSize }
+        public var progress: CGFloat? { renderer.progress }
+        var displayProgress: Bool { renderer.displayProgress }
 
         public required init(frame: CGRect) {
             super.init(frame: frame)
-            self.layer?.masksToBounds = false
-            self.layer?.insertSublayer(self.indicatorView, at: 0)
+            self.renderer = Renderer(host: self.layer!)
         }
         
         public required init?(coder: NSCoder) {
@@ -446,95 +553,30 @@ public final class AvatarStoryIndicatorComponent : Equatable {
         }
         
         public func update(component: AvatarStoryIndicatorComponent, availableSize: CGSize, progress: CGFloat = 1.0, transition: ContainedViewLayoutTransition, displayProgress: Bool = false)  {
-            
-            if component == self.component, availableSize == self.availableSize, progress == self.progress, displayProgress == self.displayProgress {
-                return
-            }
-            self.component = component
-            self.availableSize = availableSize
-            self.progress = progress
-            self.displayProgress = displayProgress
-            let imageDiameter = availableSize.width + 3.0 * 2.0
-            
-            let indicatorFrame = CGRect(origin: CGPoint(x: 0, y: 0), size: CGSize(width: imageDiameter, height: imageDiameter))
-            transition.updateFrame(layer: self.indicatorView, frame: indicatorFrame)
-            
-            
-            if displayProgress {
-                let colorLayer: SimpleGradientLayer
-                if let current = self.colorLayer {
-                    colorLayer = current
-                } else {
-                    colorLayer = SimpleGradientLayer()
-                    self.colorLayer = colorLayer
-                    self.layer!.addSublayer(colorLayer)
-                    colorLayer.opacity = 0.0
-                }
-                
-                transition.updateAlpha(layer: self.indicatorView, alpha: 0.0)
-                transition.updateAlpha(layer: colorLayer, alpha: 1.0)
-                
-                let colors: [CGColor]
-                
-                if component.hasUnseen {
-                    if component.hasUnseenCloseFriendsItems {
-                        colors = [
-                            NSColor(rgb: 0x7CD636),
-                            NSColor(rgb: 0x26B470)
-                        ].map(\.cgColor)
-                    } else {
-                        colors = [
-                            NSColor(rgb: 0x34C76F),
-                            NSColor(rgb: 0x3DA1FD)
-                        ].map(\.cgColor)
-                    }
-                } else {
-                    if component.theme.colors.isDark {
-                        colors = [component.theme.colors.grayText.withAlphaComponent(0.5), component.theme.colors.grayText.withAlphaComponent(0.5)].map(\.cgColor)
-                    } else {
-                        colors = [NSColor(rgb: 0xD8D8E1), NSColor(rgb: 0xD8D8E1)].map(\.cgColor)
-                    }
-                }
-                
-                let lineWidth: CGFloat = component.hasUnseen ? component.activeLineWidth : component.inactiveLineWidth
-                
-                colorLayer.colors = colors
-                colorLayer.startPoint = CGPoint(x: 0.0, y: 0.0)
-                colorLayer.endPoint = CGPoint(x: 0.0, y: 1.0)
-                
-                let progressLayer: ProgressLayer
-                if let current = self.progressLayer {
-                    progressLayer = current
-                } else {
-                    progressLayer = ProgressLayer()
-                    self.progressLayer = progressLayer
-                    colorLayer.mask = progressLayer
-                }
-                
-                colorLayer.frame = indicatorFrame
-                progressLayer.frame = CGRect(origin: CGPoint(), size: indicatorFrame.size)
-                
-                let maxOuterInset: CGFloat = 3.0
-                let diameter = availableSize.width + maxOuterInset * 2.0
-                let radius = (diameter - component.activeLineWidth) * 0.5
+            renderer.update(component: component, availableSize: availableSize, progress: progress, transition: transition, displayProgress: displayProgress)
+        }
+    }
 
-                
-                progressLayer.update(size: indicatorFrame.size, radius: radius, lineWidth: lineWidth, value: .indefinite, transition: .immediate)
-            } else {
-                transition.updateAlpha(layer: self.indicatorView, alpha: 1.0)
-                
-                self.progressLayer = nil
-                if let colorLayer = self.colorLayer {
-                    self.colorLayer = nil
-                    
-                    transition.updateAlpha(layer: colorLayer, alpha: 0.0, completion: { [weak colorLayer] _ in
-                        colorLayer?.removeFromSuperlayer()
-                    })
-                }
-            }
+    public final class IndicatorLayer: SimpleLayer {
+        private var renderer: IndicatorView.Renderer!
 
-            
-            _ = self.indicatorView.update(component: component, progress: progress, availableSize: availableSize)
+        public var component: AvatarStoryIndicatorComponent? { renderer.component }
+
+        public override init() {
+            super.init()
+            self.renderer = IndicatorView.Renderer(host: self)
+        }
+
+        public override init(layer: Any) {
+            super.init(layer: layer)
+        }
+
+        public required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        public func update(component: AvatarStoryIndicatorComponent, availableSize: CGSize, progress: CGFloat = 1.0, transition: ContainedViewLayoutTransition, displayProgress: Bool = false) {
+            renderer.update(component: component, availableSize: availableSize, progress: progress, transition: transition, displayProgress: displayProgress)
         }
     }
     deinit {

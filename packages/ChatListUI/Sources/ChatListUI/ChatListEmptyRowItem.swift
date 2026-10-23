@@ -52,6 +52,30 @@ public class ChatListEmptyRowItem: TableRowItem {
     public override func viewClass() -> AnyClass {
         return ChatListEmptyRowView.self
     }
+    
+    public override var accessibilityLabel: String? {
+        if shouldHideContent {
+            return nil
+        }
+        let text: String
+        if case .filter = filter {
+            text = strings().chatListFilterEmpty
+        } else {
+            switch mode {
+            case .forum:
+                text = strings().chatListEmptyForum
+            default:
+                text = strings().chatListEmptyText
+            }
+        }
+        return parseMarkdownIntoAttributedString(text, attributes: MarkdownAttributes(body: MarkdownAttributeSet(font: .normal(.title), textColor: theme.colors.text), bold: MarkdownAttributeSet(font: .medium(.title), textColor: theme.colors.text), link: MarkdownAttributeSet(font: .normal(.title), textColor: theme.colors.link), linkAttribute: { _ in
+            return nil
+        })).string
+    }
+    
+    public override var accessibilityIsSpacer: Bool {
+        return shouldHideContent
+    }
 }
 
 
@@ -276,6 +300,18 @@ public class ChatListLoadingRowItem: TableRowItem {
     
     public override func viewClass() -> AnyClass {
         return ChatListLoadingRowView.self
+    }
+    
+    public override var accessibilityLabel: String? {
+        if filter != .allChats {
+            return strings().chatListFilterLoading
+        } else {
+            return strings().voiceOverCommonLoading
+        }
+    }
+    
+    public override var accessibilityIncludesChildren: Bool {
+        return false
     }
 }
 

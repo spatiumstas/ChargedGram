@@ -154,6 +154,10 @@ public final class DatePickerRowItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return DatePickerRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return strings().giftLinkRowDate
+    }
 }
 
 

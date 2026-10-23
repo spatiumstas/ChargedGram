@@ -141,7 +141,7 @@ private final class ChatSearchTagsView: View {
                             let context = item.arguments.context
 
                             menu.addItem(ContextMenuItem(item.tag.tag.title != nil ? strings().chatReactionContextEditTag : strings().chatReactionContextAddLabel, handler: {
-                                ChatNavigationHooks.shared.showEditTagLabel(context, item.tag.tag.reaction, item.tag.tag.title, context.window)
+                                ChatNavigationHooks.shared.showEditTagLabelObserved(context, item.tag.tag.reaction, item.tag.tag.title, context.window)
                             }, itemImage: MenuAnimation.menu_tag_rename.value))
                             
                             return menu
@@ -275,6 +275,47 @@ private final class ChatSearchTagsView: View {
         override func viewClass() -> AnyClass {
             return View.self
         }
+
+        override var accessibilityLabel: String? {
+            return tag.tag.title ?? tag.emoji
+        }
+
+        override var accessibilityValue: String? {
+            let parts = [selected ? strings().voiceOverCommonSelected : nil, tag.tag.count > 0 ? "\(tag.tag.count)" : nil].compactMap { $0 }
+            return parts.isEmpty ? nil : parts.joined(separator: ", ")
+        }
+
+        override var accessibilityRole: NSAccessibility.Role? {
+            return .button
+        }
+
+        override var accessibilityIncludesChildren: Bool {
+            return false
+        }
+
+        override var accessibilityIsEnabled: Bool {
+            return enabled
+        }
+
+        override func accessibilityPerformPress() -> Bool {
+            guard enabled else {
+                return false
+            }
+            arguments.callback(tag)
+            return true
+        }
+
+        override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+            guard enabled else {
+                return nil
+            }
+            let context = arguments.context
+            let tag = self.tag
+            return [NSAccessibilityCustomAction(name: tag.tag.title != nil ? strings().chatReactionContextEditTag : strings().chatReactionContextAddLabel, handler: {
+                ChatNavigationHooks.shared.showEditTagLabelObserved(context, tag.tag.reaction, tag.tag.title, context.window)
+                return true
+            })]
+        }
         
         override var width: CGFloat {
             return 40
@@ -342,6 +383,8 @@ private final class ChatSearchTagsView: View {
                 view.addSubview(tagView)
                 tagView.addSubview(imageView)
                 tagView.addSubview(textView)
+                imageView.isAccessibilityDecorative = true
+                view.setAccessibilityLabel(strings().savedMessagesTagsUnlock)
                 
                 textView.userInteractionEnabled = false
                 textView.isSelectable = false
@@ -392,6 +435,23 @@ private final class ChatSearchTagsView: View {
         
         override func viewClass() -> AnyClass {
             return UnlockView.self
+        }
+
+        override var accessibilityLabel: String? {
+            return textViewLayout.attributedString.string
+        }
+
+        override var accessibilityRole: NSAccessibility.Role? {
+            return .button
+        }
+
+        override var accessibilityIncludesChildren: Bool {
+            return false
+        }
+
+        override func accessibilityPerformPress() -> Bool {
+            arguments.callback(nil)
+            return true
         }
         
         override var width: CGFloat {
@@ -458,6 +518,7 @@ private final class ChatSearchTagsView: View {
             addSubview(tagTextView)
             addSubview(secondTextView)
             addSubview(chevron)
+            chevron.isAccessibilityDecorative = true
             
             self.tagImageView.capInsets = NSEdgeInsets(top: 3, left: 5, bottom: 3, right: 10)
 
@@ -470,7 +531,7 @@ private final class ChatSearchTagsView: View {
             self.scaleOnClick = true
             
             self.set(handler: { [weak self] _ in
-                if let context = self?.context {
+                if let self, let context = self.context {
                     prem(with: PremiumBoardingController(context: context, source: .saved_tags, openFeatures: true), for: context.window, morphSource: { [weak self] in self })
                 }
             }, for: .Click)
@@ -637,14 +698,12 @@ class ChatSearchHeader : View, Notifable, ChatHeaderProtocol {
     private let loadingDisposable = MetaDisposable()
     private let tokenDisposable = MetaDisposable()
    
-    private let calendarController: ViewController?
     required init(_ chatInteraction: ChatInteraction, state: ChatHeaderState, frame: NSRect) {
 
         switch state.main {
         case let .search(interactions, _, initialString, _, _, _):
             self.interactions = interactions
             self.parentInteractions = chatInteraction
-            self.calendarController = ChatNavigationHooks.shared.makeCalendarPopover(chatInteraction.interactionContext.window, Date(), interactions.calendarAction)
             self.chatInteraction = ChatInteraction(chatLocation: chatInteraction.chatLocation, context: chatInteraction.interactionContext, mode: chatInteraction.mode)
             self.chatInteraction.update({$0.updatedPeer({_ in chatInteraction.presentation.peer})})
             self.inputContextHelper = InputContextHelper(chatInteraction: self.chatInteraction, highlightInsteadOfSelect: true)
@@ -979,6 +1038,11 @@ class ChatSearchHeader : View, Notifable, ChatHeaderProtocol {
         
         next.autohighlight = false
         prev.autohighlight = false
+        next.setAccessibilityLabel(strings().voiceOverCommonNext)
+        prev.setAccessibilityLabel(strings().voiceOverCommonPrevious)
+        cancel.setAccessibilityLabel(strings().voiceOverCommonCancel)
+        calendar.setAccessibilityLabel(strings().voiceOverCommonCalendar)
+        from.setAccessibilityLabel(strings().voiceOverChatSearchByMember)
 
 
 
@@ -1021,7 +1085,8 @@ class ChatSearchHeader : View, Notifable, ChatHeaderProtocol {
         
         calendar.set(handler: { [weak self] calendar in
             guard let `self` = self else {return}
-            if let calendarController = self.calendarController {
+            let interaction = self.parentInteractions
+            if let calendarController = ChatNavigationHooks.shared.makeCalendarPopover(interaction.interactionContext, interaction.peerId, interaction.chatLocation.threadId, Date(), self.interactions.calendarAction) {
                 showPopover(for: calendar, with: calendarController, edge: .maxY, inset: NSMakePoint(-160, -40))
             }
         }, for: .Click)

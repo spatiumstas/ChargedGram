@@ -65,6 +65,7 @@ public final class StickerPremiumHolderView: NSVisualEffectView {
             let layout = TextViewLayout(.initialize(string: strings().stickersPremiumUnlock, color: NSColor.white, font: .medium(.text)))
             layout.measure(width: .greatestFiniteMagnitude)
             textView.update(layout)
+            setAccessibilityLabel(strings().stickersPremiumUnlock)
             
             let lottie = LocalAnimatedSticker.premium_unlock
             
@@ -108,6 +109,7 @@ public final class StickerPremiumHolderView: NSVisualEffectView {
         dismiss.set(image: theme.icons.glass_close, for: .Normal)
         dismiss.setGlassEffect(size: NSMakeSize(36, 36))
         dismiss.sizeToFit(.zero, NSMakeSize(36, 36), thatFit: true)
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
         
         dismiss.set(handler: { [weak self] _ in
             self?.close?()

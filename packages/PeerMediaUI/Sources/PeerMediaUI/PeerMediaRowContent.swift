@@ -135,6 +135,10 @@ public class PeerMediaRowItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return PeerMediaRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return message.text.isEmpty ? strings().voiceOverChatMessage : message.text
+    }
     
     public var separatorOffset: CGFloat {
         return 10 + 40 + viewType.innerInset.left

@@ -2,6 +2,7 @@ import Cocoa
 import TGUIKit
 import TelegramTheme
 import ColorPalette
+import Localization
 
 
 
@@ -29,6 +30,64 @@ public class SelectSizeRowItem: GeneralRowItem {
     
     public override func viewClass() -> AnyClass {
         return SelectSizeRowView.self
+    }
+
+    private func accessibilityTitle(at index: Int) -> String? {
+        if let titles = titles, index >= 0, index < titles.count, !titles[index].isEmpty {
+            return titles[index]
+        }
+        if index >= 0, index < sizes.count {
+            return "\(sizes[index])"
+        }
+        return nil
+    }
+
+    public override var accessibilityLabel: String? {
+        guard let first = accessibilityTitle(at: 0), let last = accessibilityTitle(at: sizes.count - 1) else {
+            return nil
+        }
+        return "\(first) – \(last)"
+    }
+
+    public override var accessibilityValue: String? {
+        return accessibilityTitle(at: sizes.firstIndex(of: current) ?? 0)
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .slider
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        return [
+            NSAccessibilityCustomAction(name: strings().voiceOverCommonUp, handler: { [weak self] in
+                return self?.accessibilityStep(1) ?? false
+            }),
+            NSAccessibilityCustomAction(name: strings().voiceOverCommonDown, handler: { [weak self] in
+                return self?.accessibilityStep(-1) ?? false
+            })
+        ]
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        return false
+    }
+
+    private func accessibilityStep(_ delta: Int) -> Bool {
+        guard let index = sizes.firstIndex(of: current) else {
+            return false
+        }
+        let next = min(sizes.count - 1, max(0, index + delta))
+        guard next != index else {
+            return false
+        }
+        current = sizes[next]
+        selectAction(next)
+        redraw()
+        return true
     }
     
     

@@ -139,50 +139,68 @@ public final class Reactions {
     }
     
     public func setStatus(_ file: TelegramMediaFile, peer: Peer, timestamp: Int32, timeout: Int32?, fromRect: NSRect?, handleInteractive: Bool = true, starGift: StarGift.UniqueGift? = nil) {
-                
-        let emojiStatus = (peer as? TelegramUser)?.emojiStatus
-        
+        let emojiStatus: PeerEmojiStatus?
+        if let channel = peer as? TelegramChannel {
+            emojiStatus = channel.emojiStatus
+        } else if let user = peer as? TelegramUser, user.id == self.engine.account.peerId {
+            emojiStatus = user.emojiStatus
+        } else {
+            return
+        }
+
         let expiryDate: Int32?
-        if let timeout = timeout {
-            expiryDate = timestamp + timeout
+        if let timeout, timeout != 0 {
+            guard timeout > 0, let date = Int32(exactly: Int64(timestamp) + Int64(timeout)) else {
+                return
+            }
+            expiryDate = date
         } else {
             expiryDate = nil
         }
-        
+
+        let isSameStatus: Bool
         if let starGift {
-            if file.fileId.id == emojiStatus?.fileId {
-                if handleInteractive {
-                    _ = _interactiveStatus.swap(nil)
-                }
-                _ = engine.accountData.setEmojiStatus(file: nil, expirationDate: expiryDate).start()
+            if case let .starGift(id, _, _, _, _, _, _, _, _)? = emojiStatus?.content {
+                isSameStatus = id == starGift.id
             } else {
-                if handleInteractive {
-                    _ = _interactiveStatus.swap(.init(fileId: file.fileId.id, previousFileId: emojiStatus?.fileId, rect: fromRect))
-                }
-                _ = engine.accountData.setStarGiftStatus(starGift: starGift, expirationDate: expiryDate).start()
+                isSameStatus = false
             }
-        } else if file.mimeType.hasPrefix("bundle") {
-            if handleInteractive {
-                if emojiStatus != nil {
+        } else if case let .emoji(fileId)? = emojiStatus?.content {
+            isSameStatus = fileId == file.fileId.id
+        } else {
+            isSameStatus = false
+        }
+        let isClearItem = starGift == nil && file.mimeType.hasPrefix("bundle")
+        let shouldClear = isClearItem || isSameStatus
+
+        if let channel = peer as? TelegramChannel {
+            if shouldClear {
+                _ = engine.peers.updatePeerEmojiStatus(peerId: channel.id, fileId: nil, expirationDate: nil).start()
+            } else if let starGift {
+                _ = engine.peers.updatePeerStarGiftStatus(peerId: channel.id, starGift: starGift, expirationDate: expiryDate).start()
+            } else {
+                _ = engine.peers.updatePeerEmojiStatus(peerId: channel.id, fileId: file.fileId.id, expirationDate: expiryDate).start()
+            }
+            return
+        }
+
+        if handleInteractive {
+            if shouldClear {
+                if isClearItem, emojiStatus != nil {
                     _ = _interactiveStatus.swap(.init(fileId: nil, previousFileId: emojiStatus?.fileId, rect: fromRect))
                 } else {
                     _ = _interactiveStatus.swap(nil)
                 }
-            }
-            
-            _ = engine.accountData.setEmojiStatus(file: nil, expirationDate: expiryDate).start()
-        } else {
-            if file.fileId.id == emojiStatus?.fileId {
-                if handleInteractive {
-                    _ = _interactiveStatus.swap(nil)
-                }
-                _ = engine.accountData.setEmojiStatus(file: nil, expirationDate: expiryDate).start()
             } else {
-                if handleInteractive {
-                    _ = _interactiveStatus.swap(.init(fileId: file.fileId.id, previousFileId: emojiStatus?.fileId, rect: fromRect))
-                }
-                _ = engine.accountData.setEmojiStatus(file: file, expirationDate: expiryDate).start()
+                _ = _interactiveStatus.swap(.init(fileId: file.fileId.id, previousFileId: emojiStatus?.fileId, rect: fromRect))
             }
+        }
+        if shouldClear {
+            _ = engine.accountData.setEmojiStatus(file: nil, expirationDate: nil).start()
+        } else if let starGift {
+            _ = engine.accountData.setStarGiftStatus(starGift: starGift, expirationDate: expiryDate).start()
+        } else {
+            _ = engine.accountData.setEmojiStatus(file: file, expirationDate: expiryDate).start()
         }
         _ = updateSomeSettingsInteractively(postbox: self.engine.account.postbox, { current in
             var current = current
@@ -191,7 +209,7 @@ public final class Reactions {
             return current
         }).startStandalone()
     }
-    
+
     deinit {
         downloadable.dispose()
         disposable.dispose()

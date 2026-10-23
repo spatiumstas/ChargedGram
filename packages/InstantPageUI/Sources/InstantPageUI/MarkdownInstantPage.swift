@@ -1017,7 +1017,7 @@ private func markdownWebpage(context: any AccountContextProtocol, file: FileMedi
     let text = markdownFirstParagraphText(from: blocks)
     let instantPage = InstantPage(
         blocks: blocks,
-        media: pageResult.media,
+        media: pageResult.media.mapValues(EngineMedia.init),
         isComplete: true,
         rtl: false,
         url: fileURL.absoluteString,

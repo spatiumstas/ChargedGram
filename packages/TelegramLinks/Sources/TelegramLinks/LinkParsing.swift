@@ -79,6 +79,7 @@ private let keyURLChannel = "channel";
 private let keyURLAlbum = "album";
 private let keyURLCollection = "collection";
 private let keyURLDirect = "direct";
+private let keyURLFree = "free";
 
 private let keyURLAppname = "appname";
 private let keyURLStartapp = "startapp";
@@ -150,6 +151,13 @@ public func parseInAppLink(_ url: NSString, options: InAppLinkParsingOptions = I
     let external = value
     let urlString = external as String
     let url = value
+
+    if let contact = parseContactTokenLink(urlString) {
+        guard options.hasOpenInfo, options.hasContext else {
+            return urlString.lowercased().hasPrefix("tg://") ? .nothing : .external(link: urlString, confirm)
+        }
+        return .contactToken(link: urlString, token: contact.token, freeToken: contact.freeToken)
+    }
 
     let initialURL = URL(string: urlString)
 
@@ -383,11 +391,10 @@ public func parseInAppLink(_ url: NSString, options: InAppLinkParsingOptions = I
                     case actions_me[17]:
                         let parts = value.components(separatedBy: "?")
                         let pathParts = parts[0].components(separatedBy: "/")
-                        if pathParts.count >= 2, options.hasContext {
-                            let manager = pathParts[0]
-                            let username = pathParts[1]
+                        if let manager = pathParts.first, !manager.isEmpty, options.hasContext {
+                            let username = pathParts.count >= 2 ? pathParts[1] : ""
                             let (vars, _) = urlVars(with: value)
-                            let title = vars["title"]?.removingPercentEncoding
+                            let title = vars["name"]?.replacingOccurrences(of: "+", with: " ")
                             return .createBot(link: urlString, managerUsername: manager, botUsername: username, title: title)
                         }
                     case actions_me[18]:
@@ -489,9 +496,13 @@ public func parseInAppLink(_ url: NSString, options: InAppLinkParsingOptions = I
                         let components = string.components(separatedBy: "?")
                         let (vars, empty) = urlVars(with: string)
 
+                        let noPaidToken = vars[keyURLFree] ?? ""
                         let joinKeys:[String] = ["+", "%20"]
                         let phone = username.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
                         if "+\(phone)" == username {
+                            if !noPaidToken.isEmpty {
+                                return .noPaidMessagesToken(link: urlString, username: phone, token: noPaidToken)
+                            }
                             let forceProfile = empty.contains("profile")
                             return .followResolvedName(link: urlString, username: phone, postId: nil, forceProfile: forceProfile, action: action)
                         } else {
@@ -526,6 +537,8 @@ public func parseInAppLink(_ url: NSString, options: InAppLinkParsingOptions = I
                             return .story(link: urlString, username: username, storyId: storyId, messageId: messageId)
                         } else if let topicId = vars[keyURLTopicId]?.nsstring.intValue {
                             return .topic(link: urlString, username: username, threadId: topicId, commentId: nil)
+                        } else if !noPaidToken.isEmpty {
+                            return .noPaidMessagesToken(link: urlString, username: username, token: noPaidToken)
                         } else {
                             return .followResolvedName(link: urlString, username: username, postId: nil, forceProfile: forceProfile, action: action)
                         }
@@ -697,6 +710,9 @@ public func parseInAppLink(_ url: NSString, options: InAppLinkParsingOptions = I
 
                 switch known {
                 case known_scheme[0]:
+                    if let token = vars[keyURLFree], !token.isEmpty, options.hasOpenInfo, options.hasContext, let target = vars[keyURLUsername] ?? vars["username"] ?? vars[keyURLPhone] {
+                        return .noPaidMessagesToken(link: urlString, username: target, token: token)
+                    }
                     if let username = vars[keyURLUsername], options.hasOpenInfo {
                         let post = vars[keyURLPostId]?.nsstring.intValue
                         let comment = vars[keyURLCommentId]?.nsstring.intValue
@@ -1009,8 +1025,9 @@ public func parseInAppLink(_ url: NSString, options: InAppLinkParsingOptions = I
                         return .oauth(link: urlString, token: token)
                     }
                 case known_scheme[30]:
-                    if options.hasContext, let manager = vars["manager"], let username = vars["username"] {
-                        let title = vars["title"]
+                    if options.hasContext, let manager = vars["manager"], !manager.isEmpty {
+                        let username = vars["username"] ?? ""
+                        let title = vars["name"]
                         return .createBot(link: urlString, managerUsername: manager, botUsername: username, title: title)
                     }
                 case known_scheme[31]:

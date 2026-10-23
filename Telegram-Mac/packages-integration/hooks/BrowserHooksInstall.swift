@@ -1,3 +1,8 @@
+import InputDataUI
+import PaymentsUI
+import StarsUI
+import TelegramContext
+import TelegramUtils
 import Cocoa
 import TGUIKit
 import Postbox
@@ -6,7 +11,7 @@ import SwiftSignalKit
 import WebAppUI
 
 func installBrowserUIHooks() {
-    installBrowserHooks(.init(classifyLink: { context, url in
+    var hooks = BrowserHooks(classifyLink: { context, url in
         guard let context = context as? AccountContext else {
             return .other
         }
@@ -113,18 +118,7 @@ func installBrowserUIHooks() {
         }
         prem(with: PremiumBoardingController(context: context), for: window)
     }, openInvoice: { context, invoice, slug, window, completion in
-        guard let context = context as? AccountContext else {
-            return
-        }
-        if invoice.currency == XTR {
-            showModal(with: Star_PurschaseInApp(context: context, invoice: invoice, source: .slug(slug), completion: { status in
-                completion(status.rawValue)
-            }), for: window)
-        } else {
-            showModal(with: PaymentsCheckoutController(context: context, source: .slug(slug), invoice: invoice, completion: { status in
-                completion(status.rawValue)
-            }), for: window)
-        }
+        presentBrowserInvoice(context: context, invoice: invoice, slug: slug, window: window, completion: completion)
     }, showLoginWidget: { context, domain, bot, clientData, flags, matchCodes, userIdHint, oauthUrl, inAppOrigin, completion in
         guard let context = context as? AccountContext else {
             return
@@ -183,7 +177,31 @@ func installBrowserUIHooks() {
         return ChatRowItem.item(initialSize, from: .MessageEntry(message, .init(message), true, theme.bubbled ? .bubble : .list, .Full(rank: nil, rankType: .none, header: .normal), nil, .init()), interaction: interactions, theme: theme)
     }, makeShareChatContextResultModal: { context, preparedMessage, completion in
         return ShareModalController(ShareChatContextResult(context as! AccountContext, preparedMessage: preparedMessage), completion: completion)
-    }))
+    })
+    hooks.makeShareChatContextResultModalWithContext = { context, preparedMessage, completion in
+        return ShareModalController(ShareChatContextResult(context.concrete, preparedMessage: preparedMessage), completion: completion)
+    }
+    hooks.makeShareChatContextResultModalWithResult = { context, preparedMessage, completion in
+        let controller = ShareModalController(ShareChatContextResult(context.concrete, preparedMessage: preparedMessage))
+        controller.resultCompletion = { result in
+            switch result {
+            case .accepted: completion(.accepted)
+            case .partiallyAccepted: completion(.partiallyAccepted)
+            case .rejected: completion(.rejected)
+            case .draftPrepared, .destinationReady, .sourceUnavailable, .targetUnavailable, .unknown, .dispatched: completion(.unknown)
+            case .cancelled: completion(.cancelled)
+            }
+        }
+        return controller
+    }
+    hooks.openInvoiceWithContext = { context, invoice, slug, window, completion in
+        presentBrowserInvoice(context: context, invoice: invoice, slug: slug, window: window, completion: completion)
+    }
+    hooks.openChatWithContext = { context, peerId in
+        guard let context = context as? AccountContext else { return }
+        navigateToChat(navigation: context.bindings.rootNavigation(), context: context, chatLocation: .peer(peerId))
+    }
+    installBrowserHooks(hooks)
 }
 
 extension MediaAnimatedStickerView: @retroactive BrowserStickerView {
@@ -197,4 +215,23 @@ extension MediaAnimatedStickerView: @retroactive BrowserStickerView {
             self.update(with: file, size: size, context: context, table: nil, animated: animated)
         }
     }
+}
+
+private func presentBrowserInvoice(context: any AccountContextProtocol, invoice: TelegramMediaInvoice, slug: String, window: Window, completion: @escaping (String) -> Void) {
+    let result = Atomic(value: "cancelled")
+    let update: (String) -> Void = { status in
+        _ = result.modify { current in current == "paid" ? current : status }
+    }
+    let controller: InputDataModalController
+    if invoice.currency == XTR {
+        controller = Star_PurschaseInApp(context: context, invoice: invoice, source: .slug(slug), type: invoice.subscriptionPeriod != nil ? .botSubscription(invoice) : .bot, completion: { update($0.rawValue) })
+    } else {
+        controller = PaymentsCheckoutController(context: context, source: .slug(slug), invoice: invoice, completion: { update($0.rawValue) })
+    }
+    let onDeinit = controller.onDeinit
+    controller.onDeinit = {
+        onDeinit?()
+        completion(result.with { $0 })
+    }
+    showModal(with: controller, for: window)
 }

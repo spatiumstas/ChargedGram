@@ -347,6 +347,8 @@ private final class ProxyView : Control {
         addSubview(button)
         button.userInteractionEnabled = false
         button.isEventLess = true
+        button.isAccessibilityDecorative = true
+        self.setAccessibilityLabel(strings().voiceOverNavigationProxySettings)
         self.scaleOnClick = true
     }
 
@@ -609,6 +611,7 @@ fileprivate final class WebappsControl : Control {
                     current = ImageView()
                     current.setFrameSize(24, 24)
                     current.isEventLess = true
+                    current.isAccessibilityDecorative = true
                     current.layer?.cornerRadius = 4
                     self.iconView = current
                     addSubview(current)
@@ -679,6 +682,7 @@ fileprivate final class WebappsControl : Control {
         
         for (idx, item, _) in indicesAndItems {
             let view = Control(frame: rects[idx])
+            view.setAccessibilityLabel(item.data.peer?._asPeer().displayTitle)
             view.update(item: item, context: context)
             
             views.insert(view, at: idx)
@@ -704,6 +708,7 @@ fileprivate final class WebappsControl : Control {
                 isNew = false
             } else {
                 current = ImageView()
+                current.isAccessibilityDecorative = true
                 addSubview(current)
                 self.imageView = current
                 isNew = true
@@ -828,6 +833,7 @@ fileprivate final class TitleView : Control {
         addSubview(textView)
         textView.userInteractionEnabled = false
         textView.isSelectable = false
+        textView.isAccessibilityDecorative = true
         self.layer?.masksToBounds = false
     }
     
@@ -872,6 +878,7 @@ fileprivate final class TitleView : Control {
             let layout = TextViewLayout(.initialize(string: text, color: theme.colors.text, font: .medium(.title)), maximumNumberOfLines: 1)
             layout.measure(width: maxWidth)
             textView.update(layout)
+            setAccessibilityLabel(text)
         }
         
         let hasStatus = state.peer?.peer.isPremium ?? false && state.mode == .plain && source != .contacts
@@ -952,7 +959,9 @@ private final class TitleForumView : Control {
         status.userInteractionEnabled = false
         title.isSelectable = false
         status.isSelectable = false
+        title.isAccessibilityDecorative = true
         
+        settings.setAccessibilityLabel(strings().voiceOverCommonMore)
         settings.autohighlight = false
         settings.scaleOnClick = true
     }
@@ -977,6 +986,7 @@ private final class TitleForumView : Control {
         
         self.title.update(t_layout)
         self.status.update(s_layout)
+        setAccessibilityLabel(forumData.peer.displayTitle)
         
         settings.set(image: theme.icons.chatActions.highlight(color: theme.colors.accent), for: .Normal)
         settings.sizeToFit(.zero, NSMakeSize(30, 30), thatFit: true)
@@ -1043,7 +1053,10 @@ public class PeerListContainerView : Control {
     }
     
     
+    public var layoutBottomOverlay: ((CGFloat, ContainedViewLayoutTransition) -> NSRect?)?
+
     private var downloads: DownloadsControl?
+    private var removalUndo: ChatRemovalUndoView?
     private var proxy: ProxyView?
     private var compose:ImageButton?
     private var backButton: ImageButton?
@@ -1094,6 +1107,7 @@ public class PeerListContainerView : Control {
     private let borderView = View()
     private let forumSeparatorView = View()
     private let tableMaskLayer = CALayer()
+    private var layoutSize: NSSize?
 
     public override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
@@ -1125,6 +1139,8 @@ public class PeerListContainerView : Control {
         statusContainer.handleScrollEventOnInteractionEnabled = true
         statusContainer.userInteractionEnabled = false
         statusContainer.isEventLess = true
+        statusContainer.isAccessibilityDecorative = true
+        containerView.isAccessibilityDecorative = true
         
         searchView.externalScroll = { [weak self] event in
             self?.tableView.scrollWheel(with: event)
@@ -1185,6 +1201,9 @@ public class PeerListContainerView : Control {
         if prevSearchState != state.searchState || prevSplitState != state.splitState || prevAppear != state.appear {
             applyDownloadsVisibility(animated: animated)
         }
+        if prevSplitState != state.splitState || prevAppear != state.appear {
+            applyRemovalUndoVisibility(animated: animated)
+        }
 
         self.mode = state.mode
         let displaysFullForumHeader = state.splitState != .minimisize && state.mode.isFullForum
@@ -1231,12 +1250,15 @@ public class PeerListContainerView : Control {
             if state.isContacts {
                 current.set(image: theme.icons.contactsNewContact, for: .Normal)
                 current.set(image: theme.icons.contactsNewContact, for: .Hover)
+                current.setAccessibilityLabel(strings().voiceOverContactsAddContact)
             } else if state.mode.groupId == .archive || state.mode.isSavedMessages || state.mode.isCommunity {
                 current.set(image: theme.icons.chatActions.highlight(color: theme.colors.accent), for: .Normal)
                 current.set(image: theme.icons.chatActions.highlight(color: theme.colors.accent), for: .Hover)
+                current.setAccessibilityLabel(strings().voiceOverCommonMore)
             } else {
                 current.set(image: theme.icons.composeNewChat, for: .Normal)
                 current.set(image: theme.icons.composeNewChat, for: .Hover)
+                current.setAccessibilityLabel(strings().voiceOverNavigationCompose)
             }
             current.contextMenu = { [weak arguments] in
                 return arguments?.contextMenu()
@@ -1367,6 +1389,7 @@ public class PeerListContainerView : Control {
                 current = view
             } else {
                 current = ImageButton(frame: .zero)
+                current.setAccessibilityLabel(strings().voiceOverCommonBack)
                 self.backButton = current
                 current.animates = false
                 current.scaleOnClick = true
@@ -1438,9 +1461,9 @@ public class PeerListContainerView : Control {
                 current = view
             } else {
                 current = ChatNavigationScroller(.scrollerUp)
-                current.setFrameOrigin(NSMakePoint(frame.width - current.frame.width - 10, frame.height - current.frame.height - 10))
                 addSubview(current)
                 self.scrollerView = current
+                updateBottomControls(size: frame.size, transition: .immediate)
                 
                 if animated {
                     current.layer?.animateAlpha(from: 0, to: 1, duration: 0.2)
@@ -1586,6 +1609,8 @@ public class PeerListContainerView : Control {
         guard let state = self.state, let arguments = self.arguments else {
             return
         }
+        let transition: ContainedViewLayoutTransition = layoutSize == size ? transition : .immediate
+        layoutSize = size
         let displaysFullForumHeader = state.splitState != .minimisize && state.mode.isFullForum
         
         var maxTitleWidth: CGFloat = max(size.width, 300) - 60
@@ -1653,14 +1678,10 @@ public class PeerListContainerView : Control {
         
 
 
-        transition.updateFrame(view: tableView, frame: NSMakeRect(0, 0, size.width, size.height - bottomInset))
+        ContainedViewLayoutTransition.immediate.updateFrame(view: tableView, frame: NSMakeRect(0, 0, size.width, size.height - bottomInset))
         updateTableMask(spaceHeight: navigationHeight)
 
-        if let downloads = downloads {
-            let edge: CGFloat = 12
-            let rect = NSMakeRect(edge, size.height - downloads.frame.height - edge, size.width - edge * 2, downloads.frame.height)
-            transition.updateFrame(view: downloads, frame: rect)
-        }
+        updateBottomControls(size: size, transition: transition)
         
         var controlPoint = NSMakePoint(containerSize.width - 14, floorToScreenPixels(backingScaleFactor, (statusHeight - componentSize.height)/2.0))
 
@@ -1709,14 +1730,6 @@ public class PeerListContainerView : Control {
 
         if let view = self.webapps {
             transition.updateFrame(view: view, frame: CGRect(origin: NSMakePoint(10, floorToScreenPixels((50 - view.frame.height) / 2)), size: view.frame.size))
-        }
-
-        if let view = self.scrollerView {
-            var bottomOffset: CGFloat = 10
-            if let downloads = self.downloads {
-                bottomOffset += downloads.frame.height + 12 + 6
-            }
-            transition.updateFrame(view: view, frame: NSMakeRect(size.width - view.frame.width - 10, size.height - view.frame.height - bottomOffset, view.frame.width, view.frame.height))
         }
 
         let storiesShift: CGFloat
@@ -1870,6 +1883,72 @@ public class PeerListContainerView : Control {
         CATransaction.commit()
     }
     
+    public func updateBottomControls(size: NSSize, transition: ContainedViewLayoutTransition) {
+        var bottomControlsY = size.height
+        for view in [downloads as NSView?, removalUndo as NSView?].compactMap({ $0 }) {
+            let edge: CGFloat = 12
+            let rect = NSMakeRect(edge, bottomControlsY - view.frame.height - edge, size.width - edge * 2, view.frame.height)
+            transition.updateFrame(view: view, frame: rect)
+            bottomControlsY = rect.minY
+        }
+        let overlay = layoutBottomOverlay?(bottomControlsY, transition)
+        if let view = self.scrollerView {
+            let gap: CGFloat = 12
+            let visualInset = (view.frame.height - (view.glassSize?.height ?? view.frame.height)) / 2
+            let bottomOffset: CGFloat = downloads != nil || removalUndo != nil ? gap - visualInset : 10
+            var rect = NSMakeRect(size.width - view.frame.width - 10, bottomControlsY - view.frame.height - bottomOffset, view.frame.width, view.frame.height)
+            if let overlay, overlay.intersects(NSRect(origin: .zero, size: size)) {
+                rect.origin.y = min(overlay.midY - rect.height / 2, bottomControlsY - rect.height - gap + visualInset)
+                if rect.insetBy(dx: -6, dy: 0).intersects(overlay) {
+                    rect.origin.y = overlay.minY - rect.height - gap + visualInset
+                }
+            }
+            transition.updateFrame(view: view, frame: rect)
+        }
+    }
+
+    private var pendingRemovalUndo: (toast: PendingChatRemovalToast, undo: () -> Void)?
+
+    public func updateRemovalUndo(_ toast: PendingChatRemovalToast?, undo: @escaping () -> Void, animated: Bool) {
+        if let toast = toast {
+            self.pendingRemovalUndo = (toast: toast, undo: undo)
+        } else {
+            self.pendingRemovalUndo = nil
+        }
+        applyRemovalUndoVisibility(animated: animated)
+    }
+
+    fileprivate func applyRemovalUndoVisibility(animated: Bool) {
+        let transition: ContainedViewLayoutTransition = animated ? .animated(duration: 0.2, curve: .easeInOut) : .immediate
+        let edge: CGFloat = 12
+        let allowed: Bool
+        if let st = self.state {
+            allowed = st.splitState != .minimisize && st.appear != .short
+        } else {
+            allowed = true
+        }
+        if let pending = self.pendingRemovalUndo, allowed {
+            let current: ChatRemovalUndoView
+            if let view = self.removalUndo {
+                current = view
+            } else {
+                current = ChatRemovalUndoView(frame: NSMakeRect(edge, frame.height, frame.width - edge * 2, ChatRemovalUndoView.height))
+                self.removalUndo = current
+                addSubview(current, positioned: .above, relativeTo: self.tableView)
+                if animated {
+                    current.layer?.animateAlpha(from: 0, to: 1, duration: 0.2, timingFunction: .easeInEaseOut)
+                }
+            }
+            current.update(toast: pending.toast, undo: pending.undo)
+        } else if let view = self.removalUndo {
+            self.removalUndo = nil
+            transition.updateFrame(view: view, frame: NSRect(origin: NSMakePoint(edge, frame.height), size: view.frame.size), completion: { _ in
+                view.removeFromSuperview()
+            })
+        }
+        updateBottomControls(size: frame.size, transition: transition)
+    }
+
     private var pendingDownloads: (state: DownloadsSummary.State, context: any AccountContextProtocol, arguments: DownloadsControlArguments)?
 
     public func updateDownloads(_ state: DownloadsSummary.State, context: any AccountContextProtocol, arguments: DownloadsControlArguments, animated: Bool) {
@@ -1878,6 +1957,7 @@ public class PeerListContainerView : Control {
     }
 
     fileprivate func applyDownloadsVisibility(animated: Bool) {
+        let transition: ContainedViewLayoutTransition = animated ? .animated(duration: 0.2, curve: .easeInOut) : .immediate
         let edge: CGFloat = 12
         let allowed: Bool
         if let st = self.state {
@@ -1891,12 +1971,11 @@ public class PeerListContainerView : Control {
             if let view = self.downloads {
                 current = view
             } else {
-                current = DownloadsControl(frame: NSMakeRect(edge, frame.height - 30 - edge, frame.width - edge * 2, 30))
+                current = DownloadsControl(frame: NSMakeRect(edge, frame.height, frame.width - edge * 2, 30))
                 self.downloads = current
                 addSubview(current, positioned: .above, relativeTo: self.tableView)
                 if animated {
-                    current.layer?.animateAlpha(from: 0, to: 1, duration: 0.2)
-                    current.layer?.animatePosition(from: NSMakePoint(current.frame.minX, current.frame.maxY), to: current.frame.origin)
+                    current.layer?.animateAlpha(from: 0, to: 1, duration: 0.2, timingFunction: .easeInEaseOut)
                 }
             }
             current.update(pending.state, context: pending.context, arguments: pending.arguments, animated: animated)
@@ -1905,9 +1984,11 @@ public class PeerListContainerView : Control {
             }, for: .Click)
         } else if let view = self.downloads {
             self.downloads = nil
-            performSubviewPosRemoval(view, pos: NSMakePoint(edge, frame.maxY), animated: animated)
+            transition.updateFrame(view: view, frame: NSRect(origin: NSMakePoint(edge, frame.height), size: view.frame.size), completion: { _ in
+                view.removeFromSuperview()
+            })
         }
-        updateLayout(self.frame.size, transition: animated ? .animated(duration: 0.2, curve: .easeInOut) : .immediate)
+        updateBottomControls(size: frame.size, transition: transition)
     }
     
 }
@@ -2765,6 +2846,8 @@ open class PeersListController<Context: AccountContextProtocol>: TelegramGeneric
         }, revealStoriesState: { [weak self] in
             self?.revealStoriesState()
         }, setupFilter: { [weak self] filter in
+            if self?.stateValue.with({ $0.filterData.filter }) != filter {
+            }
             self?.navigationController?.back()
             self?.updateState { current in
                 var current = current
@@ -3680,7 +3763,7 @@ open class PeersListController<Context: AccountContextProtocol>: TelegramGeneric
             self.genericView.updateSwipingState(state, controller: controller)
             self.swipeState = state
             
-            genericView.tableView.enumerateViews(with: { view in
+            genericView.tableView.enumerateExistingItemViews(with: { _, view in
                 if let view = view as? ChatListRowView {
                     let animated: Bool
                     switch swipeState {
@@ -3691,7 +3774,6 @@ open class PeersListController<Context: AccountContextProtocol>: TelegramGeneric
                     }
                     view.updateHideProgress(animated: animated)
                 }
-                return true
             })
 
             if let progress = getSwipeProgress() {

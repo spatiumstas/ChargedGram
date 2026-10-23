@@ -81,6 +81,10 @@ public class ContextMediaRowItem: TableRowItem {
     public override func viewClass() -> AnyClass {
         return ContextMediaRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return strings().voiceOverChatMediaResults
+    }
     
     
     public override func menuItems(in location: NSPoint) -> Signal<[ContextMenuItem], NoError> {

@@ -14,16 +14,39 @@ class GroupNameRowItem: InputDataRowItem {
     var photo:String?
     fileprivate let pickPicture: ((Bool)->Void)?
     fileprivate let account: Account
+    fileprivate let placeholderText: String
     init(_ initialSize: NSSize, stableId: AnyHashable, account: Account, placeholder: String, photo: String? = nil, viewType: GeneralViewType = .legacy, text:String = "", limit: Int32 = 140, textChangeHandler:@escaping(String)->Void = {_ in}, pickPicture: ((Bool)->Void)? = nil) {
         self.photo = photo
         self.account = account
         self.pickPicture = pickPicture
+        self.placeholderText = placeholder
         super.init(initialSize, stableId: stableId, mode: .plain, error: nil, viewType: viewType, currentText: text, placeholder: nil, inputPlaceholder: placeholder, filter: { $0 }, updated: textChangeHandler, limit: limit)
 
     }
     
     override func viewClass() -> AnyClass {
         return GroupNameRowView.self
+    }
+
+    override var accessibilityLabel: String? {
+        return placeholderText
+    }
+
+    override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        guard pickPicture != nil else {
+            return nil
+        }
+        var actions: [NSAccessibilityCustomAction] = [NSAccessibilityCustomAction(name: strings().peerCreatePeerContextUpdatePhoto, handler: { [weak self] in
+            self?.pickPicture?(true)
+            return true
+        })]
+        if photo != nil {
+            actions.append(NSAccessibilityCustomAction(name: strings().peerCreatePeerContextRemovePhoto, handler: { [weak self] in
+                self?.pickPicture?(false)
+                return true
+            }))
+        }
+        return actions
     }
     
     override var textFieldLeftInset: CGFloat {
@@ -53,6 +76,7 @@ class GroupNameRowView : InputDataRowView {
         containerView.addSubview(tranparentView)
         containerView.addSubview(imageView)
         containerView.addSubview(circleView)
+        imageView.isAccessibilityDecorative = true
         photoView.setFrameSize(52, 52)
         tranparentView.setFrameSize(50, 50)
         photoView.animatesAlphaOnFirstTransition = true

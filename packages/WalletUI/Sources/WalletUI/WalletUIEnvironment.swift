@@ -23,6 +23,9 @@ public enum WalletUIMenuImage {
     case menu_cloud
     case menu_gram
     case menu_globe
+    case menu_change_colors
+    case menu_add
+    case menu_hide
 }
 
 open class WalletUIAvatarView: View {
@@ -37,12 +40,15 @@ public protocol WalletUIEnvironment: AnyObject {
     func openAccountProtection()
     func openPasscodeSettings()
     func rarityBadge(_ rarity: StarGift.UniqueGift.Attribute.Rarity) -> (text: String, color: NSColor?)
+    func openGiftValue(_ gift: StarGift.UniqueGift)
+    func openGiftStore(_ gift: StarGift.Gift)
     func openGift(_ gift: StarGift.UniqueGift)
     func openExternalURL(_ url: String)
     func prepareOnrampNavigation(_ url: String) -> (() -> Void)?
     func presentAlert(window: Window, header: String?, text: String?, ok: String, onClose: (() -> Void)?)
     func presentAlert(window: Window, header: String?, ok: String, content: @escaping (NSSize, AnyHashable) -> TableRowItem)
     func presentDismissableAlert(window: Window, header: String?, text: String?, ok: String) -> () -> Void
+    func presentConfirmation(window: Window, header: String, ok: String, cancel: String, content: @escaping (NSSize, AnyHashable, @escaping () -> Void) -> TableRowItem, confirmed: @escaping () -> Void)
     func presentConfirmation(window: Window, header: String, text: String?, ok: String, cancel: String, buttonStyle: Bool, confirmed: @escaping () -> Void, cancelled: @escaping () -> Void)
     func presentConfirmation(window: Window, header: String, text: String?, ok: String, cancel: String, option: String, optionIsSelected: Bool, confirmed: @escaping (Bool) -> Void, cancelled: @escaping () -> Void)
     func presentText(window: Window, text: String, title: String?, button: String?, callback: ((String) -> Void)?)

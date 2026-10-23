@@ -439,13 +439,15 @@ public enum PaymentCheckoutCompletionStatus : String {
     case failed
 }
 
+
 public func PaymentsCheckoutController(context: (any AccountContextProtocol), source: BotPaymentInvoiceSource, invoice: TelegramMediaInvoice, completion:((PaymentCheckoutCompletionStatus)->Void)? = nil) -> InputDataModalController {
 
     var completion = completion
     
     let invokeCompletion:(PaymentCheckoutCompletionStatus)->Void = { value in
-        completion?(value)
+        let callback = completion
         completion = nil
+        callback?(value)
     }
     
     var getController:(()->ViewController?)? = nil
@@ -453,6 +455,15 @@ public func PaymentsCheckoutController(context: (any AccountContextProtocol), so
     
     let window:()->Window = {
         return getController?()?.window ?? context.window
+    }
+
+    func showPaymentChild(_ create: @autoclosure () -> ModalViewController) {
+        let controller = paymentChildController( create: create)
+        showModal(with: controller, for: window())
+    }
+
+    func showPaymentError(_ text: String) {
+        alert(for: window(), info: text)
     }
     
     var close:(()->Void)? = nil
@@ -467,8 +478,7 @@ public func PaymentsCheckoutController(context: (any AccountContextProtocol), so
     }
     
     let addPaymentMethod:(String, BotPaymentForm)->Void = { url, paymentForm in
-        showModal(with: PaymentWebInteractionController(context: context, url: url, intent: .addPaymentMethod({ token in
-           
+        showPaymentChild(PaymentWebInteractionController(context: context, url: url, intent: .addPaymentMethod({ token in
             let canSave = paymentForm.canSaveCredentials && !paymentForm.passwordMissing
             if canSave {
                 verifyAlert_button(for: window(), information: strings().checkoutInfoSaveInfoHelp, ok: strings().modalYes, cancel: strings().modalNotNow, successHandler: { _ in
@@ -492,53 +502,53 @@ public func PaymentsCheckoutController(context: (any AccountContextProtocol), so
                 }
             }
 
-        })), for: window())
+        })))
     }
 
     let arguments = Arguments(context: context, openForm: { focus in
         let state = stateValue.with({ $0 })
         if let form = state.form {
-            showModal(with: PaymentsShippingInfoController(context: context, invoice: form.invoice, source: source, formInfo: state.savedInfo, focus: focus, formInfoUpdated: { savedInfo, validatedInfo in
+            showPaymentChild(PaymentsShippingInfoController(context: context, invoice: form.invoice, source: source, formInfo: state.savedInfo, focus: focus, formInfoUpdated: { savedInfo, validatedInfo in
                 updateState { current in
                     var current = current
                     current.savedInfo = savedInfo
                     current.validatedInfo = validatedInfo
                     return current
                 }
-            }), for: window())
+            }))
         }
     }, openShippingMethod: {
         let state = stateValue.with({ $0 })
         if let form = state.form, let options = state.validatedInfo?.shippingOptions {
-            showModal(with: PaymentsShippingMethodController(context: context, shippingOptions: options, form: form, select: { id in
+            showPaymentChild(PaymentsShippingMethodController(context: context, shippingOptions: options, form: form, select: { id in
                 updateState { current in
                     var current = current
                     current.shippingOptionId = id
                     return current
                 }
-            }), for: window())
+            }))
         }
     }, openPaymentMethod: {
         if let form = stateValue.with({ $0.form }), let value = parseRequestedPaymentMethod(paymentForm: form) {
             
             let openNewCard:()->Void = {
-                showModal(with: PaymentsPaymentMethodController(context: context, fields: value.1, publishableKey: value.0, passwordMissing: form.passwordMissing, isTesting: form.invoice.isTest, provider: value.2, completion: { method in
+                showPaymentChild(PaymentsPaymentMethodController(context: context, fields: value.1, publishableKey: value.0, passwordMissing: form.passwordMissing, isTesting: form.invoice.isTest, provider: value.2, completion: { method in
                     updateState { current in
                         var current = current
                         current.paymentMethod = method
                         return current
                     }
-                }), for: window())
+                }))
             }
             
             let methods = availablePaymentMethods(form: form, current: nil)
-            showModal(with: PamentsSelectMethodController(context: context, cards: form.savedCredentials, form: form, methods: methods, select: { selected in
+            showPaymentChild(PamentsSelectMethodController(context: context, cards: form.savedCredentials, form: form, methods: methods, select: { selected in
                 updateState { current in
                     var current = current
                     current.paymentMethod = .savedCredentials(selected)
                     return current
                 }
-            }, addNew: openNewCard, addPaymentMethod: addPaymentMethod), for: window())
+            }, addNew: openNewCard, addPaymentMethod: addPaymentMethod))
             
         } else if let paymentForm = stateValue.with({ $0.form }) {
             if let url = paymentForm.url {
@@ -558,10 +568,9 @@ public func PaymentsCheckoutController(context: (any AccountContextProtocol), so
             }
                         
             let pay:()->Void = {
-                
                 let paySignal = context.engine.payments.sendBotPaymentForm(source: source, formId: form.id, validatedInfoId: state.validatedInfo?.id, shippingOptionId: state.shippingOptionId?.id, tipAmount: state.form?.invoice.tip != nil ? (state.currentTip ?? 0) : nil, credentials: credentials)
                 
-                _ = showModalProgress(signal: paySignal, for: window()).start(next: { result in
+                _ = (showModalProgress(signal: paySignal, for: window())).start(next: { result in
                     
                     let success:(Bool)->Void = { value in
                         if value {
@@ -579,7 +588,7 @@ public func PaymentsCheckoutController(context: (any AccountContextProtocol), so
                     case .done:
                         success(true)
                     case let .externalVerificationRequired(url: url):
-                        showModal(with: PaymentWebInteractionController(context: context, url: url, intent: .externalVerification(success)), for: window())
+                        showPaymentChild(PaymentWebInteractionController(context: context, url: url, intent: .externalVerification(success)))
                     }
                 }, error: { error in
                     let text: String
@@ -601,7 +610,7 @@ public func PaymentsCheckoutController(context: (any AccountContextProtocol), so
                     case let .serverProvided(value):
                         text = value
                     }
-                    alert(for: window(), info: text)
+                    showPaymentError(text)
                     invokeCompletion(.failed)
                     close?()
                 })
@@ -618,7 +627,7 @@ public func PaymentsCheckoutController(context: (any AccountContextProtocol), so
             if let providerId = form.providerId, let paymentBotId = form.paymentBotId {
                 let checkSignal = combineLatest(queue: .mainQueue(), ApplicationSpecificNotice.getBotPaymentLiability(accountManager: context.sharedContext.accountManager, peerId: paymentBotId), botPeer, context.account.postbox.loadedPeerWithId(providerId))
                 
-                let _ = checkSignal.startStandalone(next: { value, botPeer, providerPeer in
+                let _ = (checkSignal).startStandalone(next: { value, botPeer, providerPeer in
                     if let botPeer = botPeer {
                         if value {
                             pay()
@@ -646,10 +655,10 @@ public func PaymentsCheckoutController(context: (any AccountContextProtocol), so
                         if let token = token, token.validUntilDate > timestamp - 1 * 60  {
                             pay(.saved(id: id, tempPassword: token.token))
                         } else {
-                            showModal(with: InputPasswordController(context: context, title: strings().checkoutPasswordEntryTitle, desc: strings().checkoutPasswordEntryText(title), checker: { password in
+                            showPaymentChild(InputPasswordController(context: context, title: strings().checkoutPasswordEntryTitle, desc: strings().checkoutPasswordEntryText(title), checker: { password in
                                 Signal { subscriber in
                                     let checker = context.engine.auth.requestTemporaryTwoStepPasswordToken(password: password, period: 1 * 60, requiresBiometrics: false) |> deliverOnMainQueue
-                                    return checker.start(next: { token in
+                                    return (checker).start(next: { token in
                                         pay(.saved(id: id, tempPassword: token.token))
                                         subscriber.putCompletion()
                                     }, error: { error in
@@ -661,7 +670,7 @@ public func PaymentsCheckoutController(context: (any AccountContextProtocol), so
                                         }
                                     })
                                 }
-                            }), for: window())
+                            }))
                         }
                     })
                 }
@@ -728,7 +737,7 @@ public func PaymentsCheckoutController(context: (any AccountContextProtocol), so
 
     let formPromise: Promise<(BotPaymentForm, BotPaymentValidatedFormInfo?)> = Promise()
     
-    formPromise.set(formAndMaybeValidatedInfo |> `catch` { _ in .complete() })
+    formPromise.set((formAndMaybeValidatedInfo |> `catch` { _ in .complete() }))
     
     
     let botPeer: Signal<Peer?, BotPaymentFormRequestError> = formPromise.get() |> mapToSignal { value in
@@ -741,7 +750,7 @@ public func PaymentsCheckoutController(context: (any AccountContextProtocol), so
         }
     } |> castError(BotPaymentFormRequestError.self)
     
-    actionsDisposable.add(combineLatest(formPromise.get() |> castError(BotPaymentFormRequestError.self), botPeer).start(next: { form, botPeer in
+    actionsDisposable.add((combineLatest(formPromise.get() |> castError(BotPaymentFormRequestError.self), botPeer)).start(next: { form, botPeer in
         updateState { current in
             var current = current
             current.form = form.0
@@ -762,7 +771,7 @@ public func PaymentsCheckoutController(context: (any AccountContextProtocol), so
     }, error: { error in
         invokeCompletion(.failed)
         close?()
-        alert(for: window(), info: strings().unknownError)
+        showPaymentError(strings().unknownError)
     }))
     
     getController = { [weak controller] in
@@ -820,6 +829,7 @@ public func PaymentsCheckoutController(context: (any AccountContextProtocol), so
     })
     
     
+
     close = { [weak modalController] in
         modalController?.modal?.close()
     }

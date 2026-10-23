@@ -854,6 +854,8 @@ open class ChannelVisibilityController<Context: AccountContextProtocol>: EmptyCo
         self.linksManager = linksManager
         
         super.init(context)
+        if !isNew {
+        }
     }
     
     open override var defaultBarTitle: String {
@@ -960,6 +962,7 @@ open class ChannelVisibilityController<Context: AccountContextProtocol>: EmptyCo
                 
                 self?.checkAddressNameDisposable.set((context.engine.peers.validateAddressNameInteractive(domain: .peer(peerId), name: text)
                     |> deliverOnMainQueue).start(next: { result in
+
                     updateState { current in
                         var current = current
                         current.addressNameValidationStatus = result
@@ -1028,6 +1031,8 @@ open class ChannelVisibilityController<Context: AccountContextProtocol>: EmptyCo
                 return current
             }
         }, toggleApproveNewMembers: { value in
+            if stateValue.with({ $0.joinToSend }) != .everyone {
+            }
             updateState { current in
                 var current = current
                 current.approveMembers = value
@@ -1115,6 +1120,8 @@ open class ChannelVisibilityController<Context: AccountContextProtocol>: EmptyCo
                 var current = current
                 
                 let peer = peerViewMainPeer(peerView)
+                if let peer = peer {
+                }
                 let publicChannelsToRevoke = adminedPublicChannels.map { channels -> [Peer] in
                     let limits = context.premiumLimits
                     let hasCollectibleUsernames = peer?.usernames.contains(where: { !$0.flags.contains(.isEditable) }) == true

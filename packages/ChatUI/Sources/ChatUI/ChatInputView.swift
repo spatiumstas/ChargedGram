@@ -191,7 +191,7 @@ public final class ChatInputContainerView: FlippableView {
         // container so they're hidden together when the input state changes
         // (recording / action panel / etc. via container.isHidden).
         keyboardGlass.isHidden = true
-        bottomView.documentView = View()
+        bottomView.documentView = ReplyMarkupContainerView()
         bottomView.layer?.cornerRadius = 16
         bottomView.documentView?.background = .clear
         bottomView.scrollerStyle = .overlay
@@ -511,6 +511,7 @@ public final class ChatInputContainerView: FlippableView {
                 current.set(image: TelegramThemeHooks.shared.image(.iconExpandRichText).precomposed(theme.colors.text), for: .Normal)
                 current.sizeToFit(NSZeroSize, NSMakeSize(24, 24), thatFit: true)
                 current.set(handler: { [weak self] _ in self?.openRichEditor?() }, for: .Click)
+                current.setAccessibilityLabel(strings().voiceOverCommonExpand)
                 textFieldContainer.addSubview(current)
                 expandRichButton = current
                 isNew = true
@@ -714,7 +715,7 @@ public class ChatInputView: View, Notifable {
         super.init(frame: frameRect)
 
         self.textView.context = chatInteraction.interactionContext
-        self.textView.isSecretChat = chatInteraction.presentation.peer?.isSecretChat == true
+        self.textView.isSecretChat = chatInteraction.peerId.namespace == Namespaces.Peer.SecretChat || chatInteraction.presentation.peer?.isSecretChat == true
 
         self.animates = true
 
@@ -782,7 +783,7 @@ public class ChatInputView: View, Notifable {
             case let .plain(text, entities):
                 self.chatInteraction.setRichTextDraft(nil)
                 if !text.isEmpty {
-                    let attributes = chatTextAttributes(from: TextEntitiesMessageAttribute(entities: entities))
+                    var attributes = chatTextAttributes(from: TextEntitiesMessageAttribute(entities: entities))
                     let restored = ChatTextInputState(inputText: text, selectionRange: text.length ..< text.length, attributes: attributes)
                     self.chatInteraction.update { $0.updatedInterfaceState { $0.withUpdatedInputState(restored) } }
                 }
@@ -1229,8 +1230,9 @@ public class ChatInputView: View, Notifable {
         }
 
         if let value = value as? ChatPresentationInterfaceState, let oldValue = oldValue as? ChatPresentationInterfaceState {
-            
-            if value.effectiveInput != oldValue.effectiveInput || oldValue.state != value.state {
+            let textPermissionChanged = permissionText(from: value.peer, for: .banSendText, cachedData: value.cachedData) != permissionText(from: oldValue.peer, for: .banSendText, cachedData: oldValue.cachedData)
+
+            if value.effectiveInput != oldValue.effectiveInput || oldValue.state != value.state || textPermissionChanged {
                 updateInput(value, prevState: oldValue, animated: animated)
             }
             updateAttachments(value,animated)
@@ -1254,7 +1256,7 @@ public class ChatInputView: View, Notifable {
                 updateAdditions(value,animated)
             }
             
-            if value.state != oldValue.state {
+            if value.state != oldValue.state || textPermissionChanged {
                 needUpdateChatState(with:value.state, animated)
             }
             
@@ -1542,6 +1544,7 @@ public class ChatInputView: View, Notifable {
         return slots
     }
 
+
     public func needUpdateChatState(with state:ChatState, _ animated:Bool) -> Void {
         CATransaction.begin()
 
@@ -1750,6 +1753,7 @@ public class ChatInputView: View, Notifable {
             current.set(handler: { _ in
                 showModalText(for: context.window, text: text)
             }, for: .Click)
+            current.setAccessibilityLabel(text)
             current.set(cursor: .arrow, for: .Normal)
             current.set(cursor: .arrow, for: .Highlight)
             current.set(cursor: .arrow, for: .Hover)
@@ -1782,7 +1786,9 @@ public class ChatInputView: View, Notifable {
         
         self.textView.interactions.inputIsEnabled = self.isEnabled()
         self.textView.set(input)
-        self.textView.placeholder = textPlaceholder
+        let placeholder = textPlaceholder
+        self.textView.placeholder = placeholder
+        self.textView.inputView.setAccessibilityLabel(placeholder)
         
         if prevState.effectiveInput.inputText.isEmpty {
             self.textView.scrollToCursor()
@@ -1815,11 +1821,15 @@ public class ChatInputView: View, Notifable {
         accessoryDisposable.set(accessory.nodeReady.get().start(next: { [weak self] animated in
             self?.updateAccesory(animated: animated)
         }))
-        self.textView.placeholder = textPlaceholder
+        let placeholder = textPlaceholder
+        self.textView.placeholder = placeholder
+        self.textView.inputView.setAccessibilityLabel(placeholder)
     }
     
     public func updatePlaceholder() {
-        self.textView.placeholder = textPlaceholder
+        let placeholder = textPlaceholder
+        self.textView.placeholder = placeholder
+        self.textView.inputView.setAccessibilityLabel(placeholder)
     }
     
     private func updateAccesory(animated: Bool) {
@@ -2224,6 +2234,7 @@ public class ChatInputView: View, Notifable {
                                 rtfAttachmentsDisposable.set((prepareTextAttachments(attachments) |> deliverOnMainQueue).start(next: { [weak self] urls in
                                     if !urls.isEmpty, let interaction = self?.chatInteraction {
                                         interaction.showPreviewSender(urls, true, attributed)
+                                    } else if urls.isEmpty {
                                     }
                                 }))
                             } else {

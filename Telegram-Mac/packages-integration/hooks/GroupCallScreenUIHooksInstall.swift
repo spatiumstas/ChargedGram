@@ -36,7 +36,8 @@ func installGroupCallScreenUIHooks() {
     }, generateScamIconReversed: { foregroundColor, backgroundColor in
         return generateScamIconReversed(foregroundColor: foregroundColor, backgroundColor: backgroundColor)
     }, makeEmojies: { context, presentation in
-        return EmojiesController(context as! AccountContext, presentation: presentation)
+        let emojis = EmojiesController(context as! AccountContext, presentation: presentation)
+        return emojis
     }, updateEmojies: { emoji, interactions, chatInteraction in
         (emoji as! EmojiesController).update(with: interactions, chatInteraction: chatInteraction)
     }, formatMessageText: { entities, text, context, fontSize, textColor, linkColor in

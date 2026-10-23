@@ -3,7 +3,7 @@ import Cocoa
 
 
 
-public enum ImageCorner: Equatable {
+public enum ImageCorner: Equatable, Hashable {
     case Corner(CGFloat)
     case Tail(CGFloat)
     
@@ -30,14 +30,14 @@ public func ==(lhs: ImageCorner, rhs: ImageCorner) -> Bool {
     switch lhs {
     case let .Corner(lhsRadius):
         switch rhs {
-        case let .Corner(rhsRadius) where abs(lhsRadius - rhsRadius) < CGFloat.ulpOfOne:
+        case let .Corner(rhsRadius) where lhsRadius == rhsRadius:
             return true
         default:
             return false
         }
     case let .Tail(lhsRadius):
         switch rhs {
-        case let .Tail(rhsRadius) where abs(lhsRadius - rhsRadius) < CGFloat.ulpOfOne:
+        case let .Tail(rhsRadius) where lhsRadius == rhsRadius:
             return true
         default:
             return false
@@ -124,10 +124,10 @@ public struct TransformImageArguments: Equatable, Hashable {
         hasher.combine(intrinsicInsets.left)
         hasher.combine(intrinsicInsets.right)
         hasher.combine(intrinsicInsets.bottom)
-        hasher.combine(corners.topLeft.corner)
-        hasher.combine(corners.topRight.corner)
-        hasher.combine(corners.bottomLeft.corner)
-        hasher.combine(corners.bottomRight.corner)
+        hasher.combine(corners.topLeft)
+        hasher.combine(corners.topRight)
+        hasher.combine(corners.bottomLeft)
+        hasher.combine(corners.bottomRight)
     }
     
     public var drawingSize: CGSize {
@@ -160,7 +160,10 @@ public struct TransformImageArguments: Equatable, Hashable {
 }
 
 public func ==(lhs: TransformImageArguments, rhs: TransformImageArguments) -> Bool {
-    return lhs.imageSize == rhs.imageSize && lhs.boundingSize == rhs.boundingSize && lhs.corners == rhs.corners && lhs.emptyColor == rhs.emptyColor && lhs.scale == rhs.scale && lhs.someObject == rhs.someObject && lhs.mirror == rhs.mirror
+    return lhs.imageSize == rhs.imageSize && lhs.boundingSize == rhs.boundingSize
+        && lhs.corners == rhs.corners && lhs.intrinsicInsets == rhs.intrinsicInsets
+        && lhs.resizeMode == rhs.resizeMode && lhs.emptyColor == rhs.emptyColor
+        && lhs.scale == rhs.scale && lhs.someObject == rhs.someObject && lhs.mirror == rhs.mirror
 }
 
 

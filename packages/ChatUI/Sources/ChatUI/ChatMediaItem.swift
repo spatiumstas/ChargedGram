@@ -534,7 +534,7 @@ public class ChatMediaView: ChatRowView, ModalPreviewRowViewProtocol {
             return
         }
         if let text = text, !text.isEmpty {
-            self.captionViews.first?.view.highlight(text: text, color: item.presentation.colors.focusAnimationColor, range: range)
+            self.captionViews.first?.highlight(text: text, color: item.presentation.colors.focusAnimationColor, range: range)
         }
     }
     

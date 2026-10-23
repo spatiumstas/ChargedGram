@@ -591,7 +591,6 @@ public class ChatListRowItem: TableRowItem {
         if mutedCount > 0  {
             badgeText = "\(mutedCount)"
             badgeNode = BadgeNode(.initialize(string: "\(mutedCount)", color: theme.chatList.badgeTextColor, font: .medium(.small)), theme.chatList.badgeMutedBackgroundColor)
-            shortBadgeNode = BadgeNode(.initialize(string: "\(mutedCount)", color: theme.chatList.badgeTextColor, font: .medium(.small)), theme.chatList.badgeMutedBackgroundColor)
 
         }
         
@@ -1121,19 +1120,17 @@ public class ChatListRowItem: TableRowItem {
 
                 badgeText = "\(unreadCount)"
                 badgeNode = BadgeNode(.initialize(string: "\(unreadCount)", color: theme.chatList.badgeTextColor, font: .medium(.small)), isMuted ? theme.chatList.badgeMutedBackgroundColor : theme.chatList.badgeBackgroundColor)
-                shortBadgeNode = BadgeNode(.initialize(string: "\(unreadCount)", color: theme.chatList.badgeTextColor, font: .medium(.small)), isMuted ? theme.chatList.badgeMutedBackgroundColor : theme.chatList.badgeBackgroundColor)
 
             } else if isUnreadMarked && mentionsCount == nil {
                 badgeText = " "
                 badgeNode = BadgeNode(.initialize(string: " ", color: theme.chatList.badgeTextColor, font: .medium(.small)), isMuted ? theme.chatList.badgeMutedBackgroundColor : theme.chatList.badgeBackgroundColor)
-                shortBadgeNode = BadgeNode(.initialize(string: " ", color: theme.chatList.badgeTextColor, font: .medium(.small)), isMuted ? theme.chatList.badgeMutedBackgroundColor : theme.chatList.badgeBackgroundColor)
 
             }
         }
        
         
       
-        if let _ = self.isOnline, let presence = peerPresence?._asPresence() {
+        if self.isOnline == true, let presence = peerPresence?._asPresence() {
             presenceManager = PeerPresenceStatusManager(update: { [weak self] in
                 self?.isOnline = false
                 self?.redraw(animated: true)
@@ -1540,6 +1537,191 @@ public class ChatListRowItem: TableRowItem {
         ChatListRowItem.toggleHideArchive(context: context)
     }
 
+    public static func accessibilityLabel(title: String?, unreadCount: Int32?) -> String? {
+        guard let title = title, !title.isEmpty else {
+            return nil
+        }
+        if let count = unreadCount, count > 0 {
+            return title + "\n" + strings().voiceOverChatUnreadMessagesOther(Int(count))
+        }
+        return title
+    }
+
+    public static func accessibilityValue(isArchive: Bool, hasMessage: Bool, incoming: Bool, author: String?, read: Bool, preview: String?) -> String? {
+        let preview = preview?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if isArchive {
+            return preview.isEmpty ? nil : preview
+        }
+        guard hasMessage else {
+            return strings().voiceOverChatListMessageEmpty
+        }
+        var parts: [String] = [incoming ? strings().voiceOverChatListMessage : strings().voiceOverChatListOutgoingMessage]
+        if incoming, let author = author?.trimmingCharacters(in: .whitespacesAndNewlines), !author.isEmpty {
+            parts.append(strings().voiceOverChatListMessageFrom(author))
+        }
+        if !incoming, read {
+            parts.append(strings().voiceOverChatListMessageRead)
+        }
+        if !preview.isEmpty {
+            parts.append(preview)
+        }
+        return parts.joined(separator: "\n")
+    }
+
+    public override var accessibilityLabel: String? {
+        return ChatListRowItem.accessibilityLabel(title: displayLayout?.attributedString.string, unreadCount: readState?.count)
+    }
+
+    public override var accessibilityValue: String? {
+        let message = messages.first
+        return ChatListRowItem.accessibilityValue(isArchive: isGroup, hasMessage: message != nil, incoming: message?.flags.contains(.Incoming) ?? false, author: chatNameLayout?.attributedString.string, read: isRead, preview: messageLayout?.attributedString.string)
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        var actions: [NSAccessibilityCustomAction] = []
+        if avatarStoryIndicator != nil, !showsCommunityDropdown, context.layout != .minimisize, selectedForum == nil {
+            actions.append(NSAccessibilityCustomAction(name: strings().voiceOverCommonStories, handler: { [weak self] in
+                self?.openPeerStory()
+                return true
+            }))
+        }
+        if isGroup || isAd || context.isFrozen {
+            return actions.isEmpty ? nil : actions
+        }
+        if let communityRemoveAction = self.communityRemoveAction {
+            actions.append(NSAccessibilityCustomAction(name: strings().chatListRemoveFromCommunity, handler: {
+                communityRemoveAction()
+                return true
+            }))
+            return actions
+        }
+        let context = self.context
+        let isUnread = badgeNode != nil || showsMentionSlot || isUnreadMarked
+        let pinTitle = isPinned ? strings().chatListContextUnpin : strings().chatListContextPin
+        let muteTitle = isMuted ? strings().chatListContextUnmute : strings().chatListContextMute
+
+        if case let .topic(threadId, data) = mode {
+            guard let peer = peer as? TelegramChannel else {
+                return actions.isEmpty ? nil : actions
+            }
+            if isUnread {
+                let peerId = peer.id
+                actions.append(NSAccessibilityCustomAction(name: strings().chatListContextMaskAsRead, handler: {
+                    ChatListRowItem.markTopicAsRead(context: context, peerId: peerId, threadId: threadId)
+                    return true
+                }))
+            }
+            if peer.hasPermission(.pinMessages) {
+                actions.append(NSAccessibilityCustomAction(name: pinTitle, handler: { [weak self] in
+                    self?.togglePinned()
+                    return true
+                }))
+            }
+            actions.append(NSAccessibilityCustomAction(name: muteTitle, handler: { [weak self] in
+                self?.toggleMuted()
+                return true
+            }))
+            if data.isOwnedByMe || peer.isAdmin {
+                actions.append(NSAccessibilityCustomAction(name: strings().chatListContextDelete, handler: { [weak self] in
+                    self?.delete()
+                    return true
+                }))
+            }
+            return actions
+        }
+
+        if groupId == .root {
+            actions.append(NSAccessibilityCustomAction(name: pinTitle, handler: { [weak self] in
+                self?.togglePinned()
+                return true
+            }))
+        }
+
+        guard let peerId = peerId, let mainPeer = peer, let peer = renderedPeer?.peers[peerId]?._asPeer() else {
+            return actions.isEmpty ? nil : actions
+        }
+
+        if groupId == .root, canArchive || associatedGroupId != .root {
+            if associatedGroupId == .root {
+                actions.append(NSAccessibilityCustomAction(name: strings().chatListSwipingArchive, handler: { [weak self] in
+                    self?.toggleArchive()
+                    return true
+                }))
+            } else {
+                actions.append(NSAccessibilityCustomAction(name: strings().chatListSwipingUnarchive, handler: { [weak self] in
+                    self?.toggleArchive(unarchive: true)
+                    return true
+                }))
+            }
+        }
+
+        if context.peerId != peer.id, !mode.savedMessages {
+            actions.append(NSAccessibilityCustomAction(name: muteTitle, handler: { [weak self] in
+                self?.toggleMuted()
+                return true
+            }))
+        }
+
+        if !isSecret, !mode.savedMessages {
+            if markAsUnread {
+                actions.append(NSAccessibilityCustomAction(name: strings().chatListContextMaskAsUnread, handler: {
+                    ChatListRowItem.markAsUnread(context: context, peerId: peerId)
+                    return true
+                }))
+            } else if isUnread {
+                actions.append(NSAccessibilityCustomAction(name: strings().chatListContextMaskAsRead, handler: {
+                    ChatListRowItem.markAsRead(context: context, peerId: peerId)
+                    return true
+                }))
+            }
+        }
+
+        let deleteTitle: String?
+        if mode.savedMessages {
+            deleteTitle = strings().chatListContextDelete
+        } else if mainPeer is TelegramUser {
+            deleteTitle = strings().chatListContextDeleteChat
+        } else if peer is TelegramGroup {
+            deleteTitle = strings().chatListContextDeleteAndExit
+        } else if let peer = peer as? TelegramChannel, !peer.flags.contains(.hasGeo) {
+            if case .broadcast = peer.info {
+                deleteTitle = strings().chatListContextLeaveChannel
+            } else {
+                deleteTitle = strings().chatListContextLeaveGroup
+            }
+        } else {
+            deleteTitle = nil
+        }
+        if let deleteTitle = deleteTitle {
+            actions.append(NSAccessibilityCustomAction(name: deleteTitle, handler: { [weak self] in
+                self?.delete()
+                return true
+            }))
+        }
+        return actions
+    }
+
+    public static func markAsUnread(context: any AccountContextProtocol, peerId: PeerId) {
+        _ = context.engine.messages.togglePeersUnreadMarkInteractively(peerIds: [peerId], setToValue: true).start()
+    }
+
+    public static func markAsRead(context: any AccountContextProtocol, peerId: PeerId) {
+        _ = context.engine.messages.togglePeersUnreadMarkInteractively(peerIds: [peerId], setToValue: false).start()
+        _ = clearPeerUnseenPersonalMessagesInteractively(account: context.account, peerId: peerId, threadId: nil).start()
+    }
+
+    public static func markTopicAsRead(context: any AccountContextProtocol, peerId: PeerId, threadId: Int64) {
+        _ = context.engine.messages.markForumThreadAsRead(peerId: peerId, threadId: threadId).start()
+    }
+
     public func toggleUnread() {
         if let peerId = peerId {
             switch mode {
@@ -1689,13 +1871,15 @@ public class ChatListRowItem: TableRowItem {
         _ = context.engine.peers.setForumChannelTopicClosed(id: peerId, threadId: threadId, isClosed: !isClosed).start()
     }
     
+    
     public override func menuItems(in location: NSPoint) -> Signal<[ContextMenuItem], NoError> {
-
-
         guard !context.isFrozen else {
             return .complete()
         }
+        return chatListMenuItems()
+    }
 
+    private func chatListMenuItems() -> Signal<[ContextMenuItem], NoError> {
         if let communityRemoveAction = self.communityRemoveAction {
             return .single([ContextMenuItem(strings().chatListRemoveFromCommunity, handler: communityRemoveAction, itemMode: .destruct, itemImage: MenuAnimation.menu_delete.value)])
         }
@@ -1765,7 +1949,7 @@ public class ChatListRowItem: TableRowItem {
             
             if isUnread {
                 items.append(ContextMenuItem(strings().chatListContextMaskAsRead, handler: {
-                    _ = context.engine.messages.markForumThreadAsRead(peerId: peer.id, threadId: threadId).start()
+                    ChatListRowItem.markTopicAsRead(context: context, peerId: peer.id, threadId: threadId)
                 }, itemImage: MenuAnimation.menu_read.value))
             }
             
@@ -2027,13 +2211,12 @@ public class ChatListRowItem: TableRowItem {
                 if !isSecret {
                     if markAsUnread {
                         firstGroup.append(ContextMenuItem(strings().chatListContextMaskAsUnread, handler: {
-                            _ = context.engine.messages.togglePeersUnreadMarkInteractively(peerIds: [peerId], setToValue: true).start()
+                            ChatListRowItem.markAsUnread(context: context, peerId: peerId)
                         }, itemImage: MenuAnimation.menu_unread.value))
                         
                     } else if isUnread {
                         firstGroup.append(ContextMenuItem(strings().chatListContextMaskAsRead, handler: {
-                            _ = context.engine.messages.togglePeersUnreadMarkInteractively(peerIds: [peerId], setToValue: false).start()
-                            _ = clearPeerUnseenPersonalMessagesInteractively(account: context.account, peerId: peerId, threadId: nil).start()
+                            ChatListRowItem.markAsRead(context: context, peerId: peerId)
                         }, itemImage: MenuAnimation.menu_read.value))
                     }
                 }
@@ -2110,6 +2293,8 @@ public class ChatListRowItem: TableRowItem {
                             let limit = context.isPremium ? context.premiumLimits.dialog_filters_chats_limit_premium : context.premiumLimits.dialog_filters_chats_limit_default
                             
                             let isEnabled = data.includePeers.peers.contains(peerId) || data.includePeers.peers.count < limit
+                            if !data.includePeers.peers.contains(peerId) {
+                            }
                             if isEnabled {
                                 _ = context.engine.peers.updateChatListFiltersInteractively({ list in
                                     var list = list
@@ -2305,7 +2490,11 @@ public class ChatListRowItem: TableRowItem {
     public var ctxBadgeNode:BadgeNode? {
         if isActiveSelected {
             if badgeSelectedNode == nil, let text = badgeText {
-                badgeSelectedNode = BadgeNode(.initialize(string: text, color: theme.chatList.badgeSelectedTextColor, font: .medium(.small)), theme.chatList.badgeSelectedBackgroundColor)
+                if let source = shortBadgeSelectedNode {
+                    badgeSelectedNode = BadgeNode(textFrom: source, theme.chatList.badgeSelectedBackgroundColor)
+                } else {
+                    badgeSelectedNode = BadgeNode(.initialize(string: text, color: theme.chatList.badgeSelectedTextColor, font: .medium(.small)), theme.chatList.badgeSelectedBackgroundColor)
+                }
             }
             return badgeSelectedNode
         }
@@ -2315,9 +2504,16 @@ public class ChatListRowItem: TableRowItem {
     public var ctxShortBadgeNode:BadgeNode? {
         if isActiveSelected {
             if shortBadgeSelectedNode == nil, let text = badgeText {
-                shortBadgeSelectedNode = BadgeNode(.initialize(string: text, color: theme.chatList.badgeSelectedTextColor, font: .medium(.small)), theme.chatList.badgeSelectedBackgroundColor)
+                if let source = badgeSelectedNode {
+                    shortBadgeSelectedNode = BadgeNode(textFrom: source, theme.chatList.badgeSelectedBackgroundColor)
+                } else {
+                    shortBadgeSelectedNode = BadgeNode(.initialize(string: text, color: theme.chatList.badgeSelectedTextColor, font: .medium(.small)), theme.chatList.badgeSelectedBackgroundColor)
+                }
             }
             return shortBadgeSelectedNode
+        }
+        if shortBadgeNode == nil, let source = badgeNode {
+            shortBadgeNode = BadgeNode(textFrom: source, source.fillColor)
         }
         return shortBadgeNode
     }

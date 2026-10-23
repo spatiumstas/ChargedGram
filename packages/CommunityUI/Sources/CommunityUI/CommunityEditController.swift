@@ -521,6 +521,23 @@ private final class CommunityPhotoItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return CommunityPhotoView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return textLayout.attributedString.string
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override func accessibilityPerformPress() -> Bool {
+        select()
+        return true
+    }
 }
 
 private final class CommunityPhotoView: GeneralRowView {
@@ -569,6 +586,7 @@ private final class CommunityPhotoView: GeneralRowView {
             avatar.setState(account: item.context.account, state: .PeerAvatar(peer, peer.displayLetters, peer.smallProfileImage, peer.namePeerColor, nil, NSMakeSize(90, 90), true, nil))
         }
         textView.update(item.textLayout)
+        control.setAccessibilityLabel(item.textLayout.attributedString.string)
         photoEditable.updateState(item.updatingPhotoState, animated: animated)
         needsLayout = true
     }

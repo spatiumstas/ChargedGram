@@ -1,4 +1,5 @@
 import Cocoa
+import InputView
 import TGUIKit
 import TelegramCore
 import Postbox
@@ -41,9 +42,27 @@ public final class EntertainmentMediaArguments {
     }
 }
 
+public struct EntertainmentStickerImage {
+    public let url: URL
+    public let dimensions: PixelDimensions
+
+    public init(url: URL, dimensions: PixelDimensions) {
+        self.url = url
+        self.dimensions = dimensions
+    }
+}
+
 public struct EntertainmentUIHooks {
     public let makePreviewSender: (TelegramMediaFile, any ChatInteractionProtocol) -> ModalViewController
     public let shareLink: (any AccountContextProtocol, String) -> Void
+    public var shareLinkWithContext: ((any AccountContextProtocol, String) -> Void)?
+    public func shareLinkObserved(_ context: any AccountContextProtocol, _ link: String) {
+        if let shareLinkWithContext {
+            shareLinkWithContext(context, link)
+        } else {
+            shareLink(context, link)
+        }
+    }
     public let makeChatInteraction: (any AccountContextProtocol, PeerId) -> any ChatInteractionProtocol
     public let currentChatInteraction: (any AccountContextProtocol) -> (any ChatInteractionProtocol)?
     public let makeTopicIconFile: (String, Int32, Bool) -> TelegramMediaFile
@@ -53,6 +72,46 @@ public struct EntertainmentUIHooks {
     public let makeStickerContentView: (Bool, NSRect) -> any EntertainmentStickerContentView
     public let makeContextMediaRowItem: (NSSize, InputMediaContextRow, Int64, any AccountContextProtocol, EntertainmentMediaArguments, ChatContextResultCollection?, AnyHashable) -> TableRowItem
     public let launchSendFlight: (any ChatInteractionProtocol, NSView, NSRect, CALayer?) -> Void
+    public let makeStickerImage: (any AccountContextProtocol, Window, ((EntertainmentStickerImage, @escaping () -> Void) -> [ContextMenuItem])?, @escaping (EntertainmentStickerImage) -> Void) -> Void
+    public var makeStickerImageWithContext: ((any AccountContextProtocol, Window, ((EntertainmentStickerImage, @escaping () -> Void) -> [ContextMenuItem])?, @escaping (EntertainmentStickerImage) -> Void) -> Void)?
+
+
+    public func makeStickerImageObserved(_ context: any AccountContextProtocol, _ window: Window, doneMenu: ((EntertainmentStickerImage, @escaping () -> Void) -> [ContextMenuItem])?, completion: @escaping (EntertainmentStickerImage) -> Void) {
+        if let makeStickerImageWithContext {
+            makeStickerImageWithContext(context, window, doneMenu, completion)
+        } else {
+            makeStickerImage(context, window, doneMenu, completion)
+        }
+    }
+    public var appendPackEmojiWithContext: ((any ChatInteractionProtocol, NSAttributedString) -> Void)?
+    public func appendPackEmojiObserved(_ interaction: any ChatInteractionProtocol, text: NSAttributedString) {
+        if let appendPackEmojiWithContext {
+            appendPackEmojiWithContext(interaction, text)
+        } else {
+            _ = interaction.appendText(text, selectedRange: nil)
+        }
+    }
+
+    public var sendPackStickerWithContext: ((any ChatInteractionProtocol, TelegramMediaFile, Bool, Bool) -> Void)?
+    public func sendPackStickerObserved(_ interaction: any ChatInteractionProtocol, file: TelegramMediaFile, silent: Bool, scheduled: Bool) {
+        if let sendPackStickerWithContext {
+            sendPackStickerWithContext(interaction, file, silent, scheduled)
+        } else {
+            interaction.sendFile(file, silent: silent, query: nil, scheduled: scheduled, collectionId: nil)
+        }
+    }
+
+
+
+    public let openStickersBot: (any AccountContextProtocol) -> Void
+    public var openStickersBotWithContext: ((any AccountContextProtocol) -> Void)?
+    public func openStickersBotObserved(_ context: any AccountContextProtocol) {
+        if let openStickersBotWithContext {
+            openStickersBotWithContext(context)
+        } else {
+            openStickersBot(context)
+        }
+    }
 
     public init(makePreviewSender: @escaping (TelegramMediaFile, any ChatInteractionProtocol) -> ModalViewController,
                 shareLink: @escaping (any AccountContextProtocol, String) -> Void,
@@ -64,7 +123,9 @@ public struct EntertainmentUIHooks {
                 previewViewType: @escaping (EntertainmentPreviewKind) -> ModalPreviewControllerView.Type,
                 makeStickerContentView: @escaping (Bool, NSRect) -> any EntertainmentStickerContentView,
                 makeContextMediaRowItem: @escaping (NSSize, InputMediaContextRow, Int64, any AccountContextProtocol, EntertainmentMediaArguments, ChatContextResultCollection?, AnyHashable) -> TableRowItem,
-                launchSendFlight: @escaping (any ChatInteractionProtocol, NSView, NSRect, CALayer?) -> Void = { _, _, _, _ in }) {
+                launchSendFlight: @escaping (any ChatInteractionProtocol, NSView, NSRect, CALayer?) -> Void = { _, _, _, _ in },
+                makeStickerImage: @escaping (any AccountContextProtocol, Window, ((EntertainmentStickerImage, @escaping () -> Void) -> [ContextMenuItem])?, @escaping (EntertainmentStickerImage) -> Void) -> Void = { _, _, _, _ in },
+                openStickersBot: @escaping (any AccountContextProtocol) -> Void = { _ in }) {
         self.makePreviewSender = makePreviewSender
         self.shareLink = shareLink
         self.makeChatInteraction = makeChatInteraction
@@ -76,6 +137,8 @@ public struct EntertainmentUIHooks {
         self.makeStickerContentView = makeStickerContentView
         self.makeContextMediaRowItem = makeContextMediaRowItem
         self.launchSendFlight = launchSendFlight
+        self.makeStickerImage = makeStickerImage
+        self.openStickersBot = openStickersBot
     }
 
     private static var _shared: EntertainmentUIHooks?

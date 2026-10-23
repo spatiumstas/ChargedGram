@@ -36,6 +36,18 @@ public final class Bot_VerifyAccountRowItem : GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return Bot_VerifyAccountRowView.self
     }
+    
+    public override var accessibilityLabel: String? {
+        return peer._asPeer().displayTitle
+    }
+    
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .staticText
+    }
+    
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 private final class Bot_VerifyAccountRowView : GeneralRowView {

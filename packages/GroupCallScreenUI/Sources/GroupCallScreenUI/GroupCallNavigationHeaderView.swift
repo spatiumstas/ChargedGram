@@ -139,7 +139,7 @@ public class GroupCallNavigationHeaderView: CallHeaderBasicView {
         setInfo(model.title)
         self.status = model.status
         self.backgroundView.speaking = (model.speaking.0, model.speaking.1, model.speaking.2)
-        setMicroIcon(model.isMuted ? theme.icons.callInlineMuted : theme.icons.callInlineUnmuted)
+        setMicroIcon(model.isMuted ? theme.icons.callInlineMuted : theme.icons.callInlineUnmuted, isMuted: model.isMuted)
         needsLayout = true
     }
 

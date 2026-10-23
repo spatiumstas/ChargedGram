@@ -282,6 +282,8 @@ public final class InstantPageDetailsView: Control, InstantPageView {
     public func setExpanded(_ expanded: Bool, animated: Bool) {
         self.expanded = expanded
         self.arrowView.setOpen(expanded, animated: animated)
+        self.buttonView.setAccessibilityLabel(item.titleItems.compactMap { ($0 as? InstantPageTextItem)?.attributedString.string }.joined(separator: " "))
+        self.buttonView.setAccessibilityExpanded(expanded)
     }
     
     public func updateLayout(size: CGSize, transition: ContainedViewLayoutTransition) {

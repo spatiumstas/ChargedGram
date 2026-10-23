@@ -870,6 +870,14 @@ private func channelAdminInputDataEntries(_ entries: [ChannelAdminEntry], argume
 }
 
 public func ChannelAdminModalController<Context: AccountContextProtocol>(_ context: Context, peerId: PeerId, adminId: PeerId, initialParticipant: ChannelParticipant?, updated: @escaping (TelegramChatAdminRights?) -> Void, upgradedToSupergroup: @escaping (PeerId, @escaping () -> Void) -> Void) -> InputDataModalController {
+    let updated: (TelegramChatAdminRights?) -> Void = { [updated] rights in
+        updated(rights)
+    }
+    let upgradedToSupergroup: (PeerId, @escaping () -> Void) -> Void = { [upgradedToSupergroup] peerId, completion in
+        upgradedToSupergroup(peerId) {
+            completion()
+        }
+    }
 
     let combinedPromise: Promise<CombinedView> = Promise()
 

@@ -64,6 +64,10 @@ class PeerInfoArguments<Context: AccountContextProtocol> {
     
     let toggleNotificationsDisposable = MetaDisposable()
     private let deleteDisposable = MetaDisposable()
+
+    func openQrStudio(from control: NSView) {
+        PeerInfoNavigationHooks.shared.openQrStudioObserved(context, peerId, { [weak control] in control })
+    }
     private let _statePromise = Promise<PeerInfoState>()
     
     var statePromise:Signal<PeerInfoState, NoError> {
@@ -607,7 +611,7 @@ public class PeerInfoController<Context: AccountContextProtocol>: EditableViewCo
             return
         }
         let signal = context.account.postbox.peerView(id:peerId) |> take(1) |> deliverOnMainQueue
-        _ = signal.start(next: { view in
+        _ = (signal).start(next: { view in
             let mainPeer = peerViewMainPeer(view)
             let monoforumPeer = peerViewMonoforumMainPeer(view)
 
@@ -628,11 +632,11 @@ public class PeerInfoController<Context: AccountContextProtocol>: EditableViewCo
             }
         })
     }
-    
+
     private let mediaMode: PeerMediaCollectionMode?
     private let albumId: Int32?
     private let initialState: ViewControllerState
-    
+
     public init(context: Context, peer:Peer, threadInfo: ThreadInfo? = nil, stories: PeerExpiringStoryListContext? = nil, isAd: Bool = false, source: Source = .none, mediaMode: PeerMediaCollectionMode? = nil, starGiftsProfile: ProfileGiftsContext? = nil, albumId: Int32? = nil, linkedBotChannelId: PeerId? = nil, initialState: ViewControllerState = .Normal) {
         let peerId = peer.id
         self.peerId = peer.id
@@ -686,6 +690,11 @@ public class PeerInfoController<Context: AccountContextProtocol>: EditableViewCo
         super.init(context)
         
         bar = .init(height: 0, enableBorder: false)
+        
+        if threadInfo != nil {
+        } else if initialState == .Edit {
+        } else {
+        }
         
         let pushViewController:(ViewController) -> Void = { [weak self] controller in
             self?.navigationController?.push(controller)
@@ -880,12 +889,19 @@ public class PeerInfoController<Context: AccountContextProtocol>: EditableViewCo
     
     
     public override func viewWillDisappear(_ animated: Bool) {
+        _userArguments?.setEmojiPermissionRequestsActive(false)
         super.viewWillDisappear(animated)
         window?.removeAllHandlers(for: self)
     }
     
+    public override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+    }
+    
     public override func viewWillAppear(_ animated: Bool) {
+        _userArguments?.setEmojiPermissionRequestsActive(true)
         super.viewWillAppear(animated)
+        PeerInfoNavigationHooks.shared.prefetchQrStudio(context, peer)
         if initialState == .Edit {
             update(with: initialState)
         }
@@ -1001,12 +1017,11 @@ public class PeerInfoController<Context: AccountContextProtocol>: EditableViewCo
         
         let inputActivity = context.account.peerInputActivities(peerId: .init(peerId: peerId, category: .global))
             |> map { activities -> [PeerId : PeerInputActivity] in
-                return activities.reduce([:], { (current, activity) -> [PeerId : PeerInputActivity] in
-                    var current = current
+                return activities.reduce(into: [:], { current, activity in
                     current[activity.0] = activity.1
-                    return current
                 })
         }
+        |> distinctUntilChanged
         
         let inputActivityState: Promise<[PeerId : PeerInputActivity]> = Promise([:])
         

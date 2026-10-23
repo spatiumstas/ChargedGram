@@ -14,12 +14,18 @@ public func mergeListsStableWithUpdates<T>(leftList: [T], rightList: [T], allUpd
     let nr = rightList.count
 
     var previousIndices: [T.T: Int] = [:]
-    previousIndices.reserveCapacity(nl)
-    for idx in 0..<nl {
-        previousIndices[leftList[idx].stableId] = idx
-    }
+    var hasPreviousIndices = false
 
-    var keptRight = [Bool](repeating: false, count: nr)
+    func previousIndex(for stableId: T.T) -> Int? {
+        if !hasPreviousIndices {
+            previousIndices.reserveCapacity(nl)
+            for index in 0..<nl {
+                previousIndices[leftList[index].stableId] = index
+            }
+            hasPreviousIndices = true
+        }
+        return previousIndices[stableId]
+    }
 
     var i = 0, j = 0
     while true {
@@ -30,11 +36,9 @@ public func mergeListsStableWithUpdates<T>(leftList: [T], rightList: [T], allUpd
             let sameStableId = left.stableId == right.stableId
             let isEqual = sameStableId ? !(left != right) : false
             if sameStableId && (!isEqual || allUpdated) {
-                updatedIndices.append((j, right, previousIndices[left.stableId]!))
-                keptRight[j] = true
+                updatedIndices.append((j, right, previousIndex(for: left.stableId)!))
                 i += 1; j += 1
             } else if (sameStableId ? isEqual : left == right) && !allUpdated {
-                keptRight[j] = true
                 i += 1; j += 1
             } else if left < right {
                 removeIndices.append(i)
@@ -43,21 +47,18 @@ public func mergeListsStableWithUpdates<T>(leftList: [T], rightList: [T], allUpd
                 removeIndices.append(i)
                 i += 1
             } else {
+                insertItems.append((j, right, previousIndex(for: right.stableId)))
                 j += 1
             }
         } else if left != nil {
             removeIndices.append(i)
             i += 1
-        } else if right != nil {
+        } else if let right = right {
+            insertItems.append((j, right, previousIndex(for: right.stableId)))
             j += 1
         } else {
             break
         }
-    }
-
-    for index in 0 ..< nr where !keptRight[index] {
-        let right = rightList[index]
-        insertItems.append((index, right, previousIndices[right.stableId]))
     }
 
     return (removeIndices, insertItems, updatedIndices)

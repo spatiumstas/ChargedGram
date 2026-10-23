@@ -195,6 +195,9 @@ private final class AudioPlayerRendererContext {
     var audioGraph: AUGraph?
     var timePitchAudioUnit: AudioComponentInstance?
     var outputAudioUnit: AudioComponentInstance?
+    var isGraphRunning: Bool = false
+    var idleStopTimer: SwiftSignalKit.Timer?
+    static let idleStopDelay: Double = 3.0
     
     var bufferContextId: Int32!
     let bufferContext: Atomic<AudioPlayerRendererBufferContext>
@@ -280,6 +283,21 @@ private final class AudioPlayerRendererContext {
         
         let baseRate = self.baseRate
         
+        if rate.isZero {
+            self.scheduleIdleStop()
+        } else {
+            self.idleStopTimer?.invalidate()
+            self.idleStopTimer = nil
+            if let audioGraph = self.audioGraph, !self.isGraphRunning {
+                if AUGraphStart(audioGraph) == noErr {
+                    self.isGraphRunning = true
+                } else {
+                    self.closeAudioUnit()
+                    self.startAudioUnit()
+                }
+            }
+        }
+        
         self.bufferContext.with { context in
             if !rate.isZero {
                 if case .playing = context.state {
@@ -295,6 +313,43 @@ private final class AudioPlayerRendererContext {
     
 
 
+    
+    private func scheduleIdleStop() {
+        self.idleStopTimer?.invalidate()
+        guard self.audioGraph != nil, self.isGraphRunning else {
+            self.idleStopTimer = nil
+            return
+        }
+        let timer = SwiftSignalKit.Timer(timeout: AudioPlayerRendererContext.idleStopDelay, repeat: false, completion: { [weak self] in
+            guard let self else {
+                return
+            }
+            self.idleStopTimer = nil
+            let isPaused = self.bufferContext.with { context -> Bool in
+                if case .paused = context.state {
+                    return true
+                } else {
+                    return false
+                }
+            }
+            if isPaused, let audioGraph = self.audioGraph, self.isGraphRunning {
+                AUGraphStop(audioGraph)
+                self.isGraphRunning = false
+            }
+        }, queue: audioPlayerRendererQueue)
+        self.idleStopTimer = timer
+        timer.start()
+    }
+    
+    fileprivate var isOutputRunning: Bool {
+        guard let outputAudioUnit = self.outputAudioUnit else {
+            return false
+        }
+        var running: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        AudioUnitGetProperty(outputAudioUnit, kAudioOutputUnitProperty_IsRunning, kAudioUnitScope_Global, 0, &running, &size)
+        return running != 0
+    }
     
     fileprivate func flushBuffers(at timestamp: CMTime, completion: () -> Void) {
         assert(audioPlayerRendererQueue.isCurrent())
@@ -466,11 +521,16 @@ private final class AudioPlayerRendererContext {
                 self.closeAudioUnit()
                 return
             }
+            self.isGraphRunning = true
         }
     }
     
     private func closeAudioUnit() {
         assert(audioPlayerRendererQueue.isCurrent())
+        
+        self.idleStopTimer?.invalidate()
+        self.idleStopTimer = nil
+        self.isGraphRunning = false
         
         if let audioGraph = self.audioGraph {
             var status = noErr
@@ -556,7 +616,12 @@ private final class AudioPlayerRendererContext {
                                 let takeLength = min(dataLength, bytesToRequest)
                                 
                                 let pts = CMSampleBufferGetPresentationTimeStamp(frame.sampleBuffer)
-                                let bufferSampleIndex = CMTimeConvertScale(pts, timescale: 44100, method: .roundAwayFromZero).value
+                                let bufferSampleIndex: Int64
+                                if pts.value == Int64.min {
+                                    bufferSampleIndex = self.bufferContext.with { $0.bufferMaxChannelSampleIndex }
+                                } else {
+                                    bufferSampleIndex = CMTimeConvertScale(pts, timescale: 44100, method: .roundAwayFromZero).value
+                                }
                                 
                                 let bytes = malloc(takeLength)!
                                 CMBlockBufferCopyDataBytes(dataBuffer, atOffset: 0, dataLength: takeLength, destination: bytes)
@@ -850,6 +915,16 @@ final class MediaPlayerAudioRenderer {
             if let contextRef = self.contextRef {
                 let context = contextRef.takeUnretainedValue()
                 context.setRate(rate)
+            }
+        }
+    }
+    
+    func isOutputRunning(_ completion: @escaping (Bool) -> Void) {
+        audioPlayerRendererQueue.async {
+            if let contextRef = self.contextRef {
+                completion(contextRef.takeUnretainedValue().isOutputRunning)
+            } else {
+                completion(false)
             }
         }
     }

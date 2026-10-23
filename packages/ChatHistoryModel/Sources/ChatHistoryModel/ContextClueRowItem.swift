@@ -8,6 +8,7 @@ import TelegramContext
 import TelegramTheme
 import TelegramUtils
 import InlineStickerLayer
+import TelegramMediaUtils
 
 public class ContextClueRowItem: TableRowItem {
 
@@ -65,6 +66,10 @@ public class ContextClueRowItem: TableRowItem {
     public override func viewClass() -> AnyClass {
         return ContextClueRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return strings().voiceOverCommonEmoji
+    }
     
 }
 
@@ -86,6 +91,14 @@ public final class AnimatedClueRowItem : TableRowItem {
     
     public override func viewClass() -> AnyClass {
         return AnimatedClueRowView.self
+    }
+
+    public override var accessibilityLabel: String? {
+        return clue.customEmojiText ?? clue.stickerText ?? strings().voiceOverCommonEmoji
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
     }
     
     public override var height: CGFloat {
@@ -192,6 +205,18 @@ private final class ClueRowItem : TableRowItem {
     
     public override func viewClass() -> AnyClass {
         return ClueRowView.self
+    }
+
+    public override var accessibilityLabel: String? {
+        return layout.attributedString.string
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
     }
     
     public override var height: CGFloat {
@@ -318,6 +343,7 @@ private class ContextClueRowView : TableRowView, TableViewDelegate {
         layerContentsRedrawPolicy = .onSetNeedsDisplay
         tableView.delegate = self
         addSubview(button)
+        button.setAccessibilityLabel(strings().generalSettingsEmojiPredictionDisable)
         
         tableView.getBackgroundColor = {
             .clear

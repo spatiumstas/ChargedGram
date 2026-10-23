@@ -9,6 +9,7 @@ import TelegramTheme
 import TelegramIconsTheme
 import TelegramMediaUtils
 import GeneralRows
+import Localization
 import InlineMediaGrid
 
 
@@ -54,6 +55,7 @@ class StorageMediaCell : MediaCell {
                     isNew = false
                 } else {
                     current = ImageView()
+                    current.isAccessibilityDecorative = true
                     self.playable = current
                     addSubview(current)
                     isNew = true
@@ -159,6 +161,10 @@ class StorageUsageMediaCells: GeneralRowItem {
     
     override var canBeAnchor: Bool {
         return true
+    }
+
+    override var accessibilityLabel: String? {
+        return strings().storageUsageSegmentMedia
     }
     
     static func rowCount(blockWidth: CGFloat, viewType: GeneralViewType) -> (Int, CGFloat) {

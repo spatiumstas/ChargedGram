@@ -7,6 +7,7 @@ public struct ChatFocusTarget {
     public var string: String?
     public var range: NSRange?
     public var pollOptionId: Data?
+    public var cachedAnchor: Bool = false
 
      public init?(messageId: MessageId?) {
         if let messageId = messageId {

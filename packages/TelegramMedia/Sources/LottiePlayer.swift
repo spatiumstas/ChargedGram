@@ -1802,14 +1802,10 @@ public final class LottieAnimation : Equatable {
             if let path = path {
                 let premultiply = (DeviceGraphicsContextSettings.shared.opaqueBitmapInfo.rawValue & CGImageAlphaInfo.premultipliedFirst.rawValue) == 0
                 let fileSupplyment: TRLotFileSupplyment?
-                if size.width > 40 {
-                    switch self.cache {
-                    case .temporaryLZ4:
-                        fileSupplyment = TRLotFileSupplyment(self, bufferSize: bufferSize, queue: Queue())
-                    case .none:
-                        fileSupplyment = nil
-                    }
-                } else {
+                switch self.cache {
+                case .temporaryLZ4:
+                    fileSupplyment = TRLotFileSupplyment(self, bufferSize: bufferSize, queue: Queue())
+                case .none:
                     fileSupplyment = nil
                 }
                 let decoder = SoftwareVideoSource(path: path, hintVP9: true, unpremultiplyAlpha: premultiply, reusePixelBuffers: fileSupplyment == nil)

@@ -13,8 +13,17 @@ import PasscodeCore
 import LocalAuthentication
 
 @available(macOS 10.15, *)
-func showWallet(context: AccountContext, for window: Window, morphSource: (() -> NSView?)? = nil) {
-    WalletUI.showWallet(context: context, environment: AppWalletUIEnvironment(context), walletContext: context.walletContext, for: window, morphSource: morphSource)
+func showWallet(context: AccountContext, for window: Window, morphSource: (() -> NSView?)? = nil, opensCollectibles: Bool = false) {
+    WalletUI.showWallet(context: context, environment: AppWalletUIEnvironment(context), walletContext: context.walletContext, for: window, morphSource: morphSource, opensCollectibles: opensCollectibles)
+}
+
+@available(macOS 10.15, *)
+func walletMoveGiftToProfile(context: AccountContext, walletContext: WalletContext, gift: StarGift.UniqueGift, window: Window) {
+    WalletUI.walletMoveCollectibleToGifts(context: context, environment: AppWalletUIEnvironment(context), walletContext: walletContext, collectible: nil, slug: gift.slug, name: "\(gift.title) #\(gift.number)", window: window)
+}
+
+func walletCopyAddress(_ address: String, context: AccountContext, window: Window) {
+    WalletUI.walletCopyAddress(address, environment: AppWalletUIEnvironment(context), window: window)
 }
 
 @available(macOS 10.15, *)
@@ -42,10 +51,18 @@ func WalletSendController(context: AccountContext, walletContext: WalletContext,
     WalletUI.WalletSendController(context: context, environment: AppWalletUIEnvironment(context), walletContext: walletContext, peer: peer, address: address, publicKey: publicKey, initialAmount: initialAmount)
 }
 
+
 @available(macOS 10.15, *)
 func showWalletSendMoney(context: AccountContext, walletContext: WalletContext, peer: Peer) {
     WalletUI.showWalletSendMoney(context: context, environment: AppWalletUIEnvironment(context), walletContext: walletContext, peer: peer)
 }
+
+
+@available(macOS 10.15, *)
+func showWalletPeerBalance(context: AccountContext, walletContext: WalletContext, peer: Peer, morphSource: (() -> NSView?)? = nil) {
+    WalletUI.showWalletPeerBalance(context: context, environment: AppWalletUIEnvironment(context), walletContext: walletContext, peer: peer, morphSource: morphSource)
+}
+
 
 func walletLogoutConfirmationText(context: AccountContext) -> Signal<String, NoError> {
     guard #available(macOS 10.15, *) else {
@@ -111,6 +128,20 @@ private final class AppWalletUIEnvironment: WalletUIEnvironment {
         (text: rarity.badgeText, color: rarity.badgeColor)
     }
 
+    func openGiftValue(_ gift: StarGift.UniqueGift) {
+        let gifts = context.engine.payments.cachedStarGifts() |> take(1)
+        let value = context.engine.payments.getUniqueStarGiftValueInfo(slug: gift.slug)
+        _ = showModalProgress(signal: combineLatest(queue: .mainQueue(), gifts, value), for: context.window).start(next: { [context] gifts, value in
+            if let generic = gifts?.first(where: { $0.generic?.id == gift.giftId })?.generic, let value {
+                showModal(with: StarGift_NftValue_Controller(context: context, gift: generic, uniqueGift: gift, valueInfo: value), for: context.window)
+            }
+        })
+    }
+
+    func openGiftStore(_ gift: StarGift.Gift) {
+        showModal(with: StarGift_MarketplaceController(context: context, peerId: context.peerId, gift: gift), for: context.window)
+    }
+
     func openGift(_ gift: StarGift.UniqueGift) {
         showModal(with: StarGift_Nft_Controller(context: context, gift: .unique(gift), source: .previewWear(.init(context.myPeer!), gift)), for: context.window)
     }
@@ -139,6 +170,13 @@ private final class AppWalletUIEnvironment: WalletUIEnvironment {
 
     func presentDismissableAlert(window: Window, header: String?, text: String?, ok: String) -> () -> Void {
         showDismissableModalAlert(for: window, data: ModalAlertData(title: header, info: text ?? "", ok: ok), presentation: walletAlertPresentation)
+    }
+
+    func presentConfirmation(window: Window, header: String, ok: String, cancel: String, content: @escaping (NSSize, AnyHashable, @escaping () -> Void) -> TableRowItem, confirmed: @escaping () -> Void) {
+        let data = ModalAlertData(title: header, info: "", ok: ok, mode: .confirm(text: cancel, isThird: false), footer: .init(id: "content", value: { initialSize, stableId, _, updateSize in
+            content(initialSize, stableId, updateSize)
+        }))
+        showModalAlert(for: window, data: data, completion: { _ in confirmed() }, presentation: walletAlertPresentation)
     }
 
     func presentConfirmation(window: Window, header: String, text: String?, ok: String, cancel: String, buttonStyle: Bool, confirmed: @escaping () -> Void, cancelled: @escaping () -> Void) {
@@ -180,6 +218,9 @@ private final class AppWalletUIEnvironment: WalletUIEnvironment {
         case .menu_cloud: return MenuAnimation.menu_cloud.value
         case .menu_gram: return MenuAnimation.menu_gram.value
         case .menu_globe: return MenuAnimation.menu_globe.value
+        case .menu_change_colors: return MenuAnimation.menu_change_colors.value
+        case .menu_add: return MenuAnimation.menu_add.value
+        case .menu_hide: return MenuAnimation.menu_hide.value
         }
     }
 
@@ -379,4 +420,9 @@ private final class AppWalletUIAvatarView: WalletUIAvatarView {
 
 private func walletUICopyToClipboard(_ text: String) {
     copyToClipboard(text)
+}
+
+@available(macOS 10.15, *)
+func preloadWalletPeerCard(context: AccountContext, card: WalletCard) {
+    WalletUI.preloadWalletPeerCard(context: context, card: card)
 }

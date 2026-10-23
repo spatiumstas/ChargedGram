@@ -51,6 +51,14 @@ public final class CommunityModalHeaderItem: GeneralRowItem {
     }
 
     public override func viewClass() -> AnyClass { return CommunityModalHeaderView.self }
+
+    public override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    public override var accessibilityValue: String? {
+        return subtitleLayout.attributedString.string
+    }
 }
 
 public final class CommunityModalHeaderView: GeneralRowView {

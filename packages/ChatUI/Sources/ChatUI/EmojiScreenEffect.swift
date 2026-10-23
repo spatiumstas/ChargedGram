@@ -18,8 +18,8 @@ public final class EmojiScreenEffect {
     fileprivate let context: any AccountContextProtocol
     fileprivate let takeTableItem:(MessageId)->ChatRowItem?
     public fileprivate(set) var scrollUpdater: TableScrollListener!
-    private let dataDisposable: DisposableDict<MessageId> = DisposableDict()
-    private let reactionDataDisposable: DisposableDict<MessageId> = DisposableDict()
+    private var dataDisposable: DisposableDict<MessageId> = DisposableDict()
+    private var reactionDataDisposable: DisposableDict<MessageId> = DisposableDict()
     
     private let limit: Int = 5
     
@@ -374,6 +374,18 @@ public final class EmojiScreenEffect {
     }
     
     func removeAll() {
+        dataDisposable.dispose()
+        dataDisposable = DisposableDict()
+        reactionDataDisposable.dispose()
+        reactionDataDisposable = DisposableDict()
+        enjoyTimer?.invalidate()
+        enjoyTimer = nil
+        for timer in timers.values {
+            timer.invalidate()
+        }
+        timers.removeAll()
+        enqueuedToServer.removeAll()
+        enqueuedToEnjoy.removeAll()
         let animations = self.animations
         for animation in animations {
             deinitAnimation(key: animation.key, animated: false)

@@ -31,6 +31,7 @@ public enum PaymentWebInteractionIntent {
 public final class PaymentWebInteractionController: ModalViewController, WKNavigationDelegate {
     private let url: String
     private let intent: PaymentWebInteractionIntent
+    private var completed = false
     public init(context: (any AccountContextProtocol), url: String, intent: PaymentWebInteractionIntent) {
         self.url = url
         self.intent = intent
@@ -40,6 +41,11 @@ public final class PaymentWebInteractionController: ModalViewController, WKNavig
     public override func viewDidLoad() {
         super.viewDidLoad()
         readyOnce()
+    }
+
+    public override func viewWillDisappear(_ animated: Bool) {
+        completed = true
+        super.viewWillDisappear(animated)
     }
     
     public override var defaultBarTitle: String {
@@ -121,6 +127,7 @@ public final class PaymentWebInteractionController: ModalViewController, WKNavig
     }
     
     private func handleScriptMessage(_ message: WKScriptMessage) {
+        guard !completed else { return }
         guard let body = message.body as? [String: Any] else {
             return
         }
@@ -162,6 +169,7 @@ public final class PaymentWebInteractionController: ModalViewController, WKNavig
             }
            
             if case let .addPaymentMethod(completion) = self.intent {
+                completed = true
                 completion(BotCheckoutPaymentWebToken(title: title, data: credentialsString, saveOnServer: false))
                 close()
             }
@@ -169,8 +177,13 @@ public final class PaymentWebInteractionController: ModalViewController, WKNavig
     }
        
    public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        guard !completed else {
+            decisionHandler(.cancel)
+            return
+        }
         if case let .externalVerification(completion) = self.intent, let host =  navigationAction.request.url?.host {
             if host == PaymentsHooks.shared.meUrlHost() || host == "telegram.me" {
+                completed = true
                 decisionHandler(.cancel)
                 completion(true)
                 close()

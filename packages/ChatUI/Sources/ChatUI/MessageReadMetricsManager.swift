@@ -11,6 +11,17 @@ import TelegramTheme
 import TelegramContext
 #endif
 
+struct ReadTimeSlice: Equatable {
+    var totalMs: Int
+    var activeMs: Int
+
+    static func between(_ start: CFAbsoluteTime, _ end: CFAbsoluteTime, activeUntil: CFAbsoluteTime) -> ReadTimeSlice {
+        let elapsed = max(0, end - start)
+        let active = max(0, min(end, activeUntil) - start)
+        return ReadTimeSlice(totalMs: Int(elapsed * 1000), activeMs: Int(min(active, elapsed) * 1000))
+    }
+}
+
 public final class MessageReadMetricsManager {
 
     public struct VisibleMessageInfo {
@@ -49,16 +60,13 @@ public final class MessageReadMetricsManager {
     private var pendingMetrics: [TelegramMessageReadMetric] = []
 
     private var batchTimer: SwiftSignalKit.Timer?
-    private var tickTimer: SwiftSignalKit.Timer?
+    private var finalizeTimer: SwiftSignalKit.Timer?
+    private let trackingLimit: CFAbsoluteTime = 300
     private let reportDisposable = MetaDisposable()
 
     private var lastUserActivityTime: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
     private let userActivityTimeout: CFAbsoluteTime = 15.0
     private var isGloballyPaused: Bool = false
-
-    private var isUserActive: Bool {
-        return CFAbsoluteTimeGetCurrent() - lastUserActivityTime < userActivityTimeout
-    }
 
     public init(context: any AccountContextProtocol, peerId: PeerId) {
         self.context = context
@@ -66,7 +74,7 @@ public final class MessageReadMetricsManager {
     }
 
     deinit {
-        tickTimer?.invalidate()
+        finalizeTimer?.invalidate()
         batchTimer?.invalidate()
         reportDisposable.dispose()
         for (_, state) in trackingStates {
@@ -100,26 +108,33 @@ public final class MessageReadMetricsManager {
     }
 
     public func recordUserActivity() {
-        lastUserActivityTime = CFAbsoluteTimeGetCurrent()
+        let now = CFAbsoluteTimeGetCurrent()
+        if !isGloballyPaused {
+            accumulateAll(until: now)
+        }
+        lastUserActivityTime = now
+    }
+
+    private func accumulate(_ state: inout MessageTrackingState, until now: CFAbsoluteTime) {
+        let slice = ReadTimeSlice.between(state.lastTickTime, now, activeUntil: lastUserActivityTime + userActivityTimeout)
+        state.accumulatedTimeMs += slice.totalMs
+        state.accumulatedActiveTimeMs += slice.activeMs
+        state.lastTickTime = now
+    }
+
+    private func accumulateAll(until now: CFAbsoluteTime) {
+        for (id, var state) in trackingStates where state.confirmed {
+            accumulate(&state, until: now)
+            trackingStates[id] = state
+        }
     }
 
     public func pause() {
         guard !isGloballyPaused else { return }
         isGloballyPaused = true
-        let now = CFAbsoluteTimeGetCurrent()
-        for (id, var state) in trackingStates {
-            if state.confirmed {
-                let elapsed = now - state.lastTickTime
-                state.accumulatedTimeMs += Int(elapsed * 1000)
-                if isUserActive {
-                    state.accumulatedActiveTimeMs += Int(elapsed * 1000)
-                }
-                state.lastTickTime = now
-                trackingStates[id] = state
-            }
-        }
-        tickTimer?.invalidate()
-        tickTimer = nil
+        accumulateAll(until: CFAbsoluteTimeGetCurrent())
+        finalizeTimer?.invalidate()
+        finalizeTimer = nil
     }
 
     public func resume() {
@@ -132,7 +147,7 @@ public final class MessageReadMetricsManager {
                 trackingStates[id] = state
             }
         }
-        ensureTickTimer()
+        scheduleFinalizeTimer()
     }
 
     public func finalizeAll() {
@@ -177,7 +192,7 @@ public final class MessageReadMetricsManager {
         state.lastTickTime = now
         state.startGraceTimer = nil
         trackingStates[messageId] = state
-        ensureTickTimer()
+        scheduleFinalizeTimer()
     }
 
     private func startEndGrace(for messageId: MessageId) {
@@ -185,7 +200,7 @@ public final class MessageReadMetricsManager {
         if !state.confirmed {
             state.startGraceTimer?.invalidate()
             trackingStates.removeValue(forKey: messageId)
-            cleanupTickTimerIfNeeded()
+            scheduleFinalizeTimer()
             return
         }
         let timer = SwiftSignalKit.Timer(timeout: 0.3, repeat: false, completion: { [weak self] in
@@ -203,12 +218,7 @@ public final class MessageReadMetricsManager {
 
         if state.confirmed {
             if !isGloballyPaused {
-                let now = CFAbsoluteTimeGetCurrent()
-                let elapsed = now - state.lastTickTime
-                state.accumulatedTimeMs += Int(elapsed * 1000)
-                if isUserActive {
-                    state.accumulatedActiveTimeMs += Int(elapsed * 1000)
-                }
+                accumulate(&state, until: CFAbsoluteTimeGetCurrent())
             }
 
             if state.accumulatedTimeMs >= 300 {
@@ -234,54 +244,30 @@ public final class MessageReadMetricsManager {
         }
 
         trackingStates.removeValue(forKey: messageId)
-        cleanupTickTimerIfNeeded()
+        scheduleFinalizeTimer()
     }
 
-    private func tick() {
+    private func finalizeExpired() {
+        finalizeTimer = nil
         guard !isGloballyPaused else { return }
         let now = CFAbsoluteTimeGetCurrent()
-        let active = isUserActive
-
-        var toFinalize: [MessageId] = []
-
-        for (id, var state) in trackingStates {
-            guard state.confirmed else { continue }
-            let elapsed = now - state.lastTickTime
-            state.accumulatedTimeMs += Int(elapsed * 1000)
-            if active {
-                state.accumulatedActiveTimeMs += Int(elapsed * 1000)
-            }
-            state.lastTickTime = now
-            trackingStates[id] = state
-
-            if now - state.startTime >= 300 {
-                toFinalize.append(id)
-            }
-        }
-
-        for id in toFinalize {
+        let expired = trackingStates.values.filter { $0.confirmed && now - $0.startTime >= trackingLimit }.map { $0.messageId }
+        for id in expired {
             finalizeTracking(messageId: id)
         }
+        scheduleFinalizeTimer()
     }
 
-    private func ensureTickTimer() {
-        guard tickTimer == nil, !isGloballyPaused else { return }
-        let hasConfirmed = trackingStates.values.contains(where: { $0.confirmed })
-        guard hasConfirmed else { return }
-
-        let timer = SwiftSignalKit.Timer(timeout: 0.2, repeat: true, completion: { [weak self] in
-            self?.tick()
+    private func scheduleFinalizeTimer() {
+        finalizeTimer?.invalidate()
+        finalizeTimer = nil
+        guard !isGloballyPaused else { return }
+        guard let deadline = trackingStates.values.filter({ $0.confirmed }).map({ $0.startTime + trackingLimit }).min() else { return }
+        let timer = SwiftSignalKit.Timer(timeout: max(0, deadline - CFAbsoluteTimeGetCurrent()), repeat: false, completion: { [weak self] in
+            self?.finalizeExpired()
         }, queue: .mainQueue())
-        tickTimer = timer
+        finalizeTimer = timer
         timer.start()
-    }
-
-    private func cleanupTickTimerIfNeeded() {
-        let hasConfirmed = trackingStates.values.contains(where: { $0.confirmed })
-        if !hasConfirmed {
-            tickTimer?.invalidate()
-            tickTimer = nil
-        }
     }
 
     private func scheduleBatch() {

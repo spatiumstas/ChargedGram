@@ -317,6 +317,7 @@ private func copyRichTextMessage(_ message: Message, text: String, page: Instant
     }
 }
 
+
 public func chatMenuItems(for message: Message, entry: ChatHistoryEntry?, textLayout: (TextViewLayout?, LinkType?)?, chatInteraction: ChatInteraction, useGroupIfNeeded: Bool = true, fromAdPromo: Bool = false, source: ChatMenuItemSource = .general) -> Signal<[ContextMenuItem], NoError> {
     
     if chatInteraction.interactionContext.isFrozen {
@@ -397,8 +398,9 @@ public func chatMenuItems(for message: Message, entry: ChatHistoryEntry?, textLa
             }
 
             if canForwardMessage(replacementMessage, chatInteraction: data.chatInteraction) {
+                let forwardingAction = ChatForwardMenuAction(chatInteraction: data.chatInteraction, sources: [data.message, replacementMessage])
                 items.append(ContextMenuItem(strings().messageContextForward, handler: {
-                    data.chatInteraction.forwardMessages([replacementMessage])
+                    forwardingAction.openPicker(messages: [replacementMessage])
                 }, itemImage: MenuAnimation.menu_forward.value))
             }
 
@@ -562,11 +564,20 @@ public func chatMenuItems(for message: Message, entry: ChatHistoryEntry?, textLa
 
             }, itemImage: MenuAnimation.menu_quote.value))
         }
-        // Quote for a RICH-message partial selection is disabled for now — the server doesn't accept
-        // offset-less quotes against rich messages yet. `selectManager.richSelectedText(for:)` stays
-        // available for when it does.
-        
-        
+        if message.attributes.contains(where: { $0 is RichTextMessageAttribute }),
+           let quote = selectManager.richSelectedQuote(for: message.id),
+           mode != .pinned, mode != .scheduled, !mode.isSavedMode,
+           mode.customChatContents == nil, entry?.additionalData.translate == nil {
+            firstBlock.append(ContextMenuItem(strings().chatMessageContextQuote, handler: {
+                let maximumLength = context.appConfiguration.getGeneralValue("quote_length_max", orElse: 1024)
+                if quote.text.utf16.count > maximumLength {
+                    alert(for: context.window, info: strings().chatMessageContextQuoteLimitExceed)
+                } else {
+                    chatInteraction.setupReplyMessage(message, .init(messageId: message.id, quote: quote, innerSubject: nil))
+                }
+            }, itemImage: MenuAnimation.menu_quote.value))
+        }
+
         if let adAttribute = data.message.adAttribute {
             
             if adAttribute.sponsorInfo != nil || adAttribute.additionalInfo != nil {
@@ -818,9 +829,9 @@ public func chatMenuItems(for message: Message, entry: ChatHistoryEntry?, textLa
             let toLang = context.sharedContext.baseSettings.doNotTranslate.union([appAppearance.languageCode])
             if !text.isEmpty, language == nil || !toLang.contains(language!), !muteTranslate, !isService, translateConfig.canTranslate {
                 thirdBlock.append(ContextMenuItem(strings().chatContextTranslate, handler: {
-                    showModal(with: ChatHistoryUIHooks.shared.makeRichMessageTranslateModal(context, language, appAppearance.languageCode, text, entities, message.id, richAttribute.instantPage, { tone in
+                    showModal(with: ChatHistoryUIHooks.shared.makeTranslateModalObserved(context, language, appAppearance.languageCode, text, entities, source: .richMessage(message.id, richAttribute.instantPage), onToneChanged: { tone in
                         data.chatInteraction.setTranslateTone(tone)
-                    }, {
+                    }, translateEntireChat: {
                         data.chatInteraction.translateTo(appAppearance.languageCode)
                     }), for: context.window)
                     data.chatInteraction.enableTranslatePaywall()
@@ -848,9 +859,9 @@ public func chatMenuItems(for message: Message, entry: ChatHistoryEntry?, textLa
             if language == nil || !toLang.contains(language!), !muteTranslate, !isService, translateConfig.canTranslate {
                 _ = peer?.canSendMessage(data.chatMode.isThreadMode) == true
                 thirdBlock.append(ContextMenuItem(strings().chatContextTranslate, handler: {
-                    showModal(with: ChatHistoryUIHooks.shared.makePollTranslateModal(context, language, appAppearance.languageCode, text, entities, message.id, { tone in
+                    showModal(with: ChatHistoryUIHooks.shared.makeTranslateModalObserved(context, language, appAppearance.languageCode, text, entities, source: .poll(message.id), onToneChanged: { tone in
                         data.chatInteraction.setTranslateTone(tone)
-                    }, {
+                    }, translateEntireChat: {
                         data.chatInteraction.translateTo(appAppearance.languageCode)
                     }), for: context.window)
                     data.chatInteraction.enableTranslatePaywall()
@@ -872,9 +883,9 @@ public func chatMenuItems(for message: Message, entry: ChatHistoryEntry?, textLa
                 let isRichMessage = message.attributes.contains(where: { $0 is RichTextMessageAttribute })
                 if !isRichMessage, language == nil || !toLang.contains(language!), !muteTranslate, !isService, translateConfig.canTranslate {
                     thirdBlock.append(ContextMenuItem(strings().chatContextTranslate, handler: {
-                        showModal(with: ChatHistoryUIHooks.shared.makeMessageTranslateModal(context, language, appAppearance.languageCode, text, entities, messageId, { tone in
+                        showModal(with: ChatHistoryUIHooks.shared.makeTranslateModalObserved(context, language, appAppearance.languageCode, text, entities, source: .message(messageId), onToneChanged: { tone in
                             data.chatInteraction.setTranslateTone(tone)
-                        }, {
+                        }, translateEntireChat: {
                             data.chatInteraction.translateTo(appAppearance.languageCode)
                         }), for: context.window)
                         data.chatInteraction.enableTranslatePaywall()
@@ -974,9 +985,9 @@ public func chatMenuItems(for message: Message, entry: ChatHistoryEntry?, textLa
                         if language == nil || !toLang.contains(language!), !muteTranslate, !isService, translateConfig.canTranslate {
                             _ = peer?.canSendMessage(data.chatMode.isThreadMode) == true
                             thirdBlock.append(ContextMenuItem(strings().chatContextTranslate, handler: {
-                                showModal(with: ChatHistoryUIHooks.shared.makeSelectedTextTranslateModal(context, language, appAppearance.languageCode, text, entities, { tone in
+                                showModal(with: ChatHistoryUIHooks.shared.makeTranslateModalObserved(context, language, appAppearance.languageCode, text, entities, source: .selectedText, onToneChanged: { tone in
                                     data.chatInteraction.setTranslateTone(tone)
-                                }, {
+                                }, translateEntireChat: {
                                     data.chatInteraction.translateTo(appAppearance.languageCode)
                                 }), for: context.window)
                                 data.chatInteraction.enableTranslatePaywall()
@@ -1014,9 +1025,9 @@ public func chatMenuItems(for message: Message, entry: ChatHistoryEntry?, textLa
                 if language == nil || !toLang.contains(language!), !isService, translateConfig.canTranslate {
                     _ = peer?.canSendMessage(data.chatMode.isThreadMode) == true
                     thirdBlock.append(ContextMenuItem(strings().chatContextTranslate, handler: {
-                        showModal(with: ChatHistoryUIHooks.shared.makeTranscriptionTranslateModal(context, language, appAppearance.languageCode, text, messageId, { tone in
+                        showModal(with: ChatHistoryUIHooks.shared.makeTranslateModalObserved(context, language, appAppearance.languageCode, text, [], source: .transcription(messageId), onToneChanged: { tone in
                             data.chatInteraction.setTranslateTone(tone)
-                        }, {
+                        }, translateEntireChat: {
                             data.chatInteraction.translateTo(appAppearance.languageCode)
                         }), for: context.window)
                         data.chatInteraction.enableTranslatePaywall()
@@ -1135,14 +1146,13 @@ public func chatMenuItems(for message: Message, entry: ChatHistoryEntry?, textLa
         
         if canForwardMessage(data.message, chatInteraction: data.chatInteraction), !isService {
             let msgs = useGroupIfNeeded ? (data.groupped ?? [data.message]) : [data.message]
+            let forwardingAction = ChatForwardMenuAction(chatInteraction: chatInteraction, sources: [data.message] + msgs)
             let forwardItem = ContextMenuItem(strings().messageContextForward, handler: {
-                data.chatInteraction.forwardMessages(msgs)
+                forwardingAction.openPicker(messages: msgs)
             }, itemImage: MenuAnimation.menu_forward.value)
             let forwardMenu = ContextMenu()
-            
-            
-            let forwardObject = ChatHistoryUIHooks.shared.makeForwardMessagesObject(context, [data.message], useGroupIfNeeded, chatInteraction.getMessages)
-            
+            let forwardObject = ChatHistoryUIHooks.shared.makeForwardMessagesObjectObserved(context, [data.message], useGroupIfNeeded, chatInteraction.getMessages)
+
             let recent = data.recentUsedPeers.filter {
                 $0.id != context.peerId && $0.canSendMessage(media: message.media.first) && !$0.isDeleted
             }.prefix(5)
@@ -1168,10 +1178,10 @@ public func chatMenuItems(for message: Message, entry: ChatHistoryEntry?, textLa
                 let title = peer.id == context.peerId ? strings().peerSavedMessages : peer.displayTitle.prefixWithDots(20)
                 let item = ReactionPeerMenu(title: title, handler: {
                     if !peer.isCommunity {
-                        _ = forwardObject.chatHistoryPerform(to: [peer.id], threadId: nil).start()
+                        forwardingAction.forward(forwardObject, peerId: peer.id, threadId: nil)
                     }
                 }, peer: peer, context: context, reaction: nil, message: message, destination: .forward(callback: { destinationPeerId, threadId in
-                    _ = forwardObject.chatHistoryPerform(to: [destinationPeerId], threadId: threadId).start()
+                    forwardingAction.forward(forwardObject, peerId: destinationPeerId, threadId: threadId)
                 }, canSelect: { destinationPeer in
                     return !destinationPeer.isCommunity && forwardObject.possibilityPerformTo(destinationPeer)
                 }))
@@ -1225,8 +1235,8 @@ public func chatMenuItems(for message: Message, entry: ChatHistoryEntry?, textLa
                     items.append(folders)
                 }
                 
-                let more = ContextMenuItem(strings().chatContextForwardMore, handler: { [unowned chatInteraction] in
-                    chatInteraction.forwardMessages([message])
+                let more = ContextMenuItem(strings().chatContextForwardMore, handler: {
+                    forwardingAction.openPicker(messages: [message])
                 }, itemImage: MenuAnimation.menu_more.value)
                 items.append(more)
             }
@@ -1268,7 +1278,7 @@ public func chatMenuItems(for message: Message, entry: ChatHistoryEntry?, textLa
             if let cachedData = data.cachedData as? CachedChannelData, views >= 100 {
                 if cachedData.flags.contains(.canViewStats) {
                     thirdBlock.append(ContextMenuItem.init(strings().chatContextViewStatistics, handler: {
-                        ChatNavigationHooks.shared.pushMessageStats(context, messageId)
+                        ChatNavigationHooks.shared.pushMessageStatsObserved(context, data.message)
                     }, itemImage: MenuAnimation.menu_statistics.value))
                 }
             }

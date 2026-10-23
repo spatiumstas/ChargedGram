@@ -76,6 +76,40 @@ public class SeparatorRowItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return SeparatorRowView.self
     }
+
+    public override var accessibilityIsSpacer: Bool {
+        return text.string.isEmpty && (rightText?.string.isEmpty ?? true)
+    }
+
+    public override var accessibilityLabel: String? {
+        let string = text.string.isEmpty ? (rightText?.string ?? "") : text.string
+        return string.isEmpty ? nil : string
+    }
+
+    public override var accessibilityValue: String? {
+        guard !text.string.isEmpty, let right = rightText?.string, !right.isEmpty else {
+            return nil
+        }
+        return right
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .staticText
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    public override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        guard let right = rightText?.string, !right.isEmpty, let itemAction = itemAction else {
+            return nil
+        }
+        return [NSAccessibilityCustomAction(name: right, handler: {
+            itemAction()
+            return true
+        })]
+    }
 }
 
 

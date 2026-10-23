@@ -84,6 +84,19 @@ final class Fragment_BalanceRowItem : GeneralRowItem {
     override func viewClass() -> AnyClass {
         return BalanceRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        switch balance.currency {
+        case .xtr:
+            return tonBalance.attributedString.string + " " + strings().voiceOverCommonStars
+        case .ton:
+            return tonBalance.attributedString.string + " TON"
+        }
+    }
+
+    override var accessibilityValue: String? {
+        return usdBalance.attributedString.string
+    }
     
     
     override var height: CGFloat {
@@ -122,6 +135,7 @@ private final class BalanceRowView : GeneralContainableRowView {
                 super.init(frame: frameRect)
                 addSubview(textView)
                 addSubview(imageView)
+                imageView.isAccessibilityDecorative = true
                 
                 textView.userInteractionEnabled = false
                 textView.isSelectable = false

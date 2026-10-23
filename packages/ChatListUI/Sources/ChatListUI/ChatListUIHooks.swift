@@ -91,6 +91,21 @@ public struct ChatListUIHooks {
     public let makeTabAllBadgeNode: (any AccountContextProtocol) -> Node
     public let makeSearchAdAboutController: (any AccountContextProtocol) -> ModalViewController
     public let navigateToChatWithCallback: (NavigationViewController?, any AccountContextProtocol, ChatLocation, ChatMode, ChatFocusTarget?, ChatInitialAction?, Atomic<ChatLocationContextHolder?>?, Bool, ViewControllerStyle?, @escaping (ViewController) -> Void) -> Void
+    public var navigateToChatWithContext: ((NavigationViewController?, any AccountContextProtocol, ChatLocation, ChatMode, ChatFocusTarget?, ChatInitialAction?, Atomic<ChatLocationContextHolder?>?, Bool, ViewControllerStyle?, @escaping (ViewController) -> Void) -> Void)?
+
+    public func navigateToChatObserved(_ navigation: NavigationViewController?, _ context: any AccountContextProtocol, _ chatLocation: ChatLocation, _ mode: ChatMode, _ focusTarget: ChatFocusTarget?, _ initialAction: ChatInitialAction?, _ holder: Atomic<ChatLocationContextHolder?>?, _ additional: Bool, _ style: ViewControllerStyle?, callback: @escaping (ViewController) -> Void) {
+        let completed: (ViewController) -> Void = { controller in
+            do {
+                callback(controller)
+            }
+        }
+        if let navigateToChatWithContext {
+            navigateToChatWithContext(navigation, context, chatLocation, mode, focusTarget, initialAction, holder, additional, style, completed)
+        } else {
+            navigateToChatWithCallback(navigation, context, chatLocation, mode, focusTarget, initialAction, holder, additional, style, completed)
+        }
+    }
+
     public let mainEffectiveNavigation: (any AccountContextProtocol) -> NavigationViewController
     public let makeChatListController: (any AccountContextProtocol, Bool, PeerListMode) -> ViewController
     public let makeCreateForumTopicController: (any AccountContextProtocol, PeerId) -> ViewController

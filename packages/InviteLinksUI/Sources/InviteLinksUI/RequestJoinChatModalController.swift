@@ -70,12 +70,13 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
     return entries
 }
 
-public func RequestJoinChatModalController(context: any AccountContextProtocol, joinhash: String, invite: ExternalJoiningChatState, interaction:@escaping(Peer)->Void) -> InputDataModalController {
+
+public func RequestJoinChatModalController(context: any AccountContextProtocol, joinhash: String, invite: ExternalJoiningChatState, interaction: @escaping (Peer) -> Void) -> InputDataModalController {
+    let action = InviteJoinAction()
 
 
     switch invite {
     case let .invite(state):
-        let actionsDisposable = DisposableSet()
 
         let initialState = State(flags: state.flags, title: state.title, about: state.about, photoRepresentation: state.photoRepresentation, participantsCount: state.participantsCount, isChannelOrMegagroup: state.flags.isChannel && state.flags.isBroadcast)
         
@@ -98,20 +99,24 @@ public func RequestJoinChatModalController(context: any AccountContextProtocol, 
         let controller = InputDataController(dataSignal: signal, title: state.title)
         
         controller.onDeinit = {
-            actionsDisposable.dispose()
+            action.close()
         }
 
         let modalInteractions = ModalInteractions(acceptTitle: strings().requestJoinButton, accept: { [weak controller] in
             _ = controller?.returnKeyAction()
         }, singleButton: true)
         
-        let modalController = InputDataModalController(controller, modalInteractions: modalInteractions)
+        let modalController = InputDataModalController(controller, modalInteractions: modalInteractions, closeHandler: { finish in
+            action.close()
+            finish()
+        })
         
         controller.leftModalHeader = ModalHeaderData(image: theme.icons.modalClose, handler: { [weak modalController] in
             modalController?.close()
         })
         
         close = { [weak modalController] in
+            action.close()
             modalController?.modal?.close()
         }
         
@@ -120,37 +125,12 @@ public func RequestJoinChatModalController(context: any AccountContextProtocol, 
         }
         
         controller.returnKeyInvocation = { _, _ in
+            guard let attempt = action.begin(), let takeResult = action.detach(attempt) else { return .default }
             close?()
-            _ = showModalProgress(signal: context.engine.peers.joinChatInteractively(with: joinhash), for: context.window).start(next: { outcome in
-                switch outcome {
-                case let .joined(peer):
-                    if let peer = peer?._asPeer() {
-                        interaction(peer)
-                    }
-                case let .webView(webView):
-                    FeatureNavigationHooks.shared.openJoinChatBotWebView(context, webView.botPeer.id, webView.url, webView.queryId, nil)
-                }
-            }, error: { error in
-                let text: String
-                switch error {
-                case .generic:
-                    text = strings().unknownError
-                case .tooMuchJoined:
-                    FeatureNavigationHooks.shared.showInactiveChannels(context, .join)
-                    return
-                case .tooMuchUsers:
-                    text = strings().groupUsersTooMuchError
-                case .requestSent:
-                    showModalText(for: context.window, text: strings().requestJoinSent)
-                    return
-                case .flood:
-                    text = strings().joinLinkFloodError
-                }
-                alert(for: context.window, info: text)
-            })
+            _ = performInviteJoin(context: context, hash: joinhash, window: context.window, requestSentAsSuccess: true, takeResult: takeResult, close: {}, interaction: interaction)
             return .default
         }
-        
+
         return modalController
     default:
         fatalError("I thought it's impossible.")

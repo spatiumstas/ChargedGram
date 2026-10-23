@@ -46,6 +46,10 @@ class StorageUsageBlockItem<Context: AccountContextProtocol>: GeneralRowItem {
         return false
     }
 
+    override var accessibilityIsSpacer: Bool {
+        return true
+    }
+
     override var height: CGFloat {
         if !isMediaVisible {
             return 1

@@ -95,31 +95,63 @@ private func showDeleteForAllDialog<Context: AccountContextProtocol>(context: Co
         |> mapToSignal { result -> Signal<Bool, NoError> in
             switch result {
             case .thrid:
-                return removeConfirmedChat(context: context, peerId: peerId, deleteGloballyIfPossible: true)
+                return removeConfirmedChat(context: context, peer: peer, peerId: peerId, deleteGloballyIfPossible: true)
             case .basic:
                 if let channel = peer as? TelegramChannel, case .group = channel.info {
                     return leaveGroupAsOwner(context: context, channel: channel, fallback: {
-                        return removeConfirmedChat(context: context, peerId: peerId, deleteGloballyIfPossible: false)
+                        return removeConfirmedChat(context: context, peer: peer, peerId: peerId, deleteGloballyIfPossible: false)
                     })
                 }
-                return removeConfirmedChat(context: context, peerId: peerId, deleteGloballyIfPossible: false)
+                return removeConfirmedChat(context: context, peer: peer, peerId: peerId, deleteGloballyIfPossible: false)
             case .none:
                 return .single(false)
             }
         }
 }
 
-private func removeConfirmedChat(context: any AccountContextProtocol, peerId: PeerId, deleteGloballyIfPossible: Bool) -> Signal<Bool, NoError> {
+private func removeConfirmedChat(context: any AccountContextProtocol, peer: Peer, peerId: PeerId, deleteGloballyIfPossible: Bool) -> Signal<Bool, NoError> {
     return context.globalPeerHandler.get()
         |> take(1)
         |> deliverOnMainQueue
         |> map { location -> Bool in
-            _ = context.engine.peers.removePeerChat(peerId: peerId, reportChatSpam: false, deleteGloballyIfPossible: deleteGloballyIfPossible).start()
+            scheduleChatRemoval(context: context, peer: peer, peerId: peerId, deleteGloballyIfPossible: deleteGloballyIfPossible)
             if location?.peerId == peerId {
                 context.bindings.rootNavigation().close()
             }
             return true
         }
+}
+
+private func scheduleChatRemoval(context: any AccountContextProtocol, peer: Peer, peerId: PeerId, deleteGloballyIfPossible: Bool, blockBot: Bool = false) {
+    let text = pendingChatRemovalText(peer: peer, peerId: peerId, deleteGloballyIfPossible: deleteGloballyIfPossible)
+    PendingChatRemovals.get(context).schedule(peerId: peerId, text: text, commit: {
+        if blockBot {
+            _ = context.blockedPeersContext.add(peerId: peerId).start()
+        }
+        return context.engine.peers.removePeerChat(peerId: peerId, reportChatSpam: false, deleteGloballyIfPossible: deleteGloballyIfPossible) |> ignoreValues
+    })
+}
+
+private func pendingChatRemovalText(peer: Peer, peerId: PeerId, deleteGloballyIfPossible: Bool) -> String {
+    if let channel = peer as? TelegramChannel {
+        if channel.isMonoForum {
+            return strings().leaveChatActionsRemovedFromChatList
+        }
+        switch channel.info {
+        case .broadcast:
+            return deleteGloballyIfPossible ? strings().leaveChatActionsDeletedChannel : strings().leaveChatActionsLeftChannel
+        case .group:
+            return deleteGloballyIfPossible ? strings().leaveChatActionsDeletedGroup : strings().leaveChatActionsLeftGroup
+        }
+    } else if peer is TelegramGroup {
+        return deleteGloballyIfPossible ? strings().leaveChatActionsDeletedGroup : strings().leaveChatActionsLeftGroup
+    } else if peerId.namespace == Namespaces.Peer.SecretChat {
+        return strings().leaveChatActionsSecretChatDeleted
+    } else if deleteGloballyIfPossible && !peer.isBot {
+        return strings().leaveChatActionsChatDeletedForBothSides
+    } else {
+        return strings().leaveChatActionsChatDeleted
+    }
 }
 
 private func showOwnerLeaveGroupModal<Context: AccountContextProtocol>(context: Context, peer: TelegramChannel, myPeer: Peer, futureCreator: Peer, hasOtherAdmins: Bool) -> Signal<Bool, NoError> {
@@ -161,7 +193,7 @@ private func showOwnerLeaveGroupModal<Context: AccountContextProtocol>(context: 
                         }
                     }
             case .basic:
-                _ = context.engine.peers.removePeerChat(peerId: peer.id, reportChatSpam: false, deleteGloballyIfPossible: false).start()
+                scheduleChatRemoval(context: context, peer: peer, peerId: peer.id, deleteGloballyIfPossible: false)
                 context.bindings.rootNavigation().close()
                 return .single(true)
             case .none:
@@ -350,10 +382,7 @@ private func showStandardLeaveDialog(context: any AccountContextProtocol, peer: 
                 if let threadId = threadId {
                     _ = context.engine.peers.removeForumChannelThread(id: peerId, threadId: threadId).start()
                 } else {
-                    _ = context.engine.peers.removePeerChat(peerId: peerId, reportChatSpam: false, deleteGloballyIfPossible: result == .thrid || forceRemoveGlobally).start()
-                    if peer.isBot && result == .thrid {
-                        _ = context.blockedPeersContext.add(peerId: peerId).start()
-                    }
+                    scheduleChatRemoval(context: context, peer: peer, peerId: peerId, deleteGloballyIfPossible: result == .thrid || forceRemoveGlobally, blockBot: peer.isBot && result == .thrid)
                 }
 
                 switch location {

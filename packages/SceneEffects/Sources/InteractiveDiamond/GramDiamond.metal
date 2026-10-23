@@ -186,6 +186,7 @@ struct Uniforms {
     float4 appearance;
     float4 referenceCrownFlash;
     float4 referencePavilionFlash;
+    float4 tint;
 };
 struct Raster {
     float4 position [[position]];
@@ -661,6 +662,17 @@ static float4 withHighlightBoost(float4 color, float boost) {
     return float4(straight * (1.0 + boost * smoothstep(0.55, 1.0, luminance)) * color.a, color.a);
 }
 
+float3 tinted(float3 color, float4 tint) {
+    if (tint.w <= 0) { return color; }
+    const float3 lumaWeights = float3(0.2126, 0.7152, 0.0722);
+    float luma = dot(color, lumaWeights);
+    float3 target = tint.rgb - dot(tint.rgb, lumaWeights);
+    float targetLength = length(target);
+    if (targetLength <= 1e-4) { return color; }
+    float3 shifted = luma + target / targetLength * length(color - luma);
+    return mix(color, saturate(shifted), tint.w);
+}
+
 float4 diamondSurface(Raster in, constant Uniforms &u, const device float4 *planes) {
     float3 n = normalize(in.normal);
     float cameraDistance = -u.projection[3].w / u.projection[2].w;
@@ -765,6 +777,7 @@ float4 diamondSurface(Raster in, constant Uniforms &u, const device float4 *plan
         float referenceFacing = smoothstep(0.0,0.2,(u.model * float4(0,0,1,0)).z);
         color = mix(color,float3(1),alpha*referenceFacing);
     }
+    color = tinted(color, u.tint);
     float whiten = u.appearance.y;
     if (whiten > 0) {
         float w = pow(whiten, 0.7);
@@ -961,6 +974,7 @@ fragment float4 sparkleFragment(SparkleRaster in [[stage_in]], constant Uniforms
     } else if (uint(u.appearance.x) == 2) {
         color = in.layer == 1 ? float3(0.82,0.96,1) : float3(1);
     }
+    color = tinted(color, u.tint);
     alpha = saturate(alpha * in.strength);
     return withHighlightBoost(float4(color * alpha, alpha), u.appearance.z);
 }

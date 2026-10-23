@@ -101,6 +101,11 @@ private final class RowItem : GeneralRowItem {
         
         return height
     }
+    
+    override var accessibilityLabel: String? {
+        return strings().starsPromoHeader
+    }
+    
     public override func viewClass() -> AnyClass {
         return RowView.self
     }

@@ -155,7 +155,7 @@ private func statsEntries(_ stats: PostStats?, storyViews: EngineStoryItem.Views
             case let .Loaded(_, string):
                 ChartsDataManager.readChart(data: string.data(using: .utf8)!, sync: true, success: { collection in
                     entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: graph.identifier, equatable: InputDataEquatable(graph.graph), comparable: nil, item: { initialSize, stableId in
-                        return StatisticRowItem(initialSize, stableId: stableId, context: accountContext, collection: collection, viewType: .singleItem, type: graph.type, getDetailsData: { date, completion in
+                        return StatisticRowItem(initialSize, stableId: stableId, context: accountContext, collection: collection, viewType: .singleItem, type: graph.type, title: graph.title, getDetailsData: { date, completion in
 
                         })
                     }))
@@ -258,6 +258,11 @@ public enum MessageStatsSubject {
 }
 
 public func MessageStatsController(_ context: any AccountContextProtocol, subject: MessageStatsSubject) -> ViewController {
+    let peerId: PeerId
+    switch subject {
+    case let .messageId(id): peerId = id.peerId
+    case let .story(_, peer): peerId = peer.id
+    }
     
     let initialState = UIStatsState(loading: [])
     
@@ -314,22 +319,22 @@ public func MessageStatsController(_ context: any AccountContextProtocol, subjec
     forwardsPromise.set(forwardsContext.state |> map(Optional.init))
     
     let arguments = Arguments.init(context: context, loadDetailedGraph: { graph, x -> Signal<StatsGraph?, NoError> in
-        return loadDetailedGraphImpl?(graph, x) ?? .single(nil)
+        return (loadDetailedGraphImpl?(graph, x) ?? .single(nil))
     }, openMessage: { target in
         var peers: [Peer] = []
         switch target {
         case let .message(message):
             peers = message.peers.map( { $0.1 })
-            StatisticsHooks.shared.openMessage(context, message.id)
+            StatisticsHooks.shared.openMessageObserved(context, message)
         case let .story(peer, item):
             peers = [peer._asPeer()]
-            StatisticsHooks.shared.showStory(context, peer.id, item.id)
+            StatisticsHooks.shared.showStoryObserved(context, peer.id, item.id)
         }
-        _ = context.account.postbox.transaction ({ transaction -> Void in
+        _ = (context.account.postbox.transaction ({ transaction -> Void in
             updatePeersCustom(transaction: transaction, peers: peers, update: { (_, updated) -> Peer? in
                 return updated
             })
-        }).startStandalone()
+        })).startStandalone()
     })
     
 
@@ -380,7 +385,6 @@ public func MessageStatsController(_ context: any AccountContextProtocol, subjec
     }
     
     let controller = InputDataController(dataSignal: signal, title: title, removeAfterDisappear: false, hasDone: false)
-    
     controller.contextObject = anyStatsContext
     
     controller.didLoad = { controller, _ in

@@ -54,6 +54,8 @@ public final class DownloadsControl : Control {
         addSubview(textContainer)
 
         addSubview(nextView)
+        nextView.isAccessibilityDecorative = true
+        titleView.isAccessibilityDecorative = true
 
         addSubview(progressView)
 
@@ -90,6 +92,10 @@ public final class DownloadsControl : Control {
     
     
     
+    public override var accessibilityDefaultLabel: String? {
+        return titleView.textLayout?.attributedString.string
+    }
+
     public override func layout() {
         super.layout()
 
@@ -392,9 +398,6 @@ public final class DownloadsSummary {
                 }
                 return .single(.empty)
             }
-        }
-        |> mapToSignal { value -> Signal<State, NoError> in
-            return .single(value) |> delay(0.1, queue: .mainQueue())
         }
         |> distinctUntilChanged
         |> deliverOnMainQueue)

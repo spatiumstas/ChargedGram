@@ -33,6 +33,29 @@ private final class SegmentItem : GeneralRowItem {
     override func viewClass() -> AnyClass {
         return SegmentItemView.self
     }
+
+    override var accessibilityLabel: String? {
+        return strings().voiceOverCommonCurrency
+    }
+
+    override var accessibilityValue: String? {
+        return currency == .stars ? strings().editPostSuggestionCurrencyStars : strings().editPostSuggestionCurrencyTon
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        let callback = self.callback
+        return [NSAccessibilityCustomAction(name: strings().editPostSuggestionCurrencyStars, handler: {
+            callback(.stars)
+            return true
+        }), NSAccessibilityCustomAction(name: strings().editPostSuggestionCurrencyTon, handler: {
+            callback(.ton)
+            return true
+        })]
+    }
     
     override var height: CGFloat {
         return 30
@@ -125,6 +148,14 @@ private final class HeaderItem : GeneralRowItem {
     override func viewClass() -> AnyClass {
         return HeaderView.self
     }
+
+    override var accessibilityLabel: String? {
+        return titleLayout.attributedString.string
+    }
+
+    override var accessibilityValue: String? {
+        return hasBalance ? balance.attributedString.string : nil
+    }
 }
 
 private final class HeaderView : GeneralRowView {
@@ -142,6 +173,7 @@ private final class HeaderView : GeneralRowView {
                 item.arguments.close()
             }
         }, for: .Click)
+        dismiss.setAccessibilityLabel(strings().voiceOverCommonClose)
     }
     
     override var backdorColor: NSColor {
@@ -223,6 +255,14 @@ private final class InputItem : GeneralRowItem {
     
     override func viewClass() -> AnyClass {
         return InputView.self
+    }
+
+    override var accessibilityLabel: String? {
+        return strings().fragmentStarAmountPlaceholder
+    }
+
+    override var accessibilityValue: String? {
+        return usdLayout.attributedString.string
     }
 }
 

@@ -68,6 +68,7 @@ private final class LocationAnnotationView : MKAnnotationView {
         control.set(handler: { [weak self] _ in
             (self?.annotation as? MapPin)?.focusRegion?()
         }, for: .Click)
+        control.setAccessibilityLabel(strings().voiceOverCommonLocation)
         
         update()
     }
@@ -116,6 +117,10 @@ public class LocationPreviewMapRowItem: GeneralRowItem {
     
     deinit {
        
+    }
+
+    public override var accessibilityLabel: String? {
+        return strings().locationPreviewLocation
     }
     
     public override func viewClass() -> AnyClass {

@@ -164,6 +164,24 @@ private final class WalletWordCountRowItem: GeneralRowItem {
     override func viewClass() -> AnyClass {
         return WalletWordCountRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        return selected == 24 ? strings().walletImportControllerTwentyFourWords : strings().walletImportControllerTwelveWords
+    }
+
+    override var accessibilityCustomActions: [NSAccessibilityCustomAction]? {
+        let callback = self.callback
+        return [
+            NSAccessibilityCustomAction(name: strings().walletImportControllerTwelveWords, handler: {
+                callback(12)
+                return true
+            }),
+            NSAccessibilityCustomAction(name: strings().walletImportControllerTwentyFourWords, handler: {
+                callback(24)
+                return true
+            })
+        ]
+    }
 }
 
 private final class WalletWordCountRowView: GeneralRowView {
@@ -828,7 +846,6 @@ public func WalletImportPage(context: any AccountContextProtocol, environment: W
     let controller = InputDataController(dataSignal: signal, title: strings().walletImportControllerTitle, hasDone: false, identifier: "wallet-import", getBackgroundColor: {
         theme.colors.background
     })
-
     getController = { [weak controller] in
         return controller
     }

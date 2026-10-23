@@ -256,6 +256,7 @@ public final class InstantPageV2View: View, NSViewToolTipOwner, HorizontalScroll
 
     private var currentLayout: InstantPageV2Layout?
     private var currentTheme: InstantPageTheme?
+    private var quoteHighlightLayer: SimpleLayer?
 
     private var detailsBodies: [Int: InstantPageV2View] = [:]
     private var mediaViews: [Int: ChatMediaContentView] = [:]
@@ -683,7 +684,8 @@ public final class InstantPageV2View: View, NSViewToolTipOwner, HorizontalScroll
             let fragment = ChatBubbleSelectionFragment(
                 attributedString: textItem.attributedString,
                 range: range,
-                index: 0
+                index: 0,
+                richText: [instantPageRichTextForSelection(textItem.attributedString.attributedSubstring(from: range))]
             )
             selectManager.addBubble(fragment: fragment, source: source, header: nil, stableId: stableId)
             if let window = self.window, window.firstResponder !== selectManager {
@@ -2217,6 +2219,102 @@ public final class InstantPageV2View: View, NSViewToolTipOwner, HorizontalScroll
         return nil
     }
 
+    public func clearQuoteHighlight() {
+        self.quoteHighlightLayer?.removeFromSuperlayer()
+        self.quoteHighlightLayer = nil
+    }
+
+    @discardableResult
+    public func highlightQuote(text: String, color: NSColor, range: NSRange? = nil) -> Bool {
+        var matches = self.quoteHighlightRects(text: text, range: range)
+        guard !matches.isEmpty else { return false }
+        if let layout = self.currentLayout {
+            var tableIndex = 0
+            for item in layout.items {
+                guard case let .table(table) = item else { continue }
+                let cellRects = matches.filter {
+                    $0.cell?.tableOriginX == table.frame.minX && $0.cell?.tableOriginY == table.frame.minY
+                }.map { $0.rect }
+                if let first = cellRects.first {
+                    let target = cellRects.dropFirst().reduce(first) { $0.union($1) }
+                    if target.minX < table.frame.minX || target.maxX > table.frame.maxX {
+                        let offset = self.scrollOffset(forTopLevel: table) + target.midX - table.frame.midX
+                        _ = self.setTableScrollOffset(offset, at: tableIndex)
+                    }
+                }
+                tableIndex += 1
+            }
+            matches = self.quoteHighlightRects(text: text, range: range)
+        }
+        self.clearQuoteHighlight()
+        let highlight = SimpleLayer()
+        highlight.frame = self.bounds
+        highlight.opacity = 0.5
+        for match in matches {
+            let shape = SimpleLayer()
+            shape.frame = match.rect
+            shape.backgroundColor = color.cgColor
+            shape.cornerRadius = 2
+            highlight.addSublayer(shape)
+        }
+        self.layer?.addSublayer(highlight)
+        self.quoteHighlightLayer = highlight
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self, weak highlight] in
+            guard let self, let highlight, self.quoteHighlightLayer === highlight else { return }
+            performSublayerRemoval(highlight, animated: true)
+            self.quoteHighlightLayer = nil
+        }
+        if let first = matches.first {
+            let target = matches.dropFirst().reduce(first.rect) { $0.union($1.rect) }
+            self.anchorReveal?(target)
+        }
+        return true
+    }
+
+    private func quoteHighlightRects(text: String, range: NSRange?) -> [(rect: CGRect, cell: CellContext?)] {
+        guard let layout = self.currentLayout else { return [] }
+        var entities: [LogicalEntity] = []
+        self.collectEntities(layout: layout, originInView: .zero, includeDetails: true, into: &entities)
+        var blocks: [NSAttributedString] = []
+        var indices: [ObjectIdentifier: Int] = [:]
+        for entity in entities {
+            let id: ObjectIdentifier
+            let attributedString: NSAttributedString
+            switch entity.kind {
+            case let .text(item, _):
+                id = ObjectIdentifier(item)
+                attributedString = item.attributedString
+            case let .formula(item):
+                id = ObjectIdentifier(item.attachment)
+                attributedString = NSAttributedString(string: item.attachment.latex)
+            }
+            if indices[id] == nil {
+                indices[id] = blocks.count
+                blocks.append(attributedString)
+            }
+        }
+        let ranges = instantPageQuoteRanges(in: blocks, text: text, range: range)
+        var rects: [(rect: CGRect, cell: CellContext?)] = []
+        for entity in entities {
+            switch entity.kind {
+            case let .text(item, line):
+                guard let index = indices[ObjectIdentifier(item)], let selected = ranges[index] else { continue }
+                let intersection = NSIntersectionRange(line.range, selected)
+                guard intersection.length > 0 else { continue }
+                let start = CTLineGetOffsetForStringIndex(line.line, intersection.location, nil)
+                let end = CTLineGetOffsetForStringIndex(line.line, NSMaxRange(intersection), nil)
+                let rect = CGRect(x: entity.frameInView.minX + min(start, end), y: entity.frameInView.minY - 2, width: abs(end - start), height: entity.frameInView.height + 6)
+                if rect.width > 0 {
+                    rects.append((rect, entity.cellContext))
+                }
+            case let .formula(item):
+                guard let index = indices[ObjectIdentifier(item.attachment)], ranges[index] != nil else { continue }
+                rects.append((entity.frameInView, entity.cellContext))
+            }
+        }
+        return rects
+    }
+
     private func flashAnchorHighlight(rect: CGRect) {
         guard rect.height > 0 else { return }
         let color = self.currentTheme?.linkColor ?? NSColor.accent
@@ -3479,20 +3577,25 @@ public final class InstantPageV2View: View, NSViewToolTipOwner, HorizontalScroll
         let output = NSMutableAttributedString()
         var lastCell: CellContext? = nil
         var emittedAny = false
+        var quoteParts: [RichText] = []
 
         for emission in emissions {
             let piece: NSAttributedString?
             let cell: CellContext?
+            let quotePart: RichText
             switch emission {
             case let .text(id):
                 guard let range = perItemRanges[id], let attr = perItemAttr[id], range.length > 0 else { continue }
                 let location = max(0, range.location)
                 let length = max(0, min(range.location + range.length, attr.length) - location)
                 guard length > 0 else { continue }
-                piece = attr.attributedSubstring(from: NSMakeRange(location, length))
+                let selected = attr.attributedSubstring(from: NSMakeRange(location, length))
+                piece = selected
+                quotePart = instantPageRichTextForSelection(selected)
                 cell = perItemCell[id] ?? nil
             case let .formula(attr, ctx):
                 piece = attr
+                quotePart = .formula(latex: attr.string)
                 cell = ctx
             }
             guard let piece else { continue }
@@ -3510,6 +3613,7 @@ public final class InstantPageV2View: View, NSViewToolTipOwner, HorizontalScroll
                 output.append(NSAttributedString(string: sep))
             }
             output.append(piece)
+            quoteParts.append(quotePart)
             emittedAny = true
             lastCell = cell
         }
@@ -3519,7 +3623,7 @@ public final class InstantPageV2View: View, NSViewToolTipOwner, HorizontalScroll
         if output.length == 0 {
             return []
         }
-        return [ChatBubbleSelectionFragment(attributedString: output, range: NSMakeRange(0, output.length), index: 0)]
+        return [ChatBubbleSelectionFragment(attributedString: output, range: NSMakeRange(0, output.length), index: 0, richText: quoteParts)]
     }
 
     public func clearBubbleSelection() {
@@ -3556,7 +3660,7 @@ public final class InstantPageV2View: View, NSViewToolTipOwner, HorizontalScroll
     /// list of selectable entities — every text line and every block-level formula — in visual
     /// order. Each carries its V2-view-local geometry so the selection algorithm can treat them
     /// as one continuous stream.
-    private func collectEntities(layout: InstantPageV2Layout, originInView: CGPoint, cellContext: CellContext? = nil, into result: inout [LogicalEntity]) {
+    private func collectEntities(layout: InstantPageV2Layout, originInView: CGPoint, cellContext: CellContext? = nil, includeDetails: Bool = false, into result: inout [LogicalEntity]) {
         for item in layout.items {
             switch item {
             case let .text(text):
@@ -3613,6 +3717,17 @@ public final class InstantPageV2View: View, NSViewToolTipOwner, HorizontalScroll
                     midYInView: frameInView.midY,
                     frameInView: frameInView
                 ))
+            case let .details(details) where includeDetails:
+                let titleOrigin = CGPoint(x: originInView.x + details.frame.minX + details.titleFrame.minX + details.titleTextItem.frame.minX,
+                                          y: originInView.y + details.frame.minY + details.titleFrame.minY + details.titleTextItem.frame.minY)
+                for line in details.titleTextItem.lines {
+                    let frame = details.titleTextItem.alignedLineFrame(line).offsetBy(dx: titleOrigin.x, dy: titleOrigin.y)
+                    result.append(LogicalEntity(kind: .text(details.titleTextItem, line), cellContext: cellContext, textOriginInView: titleOrigin, midYInView: frame.midY, frameInView: frame))
+                }
+                if details.isExpanded, let inner = details.innerLayout {
+                    let bodyOrigin = CGPoint(x: originInView.x + details.frame.minX, y: originInView.y + details.frame.minY + details.titleFrame.maxY)
+                    collectEntities(layout: inner, originInView: bodyOrigin, cellContext: cellContext, includeDetails: true, into: &result)
+                }
             case let .table(table):
                 let tableMinX = table.frame.minX - self.scrollOffset(forTopLevel: table)
                 if let titleLayout = table.titleSubLayout, let titleFrame = table.titleFrame {
@@ -3620,7 +3735,7 @@ public final class InstantPageV2View: View, NSViewToolTipOwner, HorizontalScroll
                         x: originInView.x + table.frame.minX + titleFrame.minX,
                         y: originInView.y + table.frame.minY + titleFrame.minY
                     )
-                    collectEntities(layout: titleLayout, originInView: titleOriginInView, cellContext: nil, into: &result)
+                    collectEntities(layout: titleLayout, originInView: titleOriginInView, cellContext: nil, includeDetails: includeDetails, into: &result)
                 }
                 let gridOffsetY: CGFloat = table.titleFrame?.height ?? 0
                 for cell in table.cells {
@@ -3634,7 +3749,7 @@ public final class InstantPageV2View: View, NSViewToolTipOwner, HorizontalScroll
                         tableOriginY: table.frame.origin.y,
                         cellRowY: cell.frame.minY
                     )
-                    collectEntities(layout: sub, originInView: cellOriginInView, cellContext: nestedContext, into: &result)
+                    collectEntities(layout: sub, originInView: cellOriginInView, cellContext: nestedContext, includeDetails: includeDetails, into: &result)
                 }
             default:
                 break

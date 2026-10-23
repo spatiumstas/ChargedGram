@@ -20,9 +20,11 @@ package dependencies, so once the submodules are checked out the build is offlin
   ```
   brew install cmake ninja meson nasm yasm zlib autoconf libtool automake pkg-config
   ```
-- A Rust toolchain via rustup. The TON wallet engine (`wallet-engine`) is a Rust library;
-  its build script picks up `cargo` from `PATH` or `~/.cargo/bin` and rustup installs the
-  toolchain pinned in the engine's `rust-toolchain.toml` automatically.
+- A Rust toolchain via rustup. The TON wallet engine (`wallet-engine`) and the tlottie
+  sticker renderer are Rust libraries; their build scripts pick up `cargo` from `PATH` or
+  `~/.cargo/bin` and rustup installs the toolchain pinned in the engine's
+  `rust-toolchain.toml` automatically. tlottie is built with the toolchain of
+  `mtproto-engine`, so all Rust libraries in the app share one standard library.
   ```
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
   ```
@@ -76,8 +78,8 @@ sh scripts/configure_frameworks.sh
 
 This takes a while, mostly because of WebRTC. The script:
 
-1. Generates the FlatSerialization sources for TelegramCore with the bundled
-   `scripts/flatc`.
+1. Generates TelegramApi's SwiftPM sources with SwiftTL, then the FlatSerialization
+   sources for TelegramCore with the bundled `scripts/flatc`.
 2. Builds, in order, `OpenH264`, `OpenSSLEncryption`, `libopus`, `libvpx`, `Mozjpeg`,
    `libwebp`, `dav1d`, `ffmpeg`, `webrtc` (tg_owt), `tde2e` and `WalletEngine` through
    their projects in `core-xprojects/<lib>/`. Outputs land in `core-xprojects/<lib>/build`,
@@ -89,9 +91,11 @@ This takes a while, mostly because of WebRTC. The script:
    expect.
 4. Runs the `td` macOS cleanup for `TdBinding`.
 
-Each library's Xcode project only builds when its `build` directory is missing. A run
-that failed halfway leaves a partial directory behind and the next run skips that
-library, so after a failure delete `core-xprojects/<lib>/build` and run the script again.
+Framework preparation compares source, toolchain and dependency fingerprints and
+checks required libraries, headers and Rust binding outputs before reusing a build.
+Valid cache hits skip the framework's Xcode invocation. Missing or inconsistent
+outputs are repaired, and a success stamp is written only after output checks pass.
+Build directories without a stamp are rebuilt rather than assumed to be complete.
 To rebuild everything from scratch, put `yes` into `scripts/rebuild` (it is `no` by
 default), run the script, and set it back to `no`.
 
@@ -138,6 +142,45 @@ xcodebuild -workspace Telegram-Mac.xcworkspace -scheme Telegram -configuration D
 
 The main app targets macOS 11.0 and the share extension macOS 10.13. Swift packages are
 resolved from the local paths in the workspace; no network access is needed.
+
+### Generated TelegramApi sources
+
+`scripts/configure_frameworks.sh` prepares the generated Swift and Objective-C API
+sources before Xcode resolves packages. Both CI build paths run this preparation
+before building or archiving. The shared `Telegram`, `Release`, and `TelegramShare`
+schemes also refresh generation before normal builds. Both app targets validate the
+generated files, so a failed generator cannot silently build against stale output.
+
+Generation is incremental: the schema, SwiftTL sources, generator script, selected
+Swift toolchain, and generated file contents are checked. Unchanged files keep their
+timestamps. Generation runs in a temporary directory and publishes only complete
+output; concurrent preparation calls are serialized. Outputs and the preparation
+stamp remain git-ignored.
+
+For a checkout with existing native libraries but no generated API sources, run this
+once **before opening Xcode** or invoking `xcodebuild`:
+
+```
+python3 scripts/prepare-telegram-api.py
+```
+
+This is already included in the normal framework setup and CI paths. Xcode discovers
+package source files before scheme pre-actions, so a pre-action alone cannot bootstrap
+missing files on the first build. If a submodule update changes the set of generated
+filenames, prepare and reopen the workspace to refresh package discovery. Direct
+`swift build`/`swift test` consumers should also run preparation first.
+
+Focused verification without building the main app:
+
+```
+python3 tools/tests/telegram-api-generation/test_generation.py
+python3 tools/tests/telegram-api-generation/xcode.py
+python3 tools/tests/no-paid-messages-token/run.py
+```
+
+The Xcode test builds a temporary command-line app against a clean copy of TelegramApi,
+then checks incremental generation, schema changes, and failed-generator handling.
+It prints the temporary directory containing its build logs.
 
 ### Signing
 
@@ -215,8 +258,54 @@ the app target; Swift packages under `packages/` do not read it, so the channel 
 the command line, which applies to every target including packages. Builds started from the Xcode UI
 do not get it, so `#if BETA` / `STABLE` / `ALPHA` / `APP_STORE` inside packages are false there.
 
-The script then extracts `Telegram.app` and its dSYM. `buildbox/build.sh` wraps the same steps in a
-Parallels VM for the official builds.
+The script then extracts `Telegram.app` and its dSYM. GitLab runs this direct Mac
+build through `buildbox/internal.sh`, which verifies and deploys the result while
+holding the existing machine-wide lock. `buildbox/build.sh` is the separate legacy
+Parallels VM build path.
+
+### CI build reuse and timing
+
+Source synchronization preserves native outputs, generated TelegramApi and
+FlatSerialization sources, the SwiftTL build cache and generated shared headers.
+Generators still run their validation; unchanged Swift files and headers keep their
+timestamps, and removed generated files are deleted. tlottie still lets Cargo check
+its inputs, but does not replace an identical universal library.
+
+GitLab retains `.ci-build-logs/<job-id>/` for seven days, including failed jobs:
+
+- `frameworks.log`: preparation output and framework cache decisions.
+- `xcodebuild.log`: full archive output and Xcode's build timing summary.
+- `timings.tsv`: wall-clock stage durations and exit codes. The aggregate `build`
+  row includes its nested preparation, archive and compression stages.
+
+Archive builds disable compiler indexing. Optimization, both CPU architectures,
+channel conditions, signing, dSYMs and deployment serialization are preserved.
+No explicit DerivedData cleanup is added; Xcode continues to use its normal location.
+
+On a runner with compilation-cache support, set the CI variable
+`TELEGRAM_COMPILATION_CACHE=YES` to trial Xcode compilation caching with diagnostic
+remarks. `NO` explicitly disables it; leaving it unset preserves the toolchain's
+default. Compare a baseline, a repeated build and a small source change before
+enabling it permanently. The normal pipeline does not opt into this setting.
+
+`TELEGRAM_BUILD_ROOT` optionally relocates the `build-<channel>` directories; its
+default is the user's home directory. This is also used by isolated script tests.
+It does not relax the machine-wide build lock.
+
+Run the focused checks without deploying:
+
+```
+python3 tools/tests/ci-build/test_incremental.py
+python3 tools/tests/telegram-api-generation/test_generation.py
+python3 tools/tests/ci-build/xcode.py
+```
+
+The first suite exercises cache hits, dependency invalidation, missing outputs,
+generation failures, source/header synchronization, all release channel arguments
+and packaging failures using temporary fixtures. The Xcode smoke test runs the
+actual archive script against a small unsigned universal app, checking its channel
+condition and dSYM with default settings and with compilation caching enabled.
+It does not replace validation of a signed Telegram archive on the release runner.
 
 Version numbers are bumped manually at release time, not per build: run
 `tools/bump_build_number.sh Telegram-Mac/Info.plist` to increment `CFBundleVersion`, then
@@ -262,6 +351,11 @@ cd packages/TGUIKit && swift build
   build script above.
 - **`cargo` not found although Rust is installed**: the engine build script looks in
   `PATH` and `~/.cargo/bin`; export `CARGO=/path/to/cargo` if it lives elsewhere.
+- **`library 'tlottie' not found`**: `core-xprojects/tlottie/build/libtlottie.a` is missing.
+  Run `sh core-xprojects/tlottie/build.sh` or rerun `configure_frameworks.sh`.
+- **`duplicate symbol '_rust_eh_personality'`**: tlottie was built with a different Rust
+  toolchain than the engines. Delete `core-xprojects/tlottie/build` and rerun
+  `sh core-xprojects/tlottie/build.sh`.
 - **RLottie or CodeSyntax not found**: you opened `Telegram.xcodeproj`. Open the
   workspace instead.
 - **"The macOS deployment target 'MACOSX_DEPLOYMENT_TARGET' is set to 10.13, but the range
@@ -287,3 +381,11 @@ cd packages/TGUIKit && swift build
 6. Follow the rules in the README's "Forking" section: do not call the fork Telegram and
    do not reuse the logo.
 7. Questions: open an issue at https://github.com/macosswift/telegram/issues/new.
+
+## Performance labs and CI releases
+
+Performance labs remain available in Debug builds. PerfLab implementation, NetworkLab and feature lab entry points are compiled only with `DEBUG`; CI archives use Release for every distribution channel.
+
+Before deployment, `buildbox/verify-build.sh` runs `buildbox/verify-no-labs.py` against the built app. It rejects lab-named artifacts and lab symbols or launch markers in every Mach-O binary, including embedded frameworks and extensions. Debug metadata is removed from a temporary inspection copy so excluded source-file references do not cause false positives; the signed app is untouched. A failed check prevents deployment. Keep this check in place when changing lab code or build flags.
+
+Run its native fixture checks with `python3 -m unittest discover -s buildbox -p 'test_verify_no_labs.py' -v`. These exercise clean, contaminated, stripped and nested binaries. They do not replace verification of the actual CI archive.

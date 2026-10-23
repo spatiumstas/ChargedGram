@@ -2,6 +2,7 @@ import Cocoa
 import TGUIKit
 import GeneralRows
 import TelegramTheme
+import CurrencyFormat
 
 final class WalletBalanceBannerRowItem: GeneralRowItem {
     fileprivate let prefixLayout: TextViewLayout
@@ -24,6 +25,25 @@ final class WalletBalanceBannerRowItem: GeneralRowItem {
     override func viewClass() -> AnyClass {
         return WalletBalanceBannerRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        let amount = amountLayout.map { walletTonAccessibilityText($0.attributedString.string) } ?? ""
+        let text = (prefixLayout.attributedString.string + amount + suffixLayout.attributedString.string).trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .button
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
+    }
 }
 
 private final class WalletBalanceBannerRowView: GeneralContainableRowView {
@@ -43,6 +63,8 @@ private final class WalletBalanceBannerRowView: GeneralContainableRowView {
         }
         iconView.isEventLess = true
         nextView.isEventLess = true
+        iconView.isAccessibilityDecorative = true
+        nextView.isAccessibilityDecorative = true
         addSubview(iconView)
         addSubview(nextView)
         containerView.set(handler: { [weak self] _ in

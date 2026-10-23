@@ -55,6 +55,30 @@ public final class InlineProgressView: Control {
     }
 }
 
+final class ChatAccessibleImageButton: ImageButton {
+    var accessibilityLabelProvider: (() -> String?)?
+    var accessibilityPress: (() -> Void)?
+
+    override var accessibilityDefaultLabel: String? {
+        return accessibilityLabelProvider?()
+    }
+
+    override func isAccessibilityElement() -> Bool {
+        if accessibilityPress != nil {
+            return TGUIKitAccessibility.isEnabled && !isAccessibilityDecorative && !isHidden
+        }
+        return super.isAccessibilityElement()
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        if let accessibilityPress {
+            accessibilityPress()
+            return true
+        }
+        return super.accessibilityPerformPress()
+    }
+}
+
 public final class ChatInputSendButton: View {
 
     public struct State: Equatable {
@@ -74,8 +98,8 @@ public final class ChatInputSendButton: View {
         public static let initial = State(kind: .voice, isEditing: false, isSendEnabled: true, isInlineLoading: false)
     }
 
-    public let send: ImageButton = ImageButton()
-    public let voice: ImageButton = ImageButton()
+    public let send: ImageButton = ChatAccessibleImageButton()
+    public let voice: ImageButton = ChatAccessibleImageButton()
     private let voiceIcon = ChatInputRecordModeIcon(frame: NSMakeRect(5, 5, ChatInputRecordModeIcon.canvasSize.width, ChatInputRecordModeIcon.canvasSize.height))
     public let stop: ImageButton = ImageButton()
     public let slowModeTimeout: TextButton = TextButton()
@@ -138,6 +162,21 @@ public final class ChatInputSendButton: View {
         send.scaleOnClick = true
         slowModeTimeout.scaleOnClick = true
         inlineCancel.scaleOnClick = true
+
+        stop.setAccessibilityLabel(strings().voiceOverChatStop)
+        inlineCancel.setAccessibilityLabel(strings().voiceOverCommonCancel)
+        (send as? ChatAccessibleImageButton)?.accessibilityLabelProvider = { [weak self] in
+            return self?.state.isEditing == true ? strings().voiceOverCommonDone : strings().voiceOverMessageContextSend
+        }
+        (voice as? ChatAccessibleImageButton)?.accessibilityLabelProvider = {
+            return FastSettings.recordingState == .voice ? strings().voiceOverChatRecordModeVoiceMessage : strings().voiceOverChatRecordModeVideoMessage
+        }
+        voice.setAccessibilityHelp(strings().voiceOverChatRecordModeHint)
+        let recordActionName = strings().voiceOverChatRecord
+        voice.setAccessibilityCustomActions([NSAccessibilityCustomAction(name: recordActionName, handler: { [weak self] in
+            self?.chatInteraction.startRecording(true, nil)
+            return true
+        })])
 
         voice.set(handler: { [weak self] _ in
             guard let self else { return }
@@ -332,6 +371,7 @@ public final class ChatInputSendButton: View {
                 current = view
             } else {
                 current = StarsSendActionView(frame: .zero)
+                current.setAccessibilityLabel(strings().voiceOverMessageContextSend)
                 addSubview(current)
                 self.sendPaidMessages = current
                 current.setSingle(handler: { [weak self] _ in
@@ -346,6 +386,8 @@ public final class ChatInputSendButton: View {
 
         if state.isInlineLoading, inlineProgress == nil {
             let progress = InlineProgressView(frame: NSMakeRect(0, 0, 40, 40))
+            progress.setAccessibilityLabel(strings().voiceOverCommonCancel)
+            progress.setAccessibilityValue(strings().voiceOverCommonLoading)
             progress.isHidden = true
             addSubview(progress, positioned: .below, relativeTo: inlineCancel)
             progress.set(handler: { [weak self] _ in

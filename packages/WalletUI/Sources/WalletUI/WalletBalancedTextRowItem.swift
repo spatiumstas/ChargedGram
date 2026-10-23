@@ -45,6 +45,19 @@ final class WalletBalancedTextRowItem: GeneralRowItem {
     override func viewClass() -> AnyClass {
         return WalletBalancedTextRowView.self
     }
+
+    override var accessibilityLabel: String? {
+        let text = textLayout.attributedString.string
+        return text.isEmpty ? nil : text
+    }
+
+    override var accessibilityRole: NSAccessibility.Role? {
+        return .staticText
+    }
+
+    override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 private final class WalletBalancedTextRowView: TableRowView {

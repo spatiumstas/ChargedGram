@@ -3,7 +3,6 @@ import TelegramCore
 
 import Postbox
 import SwiftSignalKit
-import TelegramApi
 
 public enum QRLoginType : String {
     case primary = "primary"
@@ -63,25 +62,21 @@ public func managedAppConfigurationUpdates(accountManager: AccountManager<Telegr
         return (accountManager.transaction { transaction -> Int32 in
                 return currentUnauthorizedAppConfiguration(transaction: transaction).hash
         } |> mapToSignal { hash in
-            return (network.request(Api.functions.help.getAppConfig(hash: hash))
+            return (requestAppConfiguration(network: network, hash: hash)
                            |> retryRequest
                            |> mapToSignal { result -> Signal<Void, NoError> in
                                return accountManager.transaction { transaction -> Void in
                                    switch result {
-                                   case let .appConfig(value):
-                                       let (hash, config) = (value.hash, value.config)
-                                       if let data = JSON(apiJson: config) {
-                                           updateAppConfiguration(transaction: transaction, { configuration -> AppConfiguration in
-                                               var configuration = configuration
-                                               configuration.data = data
-                                               configuration.hash = hash
-                                               return configuration
-                                           })
-                                       }
-                                   default:
+                                   case let .updated(data, hash):
+                                       updateAppConfiguration(transaction: transaction, { configuration -> AppConfiguration in
+                                           var configuration = configuration
+                                           configuration.data = data
+                                           configuration.hash = hash
+                                           return configuration
+                                       })
+                                   case .notModified:
                                        break
                                    }
-                                   
                                }
                             })
         }).start()

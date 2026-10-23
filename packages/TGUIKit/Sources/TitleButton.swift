@@ -22,6 +22,7 @@ open class TextButton: ImageButton {
         view.userInteractionEnabled = false
         view.isSelectable = false
         view.isEventLess = true
+        view.isAccessibilityDecorative = true
         view.disableBackgroundDrawing = true
         return view
     }()
@@ -43,6 +44,43 @@ open class TextButton: ImageButton {
 
     private var currentTextSize:  NSSize?
     private var currentBlockSize: NSSize? // title(+sub) measured together
+
+    private struct TextLayoutCache {
+        let string: String
+        let color: NSColor
+        let font: NSFont
+        let scale: CGFloat
+        let attributedString: NSAttributedString
+        let layout: TextViewLayout
+        let size: NSSize
+
+        func matches(_ current: TextViewLayout) -> Bool {
+            return current === layout && current.attributedString === attributedString
+                && scale == System.backingScale && current.constrainedWidth == .greatestFiniteMagnitude
+                && current.layoutSize == size && current.maximumNumberOfLines == 1
+                && current.penFlush == 0.5 && current.cutout == nil
+        }
+    }
+
+    private var titleLayoutCache: TextLayoutCache?
+    private var subtextLayoutCache: TextLayoutCache?
+
+    private static func updateText(_ view: TextView, string: String, color: NSColor, font: NSFont, cache: TextLayoutCache?) -> TextLayoutCache? {
+        if color.type == .componentBased, let cache = cache,
+           cache.string == string, cache.color.isEqual(color), cache.font.isEqual(font),
+           let layout = view.textLayout, cache.matches(layout) {
+            if view.frame.size != cache.size {
+                view.update(cache.layout)
+            }
+            return cache
+        }
+        let attributedString = NSAttributedString.initialize(string: string, color: color, font: font)
+        let layout = TextViewLayout(attributedString, maximumNumberOfLines: 1, truncationType: .end, alignment: .center)
+        layout.measure(width: .greatestFiniteMagnitude)
+        view.update(layout)
+        guard color.type == .componentBased else { return nil }
+        return TextLayoutCache(string: string, color: color, font: font, scale: System.backingScale, attributedString: attributedString, layout: layout, size: layout.layoutSize)
+    }
 
     public var autoSizeToFit: Bool = true
     public var showsSubtextWhenEmptyTitle: Bool = false
@@ -69,6 +107,13 @@ open class TextButton: ImageButton {
 
     required public init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    open override var accessibilityDefaultLabel: String? {
+        if let title = stateText[.Normal] ?? stateText.values.first, !title.isEmpty {
+            return title
+        }
+        return super.accessibilityDefaultLabel
     }
 
     // MARK: - Public API (Title)
@@ -136,22 +181,21 @@ open class TextButton: ImageButton {
         let titleFont = stateFont[state] ?? stateFont[.Normal] ?? style.font
 
         let subStr   = stateSubText[state] ?? stateSubText[.Normal] ?? ""
-        var subColor = stateSubColor[state] ?? stateSubColor[.Normal] ?? titleColor.withAlphaComponent(0.8)
-        if !isEnabled { subColor = subColor.withAlphaComponent(0.5) }
-        let subFont  = stateSubFont[state]  ?? stateSubFont[.Normal]  ?? NSFont.systemFont(ofSize: max(10, titleFont.pointSize - 2), weight: .regular)
 
         self.text.backgroundColor = .clear
 
-        let titleLayout = TextViewLayout(NSAttributedString.initialize(string: titleText, color: titleColor, font: titleFont), maximumNumberOfLines: 1, truncationType: .end, alignment: .center)
-        titleLayout.measure(width: .greatestFiniteMagnitude)
-        self.text.update(titleLayout)
+        titleLayoutCache = Self.updateText(text, string: titleText, color: titleColor, font: titleFont, cache: titleLayoutCache)
         if subStr.isEmpty {
+            subtextLayoutCache = nil
             if let view = self.subText {
                 performSubviewRemoval(view, animated: animatesSubtextChange, duration: textButtonSubtextDuration, timingFunction: .easeInEaseOut)
                 self.subText = nil
             }
             self.subTextIsNew = false
         } else {
+            var subColor = stateSubColor[state] ?? stateSubColor[.Normal] ?? titleColor.withAlphaComponent(0.8)
+            if !isEnabled { subColor = subColor.withAlphaComponent(0.5) }
+            let subFont = stateSubFont[state] ?? stateSubFont[.Normal] ?? NSFont.systemFont(ofSize: max(10, titleFont.pointSize - 2), weight: .regular)
             let current: TextView
             if let view = self.subText {
                 current = view
@@ -169,9 +213,7 @@ open class TextButton: ImageButton {
                     current.layer?.animateAlpha(from: 0, to: 1, duration: textButtonSubtextDuration, timingFunction: .easeInEaseOut)
                 }
             }
-            let subLayout = TextViewLayout(NSAttributedString.initialize(string: subStr, color: subColor, font: subFont), maximumNumberOfLines: 1, truncationType: .end, alignment: .center)
-            subLayout.measure(width: .greatestFiniteMagnitude)
-            current.update(subLayout)
+            subtextLayoutCache = Self.updateText(current, string: subStr, color: subColor, font: subFont, cache: subtextLayoutCache)
         }
 
         needsLayout = true
@@ -211,14 +253,18 @@ open class TextButton: ImageButton {
 
         let titleSize: NSSize
         if let layout = text.textLayout {
-            layout.measure(width: .greatestFiniteMagnitude)
+            if titleLayoutCache?.matches(layout) != true {
+                layout.measure(width: .greatestFiniteMagnitude)
+            }
             titleSize = layout.layoutSize
         } else {
             titleSize = .zero
         }
         let subSize: NSSize
         if hasSub, let layout = self.subText?.textLayout {
-            layout.measure(width: .greatestFiniteMagnitude)
+            if subtextLayoutCache?.matches(layout) != true {
+                layout.measure(width: .greatestFiniteMagnitude)
+            }
             subSize = layout.layoutSize
         } else {
             subSize = .zero

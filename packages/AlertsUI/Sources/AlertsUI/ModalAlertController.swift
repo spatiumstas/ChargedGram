@@ -36,6 +36,13 @@ private final class ButtonsItem : GeneralRowItem {
     public var actionEnabled: Bool {
         return state.actionEnabled
     }
+
+    public override var accessibilityLabel: String? {
+        if let title = state.data.title, !title.isEmpty {
+            return title
+        }
+        return state.data.ok
+    }
 }
 
 private final class ButtonsItemView : GeneralRowView {
@@ -234,6 +241,10 @@ public final class AlertHeaderItem : TableRowItem {
     public override func viewClass() -> AnyClass {
         return AlertHeaderView.self
     }
+
+    public override var accessibilityLabel: String? {
+        return title.attributedString.string
+    }
 }
 
 private final class AlertHeaderView : TableRowView {
@@ -248,6 +259,7 @@ private final class AlertHeaderView : TableRowView {
         addSubview(avatar)
         
         titleView.isSelectable = false
+        titleView.isAccessibilityDecorative = true
         infoView.isSelectable = false
         
         titleContainer.addSubview(titleView)
@@ -447,7 +459,7 @@ private final class RowItem : TableRowItem {
         }
         
 
-        return height
+        return max(1, height)
     }
     
     public var optionsSize: NSSize {
@@ -466,6 +478,16 @@ private final class RowItem : TableRowItem {
     
     public override func viewClass() -> AnyClass {
         return RowView.self
+    }
+
+    public override var accessibilityLabel: String? {
+        if let title = state.data.title, !title.isEmpty {
+            return title
+        }
+        if let text = info?.attributedString.string, !text.isEmpty {
+            return text
+        }
+        return state.data.ok
     }
 }
 
@@ -1022,8 +1044,8 @@ public func showModalAlert(for window: Window, data: ModalAlertData, completion:
     showModal(with: ModalAlertController(data: data, completion: completion, cancel: cancel, onDeinit: onDeinit, presentation: presentation, takeNewData: takeNewData), for: window, animationType: .scaleCenter)
 }
 
-public func showDismissableModalAlert(for window: Window, data: ModalAlertData, presentation: TelegramPresentationTheme = theme) -> () -> Void {
-    let controller = ModalAlertController(data: data, completion: { _ in }, onDeinit: nil, presentation: presentation)
+public func showDismissableModalAlert(for window: Window, data: ModalAlertData, presentation: TelegramPresentationTheme = theme, completion: @escaping (ModalAlertResult) -> Void = { _ in }, cancel: @escaping () -> Void = {}, onDeinit: (() -> Void)? = nil) -> () -> Void {
+    let controller = ModalAlertController(data: data, completion: completion, cancel: cancel, onDeinit: onDeinit, presentation: presentation)
     showModal(with: controller, for: window, animationType: .scaleCenter)
     return { [weak controller] in
         controller?.close()

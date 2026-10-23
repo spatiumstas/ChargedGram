@@ -36,6 +36,9 @@ private final class Arguments {
     public let toggleCanViewPeerId: () -> Void
     public let crash: () -> Void
     public let memoryReport: () -> Void
+    public let toggleAccessibilityTree: () -> Void
+    public let accessibilityAudit: () -> Void
+    public let toggleForceRLottieBackend: () -> Void
     public init(context: any AccountContextProtocol,
          importColors: @escaping () -> Void,
          exportColors: @escaping () -> Void,
@@ -51,7 +54,10 @@ private final class Arguments {
          toggleDownloads: @escaping () -> Void,
          toggleCanViewPeerId: @escaping () -> Void,
          crash: @escaping () -> Void,
-         memoryReport: @escaping () -> Void) {
+         memoryReport: @escaping () -> Void,
+         toggleAccessibilityTree: @escaping () -> Void,
+         accessibilityAudit: @escaping () -> Void,
+         toggleForceRLottieBackend: @escaping () -> Void) {
         self.context = context
         self.importColors = importColors
         self.exportColors = exportColors
@@ -68,6 +74,9 @@ private final class Arguments {
         self.toggleCanViewPeerId = toggleCanViewPeerId
         self.crash = crash
         self.memoryReport = memoryReport
+        self.toggleAccessibilityTree = toggleAccessibilityTree
+        self.accessibilityAudit = accessibilityAudit
+        self.toggleForceRLottieBackend = toggleForceRLottieBackend
     }
 }
 
@@ -82,6 +91,8 @@ private struct State: Equatable {
     public var activeNetworkEngine: NetworkEngineKind = .mtProtoKit
     public var useExperimentalDownload: Bool = false
     public var canViewPeerId: Bool = false
+    public var accessibilityTree: Bool = true
+    public var forceRLottieBackend: Bool = false
 }
 
 private let _id_add_account = InputDataIdentifier("_id_add_account")
@@ -99,6 +110,9 @@ private let _id_downloads = InputDataIdentifier("_id_downloads")
 private let _id_show_peer_id = InputDataIdentifier("_id_show_peer_id")
 private let _id_crash = InputDataIdentifier("_id_crash")
 private let _id_memory_report = InputDataIdentifier("_id_memory_report")
+private let _id_accessibility_tree = InputDataIdentifier("_id_accessibility_tree")
+private let _id_accessibility_audit = InputDataIdentifier("_id_accessibility_audit")
+private let _id_force_rlottie = InputDataIdentifier("_id_force_rlottie")
 
 
 private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
@@ -153,7 +167,10 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
     entries.append(.desc(sectionId: sectionId, index: index, text: .plain("ANIMATIONS"), data: .init(viewType: .textTopItem)))
     index += 1
 
-    entries.append(.general(sectionId: sectionId, index: index, value: .none, error: nil, identifier: _id_animate_input_emoji, data: InputDataGeneralData(name: "Animate Emoji to Input", color: theme.colors.text, type: .switchable(state.animateInputEmoji), viewType: .singleItem, action: arguments.toggleAnimatedInputEmoji)))
+    entries.append(.general(sectionId: sectionId, index: index, value: .none, error: nil, identifier: _id_animate_input_emoji, data: InputDataGeneralData(name: "Animate Emoji to Input", color: theme.colors.text, type: .switchable(state.animateInputEmoji), viewType: .firstItem, action: arguments.toggleAnimatedInputEmoji)))
+    index += 1
+
+    entries.append(.general(sectionId: sectionId, index: index, value: .none, error: nil, identifier: _id_force_rlottie, data: InputDataGeneralData(name: "Lottie: force rlottie", color: theme.colors.text, type: .switchable(state.forceRLottieBackend), viewType: .lastItem, action: arguments.toggleForceRLottieBackend)))
     index += 1
 
     entries.append(.sectionId(sectionId, type: .normal))
@@ -203,6 +220,12 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
     entries.append(.general(sectionId: sectionId, index: index, value: .none, error: nil, identifier: _id_memory_report, data: InputDataGeneralData(name: "Memory Report (to log)", color: theme.colors.text, type: .none, viewType: .innerItem, action: arguments.memoryReport)))
     index += 1
 
+    entries.append(.general(sectionId: sectionId, index: index, value: .none, error: nil, identifier: _id_accessibility_tree, data: InputDataGeneralData(name: "VoiceOver Accessibility Tree", color: theme.colors.text, type: .switchable(state.accessibilityTree), viewType: .innerItem, action: arguments.toggleAccessibilityTree)))
+    index += 1
+
+    entries.append(.general(sectionId: sectionId, index: index, value: .none, error: nil, identifier: _id_accessibility_audit, data: InputDataGeneralData(name: "Accessibility Audit (to clipboard)", color: theme.colors.text, type: .none, viewType: .innerItem, action: arguments.accessibilityAudit)))
+    index += 1
+
     entries.append(.general(sectionId: sectionId, index: index, value: .none, error: nil, identifier: _id_crash, data: InputDataGeneralData(name: "Crash App", color: theme.colors.redUI, type: .none, viewType: .lastItem, action: arguments.crash)))
     index += 1
 
@@ -226,7 +249,9 @@ public func DeveloperViewController(context: any AccountContextProtocol) -> Inpu
         networkEngine: .mtProtoKit,
         activeNetworkEngine: context.account.network.engineKind,
         useExperimentalDownload: false,
-        canViewPeerId: FastSettings.canViewPeerId
+        canViewPeerId: FastSettings.canViewPeerId,
+        accessibilityTree: FastSettings.accessibilityTreeEnabled,
+        forceRLottieBackend: DeveloperHooks.shared.forceRLottieBackend()
     )
 
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
@@ -356,6 +381,34 @@ public func DeveloperViewController(context: any AccountContextProtocol) -> Inpu
         let report = layerMemoryReport()
         Logger.shared.log("Memory", report)
         alert(for: context.window, header: "Memory Report", info: report.split(separator: "\n").prefix(18).joined(separator: "\n"))
+    }, toggleAccessibilityTree: {
+        FastSettings.accessibilityTreeEnabled = !FastSettings.accessibilityTreeEnabled
+        TGUIKitAccessibility.isEnabled = FastSettings.accessibilityTreeEffective
+        updateState { current in
+            var current = current
+            current.accessibilityTree = FastSettings.accessibilityTreeEnabled
+            return current
+        }
+    }, accessibilityAudit: {
+        let windows = NSApp.windows.filter { $0.isVisible }
+        var lines: [String] = []
+        for window in windows {
+            for issue in AccessibilityAudit.audit(window) {
+                lines.append("[\(window.title.isEmpty ? String(describing: type(of: window)) : window.title)] \(issue)")
+            }
+        }
+        let report = lines.isEmpty ? "No accessibility issues in \(windows.count) window(s)." : lines.joined(separator: "\n")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(report, forType: .string)
+        Logger.shared.log("Accessibility", report)
+        alert(for: context.window, header: "Accessibility Audit", info: lines.isEmpty ? report : "\(lines.count) issue(s), copied to the clipboard.\n\n" + lines.prefix(12).joined(separator: "\n"))
+    }, toggleForceRLottieBackend: {
+        DeveloperHooks.shared.toggleForceRLottieBackend()
+        updateState { current in
+            var current = current
+            current.forceRLottieBackend = DeveloperHooks.shared.forceRLottieBackend()
+            return current
+        }
     })
 
     let networkSignal = context.account.postbox.preferencesView(keys: [PreferencesKeys.networkSettings]) |> map { view -> NetworkSettings in

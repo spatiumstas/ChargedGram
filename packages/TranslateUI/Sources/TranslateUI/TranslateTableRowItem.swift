@@ -187,6 +187,14 @@ final class TranslateTableRowItem : GeneralRowItem {
         return true
     }
 
+    override var accessibilityLabel: String? {
+        return headerLayout?.attributedString.string ?? strings().voiceOverCommonTranslate
+    }
+
+    override var accessibilityValue: String? {
+        return isLoading ? strings().voiceOverCommonLoading : nil
+    }
+
     override func viewClass() -> AnyClass {
         return TranslateTableRowView.self
     }
@@ -206,6 +214,8 @@ private final class MoreView : Control {
 
         more.isSelectable = false
         more.userInteractionEnabled = false
+        more.isAccessibilityDecorative = true
+        setAccessibilityLabel(strings().translateShowMore)
         let layout = TextViewLayout(.initialize(string: strings().translateShowMore, color: theme.colors.accent, font: .medium(.text)))
         layout.measure(width: .greatestFiniteMagnitude)
         more.update(layout)
@@ -243,7 +253,9 @@ private final class TranslateHeaderButton : Control {
         addSubview(chevron)
         label.isSelectable = false
         label.userInteractionEnabled = false
+        label.isAccessibilityDecorative = true
         chevron.isEventLess = true
+        chevron.isAccessibilityDecorative = true
         scaleOnClick = true
     }
 
@@ -253,6 +265,7 @@ private final class TranslateHeaderButton : Control {
 
     func update(layout: TextViewLayout, hasMenu: Bool = true) {
         label.update(layout)
+        setAccessibilityLabel(layout.attributedString.string)
         chevron.isHidden = !hasMenu
 
         if hasMenu {
@@ -453,6 +466,7 @@ private final class TranslateTableRowView : GeneralContainableRowView {
                     toggle.update(unselectedImage: unselectedImg, selectedImage: selectedImg, selected: headerData.emojifyEnabled, animated: animated)
                 } else {
                     toggle = SelectingControl(unselectedImage: unselectedImg, selectedImage: selectedImg, selected: headerData.emojifyEnabled)
+                    toggle.isAccessibilityDecorative = true
                     control.addSubview(toggle)
                     self.emojifyToggle = toggle
                 }
@@ -464,10 +478,13 @@ private final class TranslateTableRowView : GeneralContainableRowView {
                     label = TextView()
                     label.isSelectable = false
                     label.userInteractionEnabled = false
+                    label.isAccessibilityDecorative = true
                     control.addSubview(label)
                     self.emojifyLabel = label
                 }
                 label.update(emojifyTextLayout)
+                control.setAccessibilityLabel(emojifyTextLayout.attributedString.string)
+                control.setAccessibilityValue(headerData.emojifyEnabled ? strings().voiceOverCommonChecked : strings().voiceOverCommonUnchecked)
 
                 let totalW = toggle.frame.width + 4 + label.frame.width
                 let totalH = max(toggle.frame.height, label.frame.height)
@@ -578,6 +595,7 @@ private final class TranslateTableRowView : GeneralContainableRowView {
                 button = ImageButton()
                 button.autohighlight = false
                 button.scaleOnClick = true
+                button.setAccessibilityLabel(strings().voiceOverCommonCopy)
                 containerView.addSubview(button)
                 self.copyButton = button
 

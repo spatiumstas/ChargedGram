@@ -1,4 +1,5 @@
 import Cocoa
+import ColorPalette
 @_exported import CurrencyFormat
 import TGUIKit
 import WalletContext
@@ -35,7 +36,7 @@ public func walletAddressGroups(_ address: String) -> [String] {
     return groups
 }
 
-func walletAddressGrid(_ address: String, font: NSFont, columnCount: Int = 4, secondaryColor: NSColor = theme.colors.grayText) -> NSAttributedString {
+public func walletAddressGrid(_ address: String, font: NSFont, columnCount: Int = 4, secondaryColor: NSColor = theme.colors.grayText) -> NSAttributedString {
     let text = NSMutableAttributedString()
     for (position, group) in walletAddressGroups(address).enumerated() {
         let column = position % columnCount
@@ -48,7 +49,7 @@ func walletAddressGrid(_ address: String, font: NSFont, columnCount: Int = 4, se
     return text
 }
 
-func walletCopyAddress(_ address: String, environment: WalletUIEnvironment, window: Window) {
+public func walletCopyAddress(_ address: String, environment: WalletUIEnvironment, window: Window) {
     environment.copyToClipboard(address)
     let copiedText = strings().walletFormatAddressCopied
     environment.showModalText(for: window, text: copiedText)

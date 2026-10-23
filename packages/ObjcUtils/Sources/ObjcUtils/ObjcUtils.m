@@ -5,6 +5,18 @@
 #import <Accelerate/Accelerate.h>
 #import <CoreMedia/CoreMedia.h>
 #import <dlfcn.h>
+#import <QuartzCore/QuartzCore.h>
+
+void TGDisableLayerActions(CALayer *layer) {
+    static NSDictionary *actions;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        NSNull *disabled = [NSNull null];
+        actions = @{@"onOrderIn": disabled, @"sublayers": disabled, @"bounds": disabled, @"frame": disabled, @"background": disabled, @"position": disabled, @"contents": disabled, @"backgroundColor": disabled, @"border": disabled, @"shadowOffset": disabled};
+    });
+    layer.actions = actions;
+    [layer removeAllAnimations];
+}
 
 @implementation OpenWithObject
 

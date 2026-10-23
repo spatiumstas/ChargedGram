@@ -23,6 +23,7 @@ open class InputDataModalController : ModalViewController {
     public var horizontalInset: CGFloat = 0
 
     public var alwaysActiveHeader: Bool = false
+    public var allowsVerticalScrollElasticity: Bool = true
 
     public init(_ controller: InputDataController, modalInteractions: ModalInteractions? = nil, closeHandler: @escaping(@escaping()-> Void) -> Void = { $0() }, size: NSSize = NSMakeSize(340, 300), presentation: TelegramPresentationTheme = theme, isMain: Bool = true) {
         controller.isModal = true
@@ -381,7 +382,7 @@ open class InputDataModalController : ModalViewController {
     
     public var hidesInteractionsBottomInset: Bool = false {
         didSet {
-            if oldValue != hidesInteractionsBottomInset, isLoaded() {
+            if oldValue != hidesInteractionsBottomInset, controller.isLoaded() {
                 updateInsets()
             }
         }
@@ -405,7 +406,7 @@ open class InputDataModalController : ModalViewController {
     private func updateScroll(_ position: ScrollPosition) {
         let insets = self.current.tableView.contentInsets
         let effectiveHeight = self.current.tableView.frame.height - insets.bottom - insets.top
-        if self.current.tableView.documentSize.height > effectiveHeight {
+        if allowsVerticalScrollElasticity && self.current.tableView.documentSize.height > effectiveHeight {
             self.current.tableView.verticalScrollElasticity = .automatic
         } else {
             self.current.tableView.verticalScrollElasticity = .none

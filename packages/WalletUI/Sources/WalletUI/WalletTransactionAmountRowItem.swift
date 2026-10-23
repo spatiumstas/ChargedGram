@@ -188,6 +188,24 @@ public final class WalletTransactionAmountRowItem: GeneralRowItem {
     public override func viewClass() -> AnyClass {
         return WalletTransactionAmountRowView.self
     }
+
+    public override var accessibilityLabel: String? {
+        let text = amountLayout.attributedString.string
+        return text.isEmpty ? nil : text
+    }
+
+    public override var accessibilityValue: String? {
+        let parts = [fiatLayout?.attributedString.string, processingLayout?.attributedString.string].compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
+    public override var accessibilityRole: NSAccessibility.Role? {
+        return .staticText
+    }
+
+    public override var accessibilityIncludesChildren: Bool {
+        return false
+    }
 }
 
 private final class WalletPendingAmountShimmerView: View {
@@ -294,6 +312,7 @@ final class WalletTransactionAmountRowView: GeneralRowView, WalletIntroParticipa
         super.init(frame: frameRect)
 
         heroImageView.contentGravity = .resizeAspect
+        heroImageView.isAccessibilityDecorative = true
 
         for textView in [amountView, fiatView, processingDotView, processingView] {
             textView.userInteractionEnabled = false
