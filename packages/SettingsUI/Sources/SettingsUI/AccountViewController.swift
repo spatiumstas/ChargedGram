@@ -18,6 +18,13 @@ import ProxyUtils
 import ChatModeTypes
 import CurrencyFormat
 
+private let chargedGramSettingsIcon: CGImage? = {
+    guard let url = Bundle.module.url(forResource: "ChargedGramSettingsIcon", withExtension: "png"), let image = NSImage(contentsOf: url) else {
+        return nil
+    }
+    image.size = NSMakeSize(30, 30)
+    return image.precomposed()
+}()
 
 
 
@@ -147,6 +154,7 @@ private enum AccountInfoEntry<Context: AccountContextProtocol> : TableItemListNo
     case proxy(index: Int, viewType: GeneralViewType, status: String?)
     case stories(index: Int, viewType: GeneralViewType)
     case attach(index: Int, AttachMenuBot, viewType: GeneralViewType)
+    case chargedGramSettings(index: Int, viewType: GeneralViewType)
     case general(index: Int, viewType: GeneralViewType)
     case stickers(index: Int, viewType: GeneralViewType)
     case notifications(index: Int, viewType: GeneralViewType, status: NotificationAuthorizationStatus)
@@ -188,6 +196,8 @@ private enum AccountInfoEntry<Context: AccountContextProtocol> : TableItemListNo
             return .index(5)
         case .stories:
             return .index(6)
+        case .chargedGramSettings:
+            return .index(-1)
         case .general:
             return .index(7)
         case .proxy:
@@ -256,6 +266,8 @@ private enum AccountInfoEntry<Context: AccountContextProtocol> : TableItemListNo
         case let  .stories(index, _):
             return index
         case let .attach(index, _, _):
+            return index
+        case let .chargedGramSettings(index, _):
             return index
         case let  .general(index, _):
             return index
@@ -393,6 +405,10 @@ private enum AccountInfoEntry<Context: AccountContextProtocol> : TableItemListNo
             
             return GeneralInteractedRowItem(initialSize, stableId: stableId, name: bot.shortName, icon: icon!, activeIcon: icon!, type: type, viewType: viewType, action: {
                 arguments.openWebBot(bot)
+            }, inset:NSEdgeInsets(left: 12, right: 12), customTheme: .initialize(theme, background: .clear))
+        case let .chargedGramSettings(_, viewType):
+            return GeneralInteractedRowItem(initialSize, stableId: stableId, name: "ChargedGram", icon: chargedGramSettingsIcon, activeIcon: chargedGramSettingsIcon, type: .next, viewType: viewType, action: {
+                arguments.presentController(ChargedGramSettingsController(), true)
             }, inset:NSEdgeInsets(left: 12, right: 12), customTheme: .initialize(theme, background: .clear))
         case let .proxy(_, viewType, status):
             return GeneralInteractedRowItem(initialSize, stableId: stableId, name: strings().accountSettingsProxy, icon: theme.icons.settingsProxy, activeIcon: theme.icons.settingsProxyActive, type: .nextContext(status ?? ""), viewType: viewType, action: {
@@ -650,6 +666,8 @@ private func accountInfoEntries<Context: AccountContextProtocol>(peerView:PeerVi
     entries.append(.whiteSpace(index: index, height: 10))
     index += 1
     
+    entries.append(.chargedGramSettings(index: index, viewType: .singleItem))
+    index += 1
     entries.append(.general(index: index, viewType: .singleItem))
     index += 1
     entries.append(.notifications(index: index, viewType: .singleItem, status: unAuthStatus))

@@ -3,6 +3,7 @@
 import PackageDescription
 
 let deps: [(String, String)] = [
+    ("ChargedGramSettings", "../ChargedGramSettings"),
     ("AlertsUI", "../AlertsUI"),
     ("AvatarEditorUI", "../AvatarEditorUI"),
     ("AvatarUI", "../AvatarUI"),
@@ -63,6 +64,7 @@ let package = Package(
                 .product(name: "TelegramCore", package: "TelegramCore", condition: nil),
                 .product(name: "Postbox", package: "Postbox", condition: nil),
             ] + deps.map { .product(name: $0.0, package: $0.0, condition: nil) },
-            path: "Sources/SettingsUI"),
+            path: "Sources/SettingsUI",
+            resources: [.process("Resources")]),
     ]
 )

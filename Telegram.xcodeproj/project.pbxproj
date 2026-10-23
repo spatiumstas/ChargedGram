@@ -978,6 +978,7 @@
 		9AB6DAD8DF0C1248CC621AFB /* PasscodeCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8108E8A15C9EE293636E539F /* PasscodeCore */; };
 		4B9679F90FE2EF0F0FD21C7A /* PasscodeUIHooksInstall.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47318F78978A06BD3FA4B985 /* PasscodeUIHooksInstall.swift */; };
 		BE3536CA4246405D5520629A /* WalletUIHooksInstall.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83A5FA781BD7994857138FCB /* WalletUIHooksInstall.swift */; };
+		F17E01000000000000000001 /* ChargedGramSettings in Frameworks */ = {isa = PBXBuildFile; productRef = F17E01000000000000000002 /* ChargedGramSettings */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -1991,6 +1992,7 @@
 		345CA31BC0A2A11FA5B91D15 /* SelectColorUI */ = {isa = PBXFileReference; lastKnownFileType = folder; name = SelectColorUI; path = packages/SelectColorUI; sourceTree = "<group>"; };
 		DC03D85B85DFD13971D4E5B3 /* GiftCraftingUI */ = {isa = PBXFileReference; lastKnownFileType = folder; name = GiftCraftingUI; path = packages/GiftCraftingUI; sourceTree = "<group>"; };
 		7EFAFFDDB86A365C817F7F0A /* PasscodeCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = PasscodeCore; path = "submodules/telegram-ios/submodules/PasscodeCore"; sourceTree = "<group>"; };
+		F17E01000000000000000003 /* ChargedGramSettings */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ChargedGramSettings; path = packages/ChargedGramSettings; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -2070,6 +2072,7 @@
 				8E38A44712FA4542A5CF8D80 /* VerifyAgeUI in Frameworks */,
 				07EDD2B662264351B2D102DE /* EditTagLabelUI in Frameworks */,
 				7BE4259A2C3D4D73BBBC2302 /* SelectCountryUI in Frameworks */,
+				F17E01000000000000000001 /* ChargedGramSettings in Frameworks */,
 				53C2655B791449A18A453BBD /* GroupsInCommonUI in Frameworks */,
 				B2011E3EB7D84C48A0B9509D /* CrashRecoveryUI in Frameworks */,
 				E9E2F04E0D564351A4C88842 /* CrashReports in Frameworks */,
@@ -2745,6 +2748,7 @@
 				CBE224712F9F44AAA680D412 /* VerifyAgeUI */,
 				F70986F290D0462F9CEF770F /* EditTagLabelUI */,
 				447E693028674930A9722A3F /* SelectCountryUI */,
+				F17E01000000000000000003 /* ChargedGramSettings */,
 				2382F66FCB03472CB031B1D7 /* GroupsInCommonUI */,
 				2314496AC5714CD1BDBAF6C8 /* CrashRecoveryUI */,
 				DFD6737EF55F4DC5A158E555 /* CrashReports */,
@@ -3679,6 +3683,7 @@
 				63263708E31A48DE80557F02 /* VerifyAgeUI */,
 				7C9B791DE6E3430FADA989DF /* EditTagLabelUI */,
 				857E4375FE0F41E9A737B925 /* SelectCountryUI */,
+				F17E01000000000000000002 /* ChargedGramSettings */,
 				8C849FFE3CF443CEAAFD9A65 /* GroupsInCommonUI */,
 				A49FDE6EE2CE45CC94854F90 /* CrashRecoveryUI */,
 				4E0F0513AE01455B9C8A6FD8 /* CrashReports */,
@@ -3912,6 +3917,7 @@
 			);
 			mainGroup = D098C70C1D7E175A007784E4;
 			packageReferences = (
+				F17E01000000000000000004 /* XCLocalSwiftPackageReference "packages/ChargedGramSettings" */,
 				8412CCD8FD1ED53B957DC5A9 /* XCLocalSwiftPackageReference "packages/AvatarUI" */,
 				F0255D56305311A9001994C2 /* XCLocalSwiftPackageReference "packages/TelegramUtils" */,
 			);
@@ -5126,6 +5132,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = packages/TelegramUtils;
 		};
+		F17E01000000000000000004 /* XCLocalSwiftPackageReference "packages/ChargedGramSettings" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = packages/ChargedGramSettings;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -5994,6 +6004,11 @@
 		8108E8A15C9EE293636E539F /* PasscodeCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = PasscodeCore;
+		};
+		F17E01000000000000000002 /* ChargedGramSettings */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F17E01000000000000000004 /* XCLocalSwiftPackageReference "packages/ChargedGramSettings" */;
+			productName = ChargedGramSettings;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

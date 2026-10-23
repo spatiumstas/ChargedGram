@@ -1,3 +1,4 @@
+import ChargedGramSettings
 import Cocoa
 import TGUIKit
 import TelegramCore
@@ -3993,14 +3994,25 @@ open class ChatController<Context: AccountContextProtocol>: TelegramGenericViewC
         } else {
             canRead = .single(true)
         }
-        canRead = combineLatest(canRead, self.isKeyWindow.get()) |> map { $0 && $1 }
+        let keepChatsUnread = Signal<Bool, NoError> { subscriber in
+            let observer = NotificationCenter.default.addObserver(forName: ChargedGramSettings.didChange, object: nil, queue: nil) { _ in
+                subscriber.putNext(ChargedGramSettings.shared.keepChatsUnread)
+            }
+            subscriber.putNext(ChargedGramSettings.shared.keepChatsUnread)
+            return ActionDisposable {
+                NotificationCenter.default.removeObserver(observer)
+            }
+        }
+        canRead = combineLatest(canRead, self.isKeyWindow.get(), keepChatsUnread |> distinctUntilChanged) |> map { $0 && $1 && !$2 }
         
         
         let previousMaxIncomingMessageIdByNamespace = Atomic<[MessageId.Namespace: MessageIndex]>(value: [:])
         
         let readHistory = combineLatest(self.maxVisibleIncomingMessageIndex.get(), canRead, self.chatLocationValue |> distinctUntilChanged)
-            |> map { messageIndex, canRead, chatLocation in
-                if canRead {
+            |> deliverOnMainQueue
+            |> map { [weak self] messageIndex, canRead, chatLocation in
+                self?.updateInteractiveReading()
+                if canRead && !ChargedGramSettings.shared.keepChatsUnread {
                     var apply = false
                     let _ = previousMaxIncomingMessageIdByNamespace.modify { dict in
                         let previousIndex = dict[messageIndex.id.namespace]
@@ -8995,6 +9007,7 @@ open class ChatController<Context: AccountContextProtocol>: TelegramGenericViewC
     private struct InteractiveReadingKey: Equatable {
         let peerId: PeerId
         let threadId: Int64?
+        let keepChatsUnread: Bool
     }
     private var installedInteractiveReadingKey: InteractiveReadingKey?
     
@@ -9002,12 +9015,12 @@ open class ChatController<Context: AccountContextProtocol>: TelegramGenericViewC
         switch mode {
         case .history:
             if self.canInteractiveRead() {
-                let key = InteractiveReadingKey(peerId: chatInteraction.peerId, threadId: self.chatLocation.threadId)
+                let key = InteractiveReadingKey(peerId: chatInteraction.peerId, threadId: self.chatLocation.threadId, keepChatsUnread: ChargedGramSettings.shared.keepChatsUnread)
                 if self.installedInteractiveReadingKey == key {
                     return
                 }
                 self.installedInteractiveReadingKey = key
-                self.interactiveReadingDisposable.set(context.engine.messages.installInteractiveReadMessagesAction(peerId: chatInteraction.peerId, threadId: self.chatLocation.threadId))
+                self.interactiveReadingDisposable.set(key.keepChatsUnread ? nil : context.engine.messages.installInteractiveReadMessagesAction(peerId: chatInteraction.peerId, threadId: self.chatLocation.threadId))
 
                 let visibleMessageRange = self.visibleMessageRange
                 self.interactiveReadReactionsDisposable.set(context.engine.messages.installInteractiveReadReactionsAction(peerId: chatInteraction.peerId, getVisibleRange: {
@@ -10780,6 +10793,7 @@ open class ChatController<Context: AccountContextProtocol>: TelegramGenericViewC
             context.account.viewTracker.updateUnsupportedMediaForMessageIds(messageIds: Set(msgIds) )
         }
         self.messageMentionProcessingManager.process = { messageIds in
+            guard !ChargedGramSettings.shared.keepChatsUnread else { return }
             context.account.viewTracker.updateMarkMentionsSeenForMessageIds(messageIds: messageIds.filter({$0.namespace == Namespaces.Message.Cloud}))
         }
         self.messageReactionsMentionProcessingManager.process = { [weak self] messageIds in

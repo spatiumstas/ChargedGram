@@ -10,6 +10,7 @@ import ThemeSettings
 import Reactions
 import FetchManager
 #if !SHARE
+import ChargedGramSettings
 import InAppPurchaseManager
 import CurrencyFormat
 import WalletContext
@@ -1209,6 +1210,9 @@ final class AccountContext {
 
     
     func applyMaxReadIndex(for location: ChatLocation, contextHolder: Atomic<ChatLocationContextHolder?>, messageIndex: MessageIndex) {
+        #if !SHARE
+        guard !ChargedGramSettings.shared.keepChatsUnread else { return }
+        #endif
         switch location {
         case .peer:
             let _ = self.engine.messages.applyMaxReadIndexInteractively(index: messageIndex).start()

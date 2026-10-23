@@ -3,6 +3,7 @@
 import PackageDescription
 
 let deps: [(String, String)] = [
+    ("ChargedGramSettings", "../ChargedGramSettings"),
     ("TGUIKit", "../TGUIKit"),
     ("PerfLab", "../PerfLab"),
     ("ColorPalette", "../ColorPalette"),
