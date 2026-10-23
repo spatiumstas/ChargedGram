@@ -69,6 +69,7 @@ done < <(find "$LOCAL_APP/Contents" -depth \( -name '*.framework' -o -name '*.ap
 
 codesign --force --sign "$SIGNING_IDENTITY" "$LOCAL_APP"
 codesign --verify --deep --strict "$LOCAL_APP"
+touch "$LOCAL_APP"
 echo "Local app: $LOCAL_APP"
 
 if [ "${1:-}" = "--run" ]; then

@@ -64,7 +64,6 @@ let package = Package(
                 .product(name: "TelegramCore", package: "TelegramCore", condition: nil),
                 .product(name: "Postbox", package: "Postbox", condition: nil),
             ] + deps.map { .product(name: $0.0, package: $0.0, condition: nil) },
-            path: "Sources/SettingsUI",
-            resources: [.process("Resources")]),
+            path: "Sources/SettingsUI"),
     ]
 )

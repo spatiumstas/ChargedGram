@@ -20,11 +20,20 @@ import ChatModeTypes
 import CurrencyFormat
 
 private let chargedGramSettingsIcon: CGImage? = {
-    guard let url = Bundle.module.url(forResource: "ChargedGramSettingsIcon", withExtension: "png"), let image = NSImage(contentsOf: url) else {
+    guard let iconName = Bundle.main.object(forInfoDictionaryKey: "CFBundleIconName") as? String, let url = Bundle.main.url(forResource: iconName, withExtension: "icns"), let image = NSImage(contentsOf: url) else {
         return nil
     }
-    image.size = NSMakeSize(30, 30)
-    return image.precomposed()
+    image.size = NSMakeSize(1024, 1024)
+    let icon = image.precomposed(flipVertical: true, scale: 1)
+    let dockPadding: CGFloat = 100
+    guard let croppedIcon = icon.cropping(to: CGRect(origin: .zero, size: image.size).insetBy(dx: dockPadding, dy: dockPadding)) else {
+        return nil
+    }
+    return generateImage(NSMakeSize(24, 24), contextGenerator: { size, context in
+        context.clear(CGRect(origin: .zero, size: size))
+        context.interpolationQuality = .high
+        context.draw(croppedIcon, in: CGRect(origin: .zero, size: size))
+    })
 }()
 
 
@@ -1247,6 +1256,10 @@ open class AccountViewController<Context: AccountContextProtocol> : TelegramGene
                 }
             } else if let controller = navigation.controller as? InputDataController {
                 switch true {
+                case controller.identifier == "chargedGram":
+                    if let item = tableView.item(stableId: AnyHashable(AccountInfoEntryId.index(-1))) {
+                        _ = tableView.select(item: item)
+                    }
                 case controller.identifier == "proxy":
                     if let item = tableView.item(stableId: AnyHashable(AccountInfoEntryId.index(8))) {
                         _ = tableView.select(item: item)

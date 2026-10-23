@@ -318,7 +318,9 @@ class AppDelegate: NSResponder, NSApplicationDelegate, NSUserNotificationCenterD
         UserDefaults.standard.set(true, forKey: "NSApplicationCrashOnExceptions")
         
         
-       // NSApplication.shared.applicationIconImage = NSImage(resource: .premiumBlack)
+        if let iconName = Bundle.main.object(forInfoDictionaryKey: "CFBundleIconName") as? String, let iconURL = Bundle.main.url(forResource: iconName, withExtension: "icns"), let icon = NSImage(contentsOf: iconURL) {
+            NSApplication.shared.applicationIconImage = icon
+        }
       
         let singleColumnThreshold: CGFloat = 650
         let chromeMode: Window.ChromeMode = window.frame.width < singleColumnThreshold ? .compact : .standard

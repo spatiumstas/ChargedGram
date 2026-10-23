@@ -59,5 +59,5 @@ func ChargedGramSettingsController() -> InputDataController {
     |> deliverOnPrepareQueue |> map { state, appearance in
         return InputDataSignalValue(entries: entries(state, language: appearance.language, arguments: arguments))
     }
-    return InputDataController(dataSignal: signal, title: "ChargedGram", hasDone: false)
+    return InputDataController(dataSignal: signal, title: "ChargedGram", hasDone: false, identifier: "chargedGram")
 }
