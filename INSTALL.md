@@ -18,7 +18,7 @@ package dependencies, so once the submodules are checked out the build is offlin
   ```
 - Homebrew and these packages:
   ```
-  brew install cmake ninja meson nasm yasm openssl@1.1 zlib autoconf libtool automake pkg-config
+  brew install cmake ninja meson nasm yasm zlib autoconf libtool automake pkg-config
   ```
 - A Rust toolchain via rustup. The TON wallet engine (`wallet-engine`) is a Rust library;
   its build script picks up `cargo` from `PATH` or `~/.cargo/bin` and rustup installs the
@@ -26,11 +26,13 @@ package dependencies, so once the submodules are checked out the build is offlin
   ```
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
   ```
-- Git access to `github.com` and `gitlab.com` for the submodules. The `.gitmodules`
-  URLs use SSH. If you only have HTTPS access, add rewrites before cloning:
+- Git access to `github.com` for the submodules. The `telegram-ios` submodule uses the
+  public `TelegramMessenger/Telegram-iOS` repository at the pinned commit. Some other
+  `.gitmodules` URLs use SSH; the setup script rewrites GitHub SSH URLs to HTTPS for
+  its submodule update command. If cloning recursively without the script and you
+  only have HTTPS access, add this rewrite before cloning:
   ```
   git config --global url."https://github.com/".insteadOf "git@github.com:"
-  git config --global url."https://gitlab.com/".insteadOf "git@gitlab.com:"
   ```
 
 ## 1. Clone with submodules

@@ -26,3 +26,4 @@ core-xprojects/mtproto-engine/build
 # SwiftPM build output and Xcode-generated package metadata
 .build/
 .swiftpm/
+.vscode/

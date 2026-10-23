@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" >/dev/null && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." >/dev/null && pwd)"
 
 # Full Xcode (NOT just Command Line Tools) is required by configure_frameworks.sh.
-XCODE_DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
+XCODE_DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 # CMake 4.x removed compatibility with cmake_minimum_required(VERSION < 3.5),
 # which some bundled sources (mozjpeg, td) still declare. This lets them configure.
 export CMAKE_POLICY_VERSION_MINIMUM=3.5
@@ -59,7 +59,6 @@ BREW_PACKAGES=(
   meson        # dav1d
   nasm         # OpenH264 (x86_64 assembly)
   yasm         # ffmpeg / libvpx assembly
-  openssl@1.1  # used by several configure steps
   zlib
   autoconf
   libtool
@@ -111,12 +110,12 @@ fi
 #    github.com/gitlab.com, or HTTPS rewrites configured for those hosts.
 # ---------------------------------------------------------------------------
 log "Initialising git submodules (recursive)"
-if ! git -C "$REPO_DIR" submodule update --init --recursive; then
-  warn "Submodule init failed. If you have no SSH keys for github/gitlab, enable HTTPS rewrites:"
-  warn '    git config --global url."https://github.com/".insteadOf "git@github.com:"'
-  warn '    git config --global url."https://gitlab.com/".insteadOf "git@gitlab.com:"'
-  warn "then re-run this script."
+git -C "$REPO_DIR" submodule sync --recursive
+if ! git -c url.https://github.com/.insteadOf=git@github.com: -C "$REPO_DIR" submodule update --init --recursive; then
+  warn "Submodule init failed. Check the failing repository URL, access and pinned commit above."
+  die "Submodule initialisation failed; fix repository access and re-run this script."
 fi
+bash "$SCRIPT_DIR/fix-recent-inline-bots.sh"
 
 # ---------------------------------------------------------------------------
 # 6. Source patch for recent Xcode/clang (Xcode 16+ / 26.x)

@@ -8,6 +8,7 @@ import Postbox
 import SwiftSignalKit
 import Sparkle
 import CrashRecoveryUI
+import ApiCredentials
 
 
 
@@ -763,6 +764,7 @@ private func resetUpdater() {
 private var updaterSource: UpdaterSource? = nil
 
 func updater_resetWithUpdaterSource(_ source: UpdaterSource, force: Bool = true) {
+    guard !ApiEnvironment.isLocalBuild else { return }
     let state = stateValue.with { $0 }
     switch state.loadingState {
     case .readyToInstall:

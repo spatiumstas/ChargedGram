@@ -1,0 +1,44 @@
+name: Build ChargedGram for macOS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chargedgram-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 360
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+    steps:
+      - uses: actions/checkout@v7
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s "$DEVELOPER_DIR"
+          xcodebuild -version
+          xcodebuild -downloadComponent MetalToolchain
+      - name: Install Rust
+        run: |
+          if ! command -v cargo >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Prepare dependencies and native libraries
+        run: bash scripts/setup_build_env.sh --build
+      - name: Build and sign local app
+        run: bash scripts/build-local.sh
+      - name: Archive app
+        run: ditto -c -k --sequesterRsrc --keepParent .build/local-run/ChargedGram.app "$RUNNER_TEMP/ChargedGram-macos-arm64.zip"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ChargedGram-macos-arm64
+          path: ${{ runner.temp }}/ChargedGram-macos-arm64.zip
+          if-no-files-found: error
+          retention-days: 1

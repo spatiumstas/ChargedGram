@@ -1,16 +1,18 @@
 <div align="center">
-  <img src="Telegram-Mac/Assets.xcassets/AppIcon.appiconset/Logo_1024.png"
+  <img src="Telegram-Mac/Assets.xcassets/ChargedGramAppIcon.appiconset/Logo_1024.png"
       width="125" 
       height="125">
   
-  <h2 align="center">Telegram for macOS</h2>
+  <h2 align="center">ChargedGram for macOS</h2>
 </div>
 
 ![Telegram macOS screenshot](images/tg.png)
 
-[**Telegram**](https://telegram.org) is a messaging app with a focus on speed and security. It’s superfast, simple, and free! This repo contains the official source code for [Telegram for macOS](https://macos.telegram.org/).
+ChargedGram is a fork of [Telegram for macOS](https://macos.telegram.org/) with optional features available in Settings → ChargedGram. See [the feature guide](docs/mod-features.md) and [local build instructions](INSTALL.md#signing).
 
-## Get it
+## Upstream client
+
+The following links install the official Telegram client. Build ChargedGram from this repository using the instructions below.
 
 [![Download on the Mac App Store](images/mas_badge.png)](https://itunes.apple.com/us/app/telegram/id747648890?mt=12)
 

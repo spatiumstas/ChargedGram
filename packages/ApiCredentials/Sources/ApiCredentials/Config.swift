@@ -1,6 +1,10 @@
 import Cocoa
 
 public final class ApiEnvironment {
+    public static var isLocalBuild: Bool {
+        return Bundle.main.object(forInfoDictionaryKey: "TelegramLocalBuild") as? Bool == true
+    }
+
     public static var apiId:Int32 {
         return 9
     }
@@ -9,6 +13,9 @@ public final class ApiEnvironment {
     }
     
     public static var bundleId: String {
+        if isLocalBuild, let identifier = Bundle.main.bundleIdentifier {
+            return identifier
+        }
         return "ru.keepcoder.Telegram"
     }
     public static var teamId: String {
@@ -18,8 +25,7 @@ public final class ApiEnvironment {
     
     
     public static var containerURL: URL? {
-        let appGroupName = ApiEnvironment.group
-        let containerUrl = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupName)?.appendingPathComponent(prefix)
+        let containerUrl = legacyContainerURL?.appendingPathComponent(prefix)
         if let containerUrl = containerUrl {
             try? FileManager.default.createDirectory(at: containerUrl, withIntermediateDirectories: true, attributes: nil)
             return containerUrl
@@ -28,6 +34,7 @@ public final class ApiEnvironment {
     }
     
     public static func migrate() {
+        guard !isLocalBuild else { return }
         if let containerURL = containerURL, let legacy = legacyContainerURL, let sequence = FileManager.default.enumerator(atPath: legacy.path) {
             let contents = try? FileManager.default.contentsOfDirectory(at: containerURL, includingPropertiesForKeys: nil, options: [])
             if let contents = contents, !contents.isEmpty {
@@ -44,13 +51,26 @@ public final class ApiEnvironment {
     }
     
     public static var legacyContainerURL: URL? {
+        if isLocalBuild {
+            return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?.appendingPathComponent(bundleId, isDirectory: true)
+        }
         let appGroupName = ApiEnvironment.group
         let containerUrl = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupName)
         return containerUrl
     }
     
     public static var group: String {
+        if isLocalBuild {
+            return bundleId
+        }
         return teamId + "." + bundleId
+    }
+
+    public static var keychainScope: String? {
+        if isLocalBuild {
+            return bundleId
+        }
+        return prefix == "debug" ? "debug" : nil
     }
     
     public static var appData: Data {
@@ -67,6 +87,9 @@ public final class ApiEnvironment {
     }
     
     public static var prefix: String {
+        if isLocalBuild {
+            return "local"
+        }
         var prefix: String = ""
         switch Configuration.value(for: .source) {
         case "DEBUG":

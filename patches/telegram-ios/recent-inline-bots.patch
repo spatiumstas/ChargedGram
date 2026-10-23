@@ -1,0 +1,14 @@
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Peers/RecentPeers.swift b/submodules/TelegramCore/Sources/TelegramEngine/Peers/RecentPeers.swift
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Peers/RecentPeers.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Peers/RecentPeers.swift
+@@ -197,8 +197,10 @@ func _internal_managedRecentlyUsedInlineBots(postbox: Postbox, network: Network, ac
+                 updatePeers(transaction: transaction, accountPeerId: accountPeerId, peers: parsedPeers)
+                 
+                 let sortedPeersWithRating = peersWithRating.sorted(by: { $0.1 > $1.1 })
++                var seenPeerIds = Set<PeerId>()
+                 
+                 transaction.replaceOrderedItemListItems(collectionId: Namespaces.OrderedItemList.CloudRecentInlineBots, items: sortedPeersWithRating.compactMap { (peerId, rating) in
++                    guard seenPeerIds.insert(peerId).inserted else { return nil }
+                     if let entry = CodableEntry(RecentPeerItem(rating: rating)) {
+                         return OrderedItemListEntry(id: RecentPeerItemId(peerId).rawValue, contents: entry)
+                     } else {
