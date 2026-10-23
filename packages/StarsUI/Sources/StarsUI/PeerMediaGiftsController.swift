@@ -350,7 +350,7 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
     if !chunks.isEmpty {
         for (i, chunk) in chunks.enumerated() {
             entries.append(.custom(sectionId: sectionId, index: index, value: .none, identifier: _id_stars_gifts(i), equatable: .init(chunk), comparable: nil, item: { initialSize, stableId in
-                return GiftOptionsRowItem(initialSize, stableId: stableId, context: arguments.context, options: chunk, perRowCount: state.perRowCount, fitToSize: false, insets: NSEdgeInsets(left: 5, right: 5), callback: { option, morphSource in
+                return GiftOptionsRowItem(initialSize, stableId: stableId, context: arguments.context, options: chunk, perRowCount: state.perRowCount, fitToSize: list.count == 1, insets: NSEdgeInsets(left: 5, right: 5), callback: { option, morphSource in
                     if let value = option.nativeProfileGift {
                         arguments.open(value, morphSource)
                     } else {

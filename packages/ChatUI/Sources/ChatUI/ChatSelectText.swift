@@ -307,6 +307,7 @@ public class SelectManager : NSResponder {
             }
         } else if let chatInteraction = self.chatInteraction {
             if let selectionState = chatInteraction.presentation.selectionState {
+                let timeDifference = chatInteraction.interactionContext.timeDifference
                 _ = chatInteraction.interactionContext.account.postbox.messagesAtIds(Array(selectionState.selectedIds.sorted(by: <))).start(next: { messages in
                     var text: String = ""
                     for message in messages {
@@ -314,10 +315,15 @@ public class SelectManager : NSResponder {
                             text += "\n\n"
                         }
                         if let forwardInfo = message.forwardInfo {
-                            text += "> " + forwardInfo.authorTitle + ":"
+                            text += "> " + forwardInfo.authorTitle
                         } else {
-                            text += "> " + (message.effectiveAuthor?.displayTitle ?? "") + ":"
+                            text += "> " + (message.effectiveAuthor?.displayTitle ?? "")
                         }
+                        if message.timestamp != scheduleWhenOnlineTimestamp {
+                            let date = Date(timeIntervalSince1970: TimeInterval(message.timestamp) - timeDifference)
+                            text += ", [" + DateSelectorUtil.chatFullDateFormatter.string(from: date) + "]"
+                        }
+                        text += ":"
                         text += "\n"
                         text += pullText(from: message).string as String
                     }

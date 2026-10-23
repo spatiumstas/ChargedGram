@@ -2903,13 +2903,32 @@ func userInfoEntries<Context: AccountContextProtocol>(view: PeerView, arguments:
 
                 applyBlock(infoBlock)
 
-                if verification == nil, let botInfo = user.botInfo, botInfo.flags.contains(.worksWithGroups) {
+                let cachedUserData = view.cachedData as? CachedUserData
+                let affiliateEnabled = arguments.context.appConfiguration.getBoolValue("starref_connect_allowed", orElse: false)
+                let hasAffiliate = peer.botInfo?.flags.contains(.canEdit) == false && cachedUserData?.starRefProgram != nil && affiliateEnabled
+                let canAddToGroup = verification == nil && user.botInfo?.flags.contains(.worksWithGroups) == true
+
+                if hasAffiliate || canAddToGroup {
                     entries.append(UserInfoEntry<Context>.section(sectionId: sectionId))
                     sectionId += 1
-                    entries.append(UserInfoEntry<Context>.botAddToGroup(sectionId: sectionId, viewType: .singleItem))
-                    entries.append(UserInfoEntry<Context>.botAddToGroupInfo(sectionId: sectionId, viewType: .textBottomItem))
+
+                    if hasAffiliate, let program = cachedUserData?.starRefProgram {
+                        let localizedDuration: String
+                        if let duration = program.durationMonths {
+                            localizedDuration = duration < 12 ? strings().timerMonthsOther(Int(duration)) : strings().timerYearsOther(Int(duration / 12))
+                        } else {
+                            localizedDuration = strings().affiliateProgramDurationLifetime
+                        }
+                        let text = "\(program.commissionPermille.decemial)%, \(localizedDuration)"
+                        entries.append(UserInfoEntry<Context>.botAffiliate(sectionId: sectionId, text: text, starRefProgram: program, viewType: canAddToGroup ? .firstItem : .singleItem))
+                    }
+
+                    if canAddToGroup {
+                        entries.append(UserInfoEntry<Context>.botAddToGroup(sectionId: sectionId, viewType: hasAffiliate ? .lastItem : .singleItem))
+                        entries.append(UserInfoEntry<Context>.botAddToGroupInfo(sectionId: sectionId, viewType: .textBottomItem))
+                    }
                 }
-                
+
             }
             
             if let cachedData = view.cachedData as? CachedUserData, arguments.context.account.peerId != arguments.peerId {
@@ -2986,28 +3005,8 @@ func userInfoEntries<Context: AccountContextProtocol>(view: PeerView, arguments:
                     if peer is TelegramSecretChat || view.peerIsContact {
                         destructBlock.append(.deleteContact(sectionId: sectionId, viewType: .singleItem))
                     }
-                } else {
-                    if peer.botInfo?.flags.contains(.canEdit) == false, cachedData.starRefProgram != nil {
-                        let affiliateEnabled = arguments.context.appConfiguration.getBoolValue("starref_connect_allowed", orElse: false)
-
-                        let text: String
-                        if let program = cachedData.starRefProgram {
-                            let localizedDuration: String
-                            if let duration = program.durationMonths {
-                                localizedDuration = duration < 12 ? strings().timerMonthsOther(Int(duration)) : strings().timerYearsOther(Int(duration / 12))
-                            } else {
-                                localizedDuration = strings().affiliateProgramDurationLifetime
-                            }
-                            text = "\(program.commissionPermille.decemial)%, \(localizedDuration)"
-                        } else {
-                            text = strings().affiliateProgramOff
-                        }
-                        if affiliateEnabled {
-                            entries.append(UserInfoEntry<Context>.botAffiliate(sectionId: sectionId, text: text, starRefProgram: cachedData.starRefProgram, viewType: .firstItem))
-                        }
-                    }
                 }
-               
+
             }
             applyBlock(photoBlock)
             
