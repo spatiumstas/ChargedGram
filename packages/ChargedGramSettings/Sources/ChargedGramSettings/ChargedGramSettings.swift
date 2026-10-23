@@ -22,6 +22,11 @@ public final class ChargedGramSettings {
         }
     }
 
+    public var confirmCalls: Bool {
+        get { defaults.bool(forKey: "chargedGram.confirmCalls") }
+        set { set(newValue, forKey: "chargedGram.confirmCalls") }
+    }
+
     private func set(_ value: Bool, forKey key: String) {
         guard defaults.bool(forKey: key) != value else { return }
         defaults.set(value, forKey: key)

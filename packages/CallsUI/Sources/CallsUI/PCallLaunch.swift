@@ -12,6 +12,7 @@ import SystemPermissions
 import TelegramUtils
 import Localization
 import TelegramContext
+import ChargedGramSettings
 
 public enum PCallResult {
     case success(PCallSession)
@@ -24,6 +25,33 @@ public func phoneCall(context: any AccountContextProtocol, peerId:PeerId, ignore
 }
 
 public func phoneCall(account: Account, sharedContext: any SharedAccountContextProtocol, window: Window?, peerId:PeerId, ignoreSame:Bool = false, isVideo: Bool = false) -> Signal<PCallResult, NoError> {
+    return deferred {
+        let confirmation: Signal<Bool, NoError>
+        if ChargedGramSettings.shared.confirmCalls {
+            confirmation = account.postbox.transaction { $0.getPeer(peerId) }
+            |> deliverOnMainQueue
+            |> mapToSignal { peer -> Signal<Bool, NoError> in
+                guard let window = window ?? CallsCoreHooks.shared.activeWindow(), let peer = peer else {
+                    return .complete()
+                }
+                let language = appCurrentLanguage
+                func text(_ key: String) -> String {
+                    return ChargedGramStrings.text(key, languageCode: language.primaryLanguage.languageCode, fallbackLanguageCode: language.secondaryLanguage?.languageCode)
+                }
+                return verifyAlertSignal(for: window, header: text("ConfirmCallTitle"), information: String(format: text(isVideo ? "ConfirmVideoCall" : "ConfirmVoiceCall"), peer.displayTitle), ok: text("Call"), cancel: strings().modalCancel)
+                |> filter { $0 == .basic }
+                |> map { _ in true }
+            }
+        } else {
+            confirmation = .single(true)
+        }
+        return confirmation |> mapToSignal { _ in
+            return startPhoneCall(account: account, sharedContext: sharedContext, window: window, peerId: peerId, ignoreSame: ignoreSame, isVideo: isVideo)
+        }
+    } |> runOn(.mainQueue())
+}
+
+private func startPhoneCall(account: Account, sharedContext: any SharedAccountContextProtocol, window: Window?, peerId: PeerId, ignoreSame: Bool, isVideo: Bool) -> Signal<PCallResult, NoError> {
     
     let alertWindow = window ?? CallsCoreHooks.shared.activeWindow()
     

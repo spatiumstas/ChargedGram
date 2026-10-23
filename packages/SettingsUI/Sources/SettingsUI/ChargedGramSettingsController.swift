@@ -15,6 +15,7 @@ private final class Arguments {
 
 private struct State: Equatable {
     var keepChatsUnread: Bool
+    var confirmCalls: Bool
 }
 
 private func entries(_ state: State, language: TelegramLocalization, arguments: Arguments) -> [InputDataEntry] {
@@ -23,6 +24,7 @@ private func entries(_ state: State, language: TelegramLocalization, arguments: 
     }
     let rows: [(String, Bool, () -> Void)] = [
         ("KeepChatsUnread", state.keepChatsUnread, { arguments.toggle(\.keepChatsUnread) }),
+        ("ConfirmCalls", state.confirmCalls, { arguments.toggle(\.confirmCalls) }),
     ]
     var result: [InputDataEntry] = [.sectionId(0, type: .normal)]
     for (index, row) in rows.enumerated() {
@@ -37,7 +39,7 @@ private func entries(_ state: State, language: TelegramLocalization, arguments: 
 func ChargedGramSettingsController() -> InputDataController {
     let settings = ChargedGramSettings.shared
     func state() -> State {
-        return State(keepChatsUnread: settings.keepChatsUnread)
+        return State(keepChatsUnread: settings.keepChatsUnread, confirmCalls: settings.confirmCalls)
     }
     let arguments = Arguments(toggle: { key in
         settings[keyPath: key].toggle()

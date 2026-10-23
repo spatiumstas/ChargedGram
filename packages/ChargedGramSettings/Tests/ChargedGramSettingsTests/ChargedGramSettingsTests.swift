@@ -20,12 +20,24 @@ final class ChargedGramSettingsTests: XCTestCase {
         let fixture = SettingsFixture()
         let settings = ChargedGramSettings(defaults: fixture.defaults)
         XCTAssertFalse(settings.keepChatsUnread)
+        XCTAssertFalse(settings.confirmCalls)
     }
 
     func testRetainsExistingUnreadPreference() {
         let fixture = SettingsFixture()
         fixture.defaults.set(true, forKey: "mod.keepChatsUnread")
         XCTAssertTrue(ChargedGramSettings(defaults: fixture.defaults).keepChatsUnread)
+    }
+
+    func testPrivacyPreferencesPersistIndependently() {
+        let fixture = SettingsFixture()
+        let settings = ChargedGramSettings(defaults: fixture.defaults)
+        settings.confirmCalls = true
+        let restored = ChargedGramSettings(defaults: UserDefaults(suiteName: fixture.suiteName)!)
+        XCTAssertTrue(restored.confirmCalls)
+        XCTAssertFalse(restored.keepChatsUnread)
+        restored.confirmCalls = false
+        XCTAssertFalse(settings.confirmCalls)
     }
 
     func testPersistsEnablingAndDisabling() {
@@ -57,8 +69,22 @@ final class ChargedGramSettingsTests: XCTestCase {
         XCTAssertEqual(values, [true, false])
     }
 
+    func testPrivacyChangesNotifyAfterSaving() {
+        let fixture = SettingsFixture()
+        let center = NotificationCenter()
+        let settings = ChargedGramSettings(defaults: fixture.defaults, notificationCenter: center)
+        var values: [[Bool]] = []
+        let observer = center.addObserver(forName: ChargedGramSettings.didChange, object: nil, queue: nil) { _ in
+            values.append([settings.confirmCalls])
+        }
+        defer { center.removeObserver(observer) }
+        settings.confirmCalls = true
+        settings.confirmCalls = true
+        XCTAssertEqual(values, [[true]])
+    }
+
     func testTranslationsAndLanguageFallback() {
-        let keys = ["KeepChatsUnread", "KeepChatsUnreadInfo"]
+        let keys = ["KeepChatsUnread", "KeepChatsUnreadInfo", "ConfirmCalls", "ConfirmCallsInfo", "ConfirmCallTitle", "ConfirmVoiceCall", "ConfirmVideoCall", "Call"]
         for key in keys {
             let english = ChargedGramStrings.text(key, languageCode: "en")
             let russian = ChargedGramStrings.text(key, languageCode: "ru")
@@ -71,5 +97,6 @@ final class ChargedGramSettingsTests: XCTestCase {
             XCTAssertEqual(ChargedGramStrings.text(key, languageCode: "custom", fallbackLanguageCode: "ru"), russian)
             XCTAssertEqual(ChargedGramStrings.text(key, languageCode: "de"), english)
         }
+        XCTAssertEqual(String(format: ChargedGramStrings.text("ConfirmVoiceCall", languageCode: "ru"), "Alice"), "Позвонить Alice?")
     }
 }

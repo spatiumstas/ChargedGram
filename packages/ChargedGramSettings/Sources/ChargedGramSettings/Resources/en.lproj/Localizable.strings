@@ -1,2 +1,8 @@
 "KeepChatsUnread" = "Keep Chats Unread";
 "KeepChatsUnreadInfo" = "Do not mark chats and topics as read automatically on this Mac. Mark as Read and Mark All as Read still work. Reactions are marked as viewed normally. Other devices can still mark messages as read.";
+"ConfirmCalls" = "Confirm Calls";
+"ConfirmCallsInfo" = "Ask for confirmation before starting a voice or video call.";
+"ConfirmCallTitle" = "Start Call?";
+"ConfirmVoiceCall" = "Call %@?";
+"ConfirmVideoCall" = "Start a video call with %@?";
+"Call" = "Call";
