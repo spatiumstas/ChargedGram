@@ -15,6 +15,8 @@ ChargedGram is a fork of [Telegram for macOS](https://macos.telegram.org/) with 
 - **Keep Chats Unread** — stops chats and topics from being marked as read automatically.
 - **Confirm Calls** — asks for confirmation before starting an outgoing voice or video call to prevent accidental calls.
 - **Hide Phone Numbers** — covers phone numbers in profiles and your account header with spoilers. Click a hidden number to reveal it.
+- **Show Deleted Messages**
+- **Show reaction by hover**
 
 ## Upstream client
 

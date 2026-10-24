@@ -302,7 +302,12 @@ public class ChatRightView: View, ViewDisplayDelegate {
                 x = rect.maxX
             }
             
-            if let editLabel = item.editedLabel {
+            if item.entry.isDeleted {
+                var rect = size.bounds.focus(NSMakeSize(12, 12))
+                rect.origin.x = x + 2
+                self.edit = rect
+                x = rect.maxX
+            } else if let editLabel = item.editedLabel {
                 var rect = size.bounds.focus(editLabel.layoutSize)
                 rect.origin.x = x + 2
                 self.edit = rect
@@ -481,6 +486,7 @@ public class ChatRightView: View, ViewDisplayDelegate {
     private var postAuthorView: ChatRightTextLayer?
     private var pinView: ChatRightIconLayer?
     private var editView: ChatRightTextLayer?
+    private var deletedView: ChatRightIconLayer?
     private var dateView: ChatRightTextLayer?
     private var failedView: ChatRightIconLayer?
     private weak var item:ChatRowItem?
@@ -788,7 +794,18 @@ public class ChatRightView: View, ViewDisplayDelegate {
             }
         }
         
-        if let editedLabel = item.editedLabel, let editRect = frames.edit {
+        if item.entry.isDeleted, let editRect = frames.edit {
+            if self.deletedView == nil {
+                self.deletedView = ChatRightView.makeIconLayer(editRect)
+                self.contentLayer.addSublayer(self.deletedView!)
+            }
+            let color = item.isStateOverlayLayout ? item.stateOverlayTextColor : !item.hasBubble ? item.presentation.colors.grayText : item.presentation.chat.grayText(item.isIncoming, item.isBubbled)
+            self.deletedView?.image = NSImage(cgImage: item.presentation.icons.general_delete, size: .zero).precomposed(color, flipVertical: true)
+        } else if let view = self.deletedView {
+            self.deletedView = nil
+            ChatRightView.removeIcon(view, animated: animated)
+        }
+        if !item.entry.isDeleted, let editedLabel = item.editedLabel, let editRect = frames.edit {
             if self.editView == nil {
                 self.editView = ChatRightView.makeTextLayer(editRect)
                 self.contentLayer.addSublayer(self.editView!)
@@ -891,6 +908,9 @@ public class ChatRightView: View, ViewDisplayDelegate {
         if let frame = frames.edit, let view = editView {
             transition.updateFrame(layer: view, frame: frame)
             view.updateDrawLayer()
+        }
+        if let frame = frames.edit, let view = deletedView {
+            transition.updateFrame(layer: view, frame: frame)
         }
         if let frame = frames.state, let view = stateView {
             transition.updateFrame(layer: view, frame: frame)

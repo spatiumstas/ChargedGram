@@ -217,16 +217,19 @@ public struct ChatHistoryEntryData : Equatable {
     public let autoPlay: AutoplayMediaPreferences?
     public let isFakeMessage: Bool
     public let isBelow: Bool
-    public init(_ location: MessageHistoryEntryLocation? = nil, _ additionData: MessageEntryAdditionalData = .init(), _ autoPlay: AutoplayMediaPreferences? = nil, isFakeMessage: Bool = false, isBelow: Bool = false) {
+    public let isDeleted: Bool
+    public init(_ location: MessageHistoryEntryLocation? = nil, _ additionData: MessageEntryAdditionalData = .init(), _ autoPlay: AutoplayMediaPreferences? = nil, isFakeMessage: Bool = false, isBelow: Bool = false, isDeleted: Bool = false) {
         self.location = location
         self.additionData = additionData
         self.autoPlay = autoPlay
         self.isFakeMessage = isFakeMessage
         self.isBelow = isBelow
+        self.isDeleted = isDeleted
     }
     public static func ==(lhs: ChatHistoryEntryData, rhs: ChatHistoryEntryData) -> Bool {
         if lhs.isFakeMessage != rhs.isFakeMessage { return false }
         if lhs.isBelow != rhs.isBelow { return false }
+        if lhs.isDeleted != rhs.isDeleted { return false }
         if lhs.location != rhs.location { return false }
         if lhs.autoPlay != rhs.autoPlay { return false }
         return lhs.additionData == rhs.additionData
@@ -362,6 +365,17 @@ public enum ChatHistoryEntry: Identifiable, Comparable {
             return data.isBelow
         case let .groupedPhotos(entries, groupInfo: _):
             return entries.first?.isBelow ?? false
+        default:
+            return false
+        }
+    }
+
+    public var isDeleted: Bool {
+        switch self {
+        case let .MessageEntry(_, _, _, _, _, _, data):
+            return data.isDeleted
+        case let .groupedPhotos(entries, _):
+            return entries.contains(where: { $0.isDeleted })
         default:
             return false
         }
@@ -653,7 +667,7 @@ public func <(lhs: ChatHistoryEntry, rhs: ChatHistoryEntry) -> Bool {
 
 private var index = 0
 
-public func messageEntries(_ messagesEntries: [MessageHistoryEntry], location: ChatLocation? = nil, maxReadIndex:MessageIndex? = nil, includeHoles: Bool = true, dayGrouping: Bool = false, renderType: ChatItemRenderType = .list, includeBottom:Bool = false, timeDifference: TimeInterval = 0, ranks:CachedChannelAdminRanks? = nil, pollAnswersLoading: [MessageId : ChatPollStateData] = [:], threadLoading: MessageId? = nil, groupingPhotos: Bool = false, autoplayMedia: AutoplayMediaPreferences? = nil, searchState: SearchMessagesResultState? = nil, animatedEmojiStickers: [String: StickerPackItem] = [:], topFixedMessages: [Message]? = nil, customChannelDiscussionReadState: MessageId? = nil, customThreadOutgoingReadState: MessageId? = nil, addRepliesHeader: Bool = false, addWelcomeMessagesHeader: Bool = false, addTopThreadInset: CGFloat? = nil, updatingMedia: [MessageId: ChatUpdatingMessageMedia] = [:], adMessage:Message? = nil, dynamicAdMessages: [Message] = [], chatTheme: TelegramPresentationTheme = theme, reactions: AvailableReactions? = nil, transribeState: [MessageId : TranscribeAudioState] = [:], topicCreatorId: PeerId? = nil, mediaRevealed: Set<MessageId> = Set(), translate: ChatLiveTranslateContext.State? = nil, storyState: PeerExpiringStoryListContext.State? = nil, peerStoryStats: [PeerId : PeerStoryStats] = [:], cachedData: CachedPeerData? = nil, peer: Peer? = nil, holeLater: Bool = false, holeEarlier: Bool = false, recommendedChannels: RecommendedChannels? = nil, includeJoin: Bool = false, earlierId: MessageIndex? = nil, laterId: MessageIndex? = nil, automaticDownload: AutomaticMediaDownloadSettings = .defaultSettings, savedMessageTags: SavedMessageTags? = nil, contentSettings: ContentSettings? = nil, codeSyntaxData: [CodeSyntaxKey : CodeSyntaxResult] = [:], messageEffects: AvailableMessageEffects? = nil, factCheckRevealed: Set<MessageId> = Set(), solutionRevealed: Set<MessageId> = Set(), quoteRevealed: Set<QuoteMessageIndex> = Set(), detailsExpanded: Set<DetailsMessageIndex> = Set(), peerStatus: PeerStatusSettings? = nil, commonGroups: GroupsInCommonState? = nil, monoforumState: MonoforumUIState? = nil, accountPeerId: PeerId? = nil, contentConfig: ContentSettingsConfiguration = .default, walletFiatRate: WalletFiatRateProjection? = nil) -> [ChatHistoryEntry] {
+public func messageEntries(_ messagesEntries: [MessageHistoryEntry], location: ChatLocation? = nil, maxReadIndex:MessageIndex? = nil, includeHoles: Bool = true, dayGrouping: Bool = false, renderType: ChatItemRenderType = .list, includeBottom:Bool = false, timeDifference: TimeInterval = 0, ranks:CachedChannelAdminRanks? = nil, pollAnswersLoading: [MessageId : ChatPollStateData] = [:], threadLoading: MessageId? = nil, groupingPhotos: Bool = false, autoplayMedia: AutoplayMediaPreferences? = nil, searchState: SearchMessagesResultState? = nil, animatedEmojiStickers: [String: StickerPackItem] = [:], topFixedMessages: [Message]? = nil, customChannelDiscussionReadState: MessageId? = nil, customThreadOutgoingReadState: MessageId? = nil, addRepliesHeader: Bool = false, addWelcomeMessagesHeader: Bool = false, addTopThreadInset: CGFloat? = nil, updatingMedia: [MessageId: ChatUpdatingMessageMedia] = [:], adMessage:Message? = nil, dynamicAdMessages: [Message] = [], chatTheme: TelegramPresentationTheme = theme, reactions: AvailableReactions? = nil, transribeState: [MessageId : TranscribeAudioState] = [:], topicCreatorId: PeerId? = nil, mediaRevealed: Set<MessageId> = Set(), translate: ChatLiveTranslateContext.State? = nil, storyState: PeerExpiringStoryListContext.State? = nil, peerStoryStats: [PeerId : PeerStoryStats] = [:], cachedData: CachedPeerData? = nil, peer: Peer? = nil, holeLater: Bool = false, holeEarlier: Bool = false, recommendedChannels: RecommendedChannels? = nil, includeJoin: Bool = false, earlierId: MessageIndex? = nil, laterId: MessageIndex? = nil, automaticDownload: AutomaticMediaDownloadSettings = .defaultSettings, savedMessageTags: SavedMessageTags? = nil, contentSettings: ContentSettings? = nil, codeSyntaxData: [CodeSyntaxKey : CodeSyntaxResult] = [:], messageEffects: AvailableMessageEffects? = nil, factCheckRevealed: Set<MessageId> = Set(), solutionRevealed: Set<MessageId> = Set(), quoteRevealed: Set<QuoteMessageIndex> = Set(), detailsExpanded: Set<DetailsMessageIndex> = Set(), peerStatus: PeerStatusSettings? = nil, commonGroups: GroupsInCommonState? = nil, monoforumState: MonoforumUIState? = nil, accountPeerId: PeerId? = nil, contentConfig: ContentSettingsConfiguration = .default, walletFiatRate: WalletFiatRateProjection? = nil, deletedMessageIds: Set<MessageId> = []) -> [ChatHistoryEntry] {
     var entries: [ChatHistoryEntry] = []
     
 
@@ -1277,7 +1291,7 @@ public func messageEntries(_ messagesEntries: [MessageHistoryEntry], location: C
         }
 
         additionalData = MessageEntryAdditionalData(pollStateData: pollData, highlightFoundText: highlightFoundText, isThreadLoading: threadLoading == message.id, updatingMedia: updatingMedia[message.id], chatTheme: chatTheme, reactions: sharedReactionsProjection, transribeState: transribeState[message.id], transcriptionTranslate: transcriptionTranslate, isRevealed: mediaRevealed.contains(message.id), translate: messageTranslate, replyTranslate: replyTranslate, storyReadMaxId: (message.media.first is TelegramMediaStory) ? storyState?.maxReadId : nil, authorStoryStats: message.author.flatMap { peerStoryStats[$0.id] }, cachedData: sharedCachedDataProjection, automaticDownload: sharedAutoDownloadProjection, savedMessageTags: savedMessageTags, codeSyntaxData: entryCodeSyntax, messageEffect: messageEffect, factCheckRevealed: factCheckRevealed.contains(message.id), solutionRevealed: solutionRevealed.contains(message.id), quoteRevealed: entryQuoteRevealed, detailsExpanded: entryDetailsExpanded, monoforumState: monoforumState, canHighlightLinks: canHighlightLinksDefault, summarize: summarize, walletFiatRate: entryWalletFiatRate)
-        let data = ChatHistoryEntryData(entry.location, additionalData, autoplayMedia)
+        let data = ChatHistoryEntryData(entry.location, additionalData, autoplayMedia, isDeleted: deletedMessageIds.contains(message.id))
         
        
         

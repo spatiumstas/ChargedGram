@@ -1,4 +1,5 @@
 import Cocoa
+import ChargedGramSettings
 import TGUIKit
 import TelegramCore
 import TGModernGrowingTextView
@@ -351,6 +352,11 @@ public class ChatRowView: TableRowView, Notifable, MultipleSelectable, ChatTextS
     private var shareView:ImageButton?
     private var shareVisibleForCurrentItem: Bool = false
     private var reactionsView:ChatReactionsView?
+    private static weak var hoverReactionsOwner: ChatRowView?
+    private let hoverReactionsDisposable = MetaDisposable()
+    private var hoverReactionsTimer: SwiftSignalKit.Timer?
+    private var hoverReactionsWindow: Window?
+    private weak var hoverReactionsItem: ChatRowItem?
     private var channelCommentsBubbleControl: ChannelCommentsBubbleControl?
     private var channelCommentsBubbleSmallControl: ChannelCommentsSmallControl?
 
@@ -719,6 +725,7 @@ public class ChatRowView: TableRowView, Notifable, MultipleSelectable, ChatTextS
     
     
     public override func mouseDown(with event: NSEvent) {
+        hideHoverReactions()
         super.mouseDown(with: event)
         mouseDownPoint = convert(event.locationInWindow, from: nil)
         mouseDragged = false
@@ -756,6 +763,7 @@ public class ChatRowView: TableRowView, Notifable, MultipleSelectable, ChatTextS
     }
     
     public override func onShowContextMenu() {
+        hideHoverReactions()
         guard let item = item as? ChatRowItem else {return}
         renderLayoutType(item, animated: true)
         updateColors()
@@ -781,6 +789,7 @@ public class ChatRowView: TableRowView, Notifable, MultipleSelectable, ChatTextS
     }
     
     public override func updateMouse(animated: Bool) {
+        updateHoverReactions()
         if let item = item as? ChatRowItem {
             let shouldBeVisible = shareVisibleForCurrentItem
                 && mouseInsideRow()
@@ -808,6 +817,109 @@ public class ChatRowView: TableRowView, Notifable, MultipleSelectable, ChatTextS
         if let commentsView = self.channelCommentsBubbleSmallControl, let item = item as? ChatRowItem {
             commentsView.change(opacity: mouseInsideRow() && contextMenu == nil && item.chatInteraction.presentation.state != .selecting ? 1.0 : 0.0, animated: animated)
         }
+    }
+
+    private func hideHoverReactions() {
+        hoverReactionsDisposable.set(nil)
+        hoverReactionsTimer?.invalidate()
+        hoverReactionsTimer = nil
+        if let panel = hoverReactionsWindow {
+            panel.parent?.removeChildWindow(panel)
+            panel.removeAllHandlers(for: self)
+            panel.orderOut(nil)
+        }
+        hoverReactionsWindow = nil
+        hoverReactionsItem = nil
+        if ChatRowView.hoverReactionsOwner === self {
+            ChatRowView.hoverReactionsOwner = nil
+        }
+    }
+
+    private func updateHoverReactions() {
+        guard ChargedGramSettings.shared.reactionsOnHover,
+              let item = item as? ChatRowItem, item.canReact, !item.entry.isDeleted,
+              item.chatInteraction.presentation.state != .selecting,
+              item.chatInteraction.presentation.state != .editing,
+              let window = window as? Window, window.isKeyWindow,
+              !contextMenuOnScreen(), !hasModals(window), NSEvent.pressedMouseButtons == 0 else {
+            hideHoverReactions()
+            return
+        }
+        let anchor = window.convertToScreen(rowView.convert(bubbleFrame(item), to: nil))
+        guard anchor.contains(NSEvent.mouseLocation) else {
+            if hoverReactionsWindow == nil {
+                hideHoverReactions()
+            }
+            return
+        }
+        guard hoverReactionsItem !== item else { return }
+        ChatRowView.hoverReactionsOwner?.hideHoverReactions()
+        ChatRowView.hoverReactionsOwner = self
+        hoverReactionsItem = item
+        let signal = Signal<Void, NoError>.single(())
+            |> delay(0.5, queue: .mainQueue())
+            |> mapToSignal { item.menuAdditionView |> take(1) }
+            |> deliverOnMainQueue
+        hoverReactionsDisposable.set(signal.start(next: { [weak self, weak item, weak window] panel in
+            guard let self, let item, self.hoverReactionsItem === item else { return }
+            guard let window, let panel, let table = item.table,
+                  self.item === item,
+                  self.window === window, window.isKeyWindow,
+                  ChargedGramSettings.shared.reactionsOnHover,
+                  item.chatInteraction.presentation.state != .selecting,
+                  item.chatInteraction.presentation.state != .editing,
+                  !contextMenuOnScreen(), !hasModals(window),
+                  NSEvent.pressedMouseButtons == 0 else {
+                self.hideHoverReactions()
+                return
+            }
+            guard window.convertToScreen(self.rowView.convert(self.bubbleFrame(item), to: nil)) == anchor,
+                  anchor.contains(NSEvent.mouseLocation) else {
+                self.hideHoverReactions()
+                self.updateHoverReactions()
+                return
+            }
+            let visibleFrame = window.convertToScreen(table.contentView.convert(table.contentView.visibleRect, to: nil))
+                .intersection(window.screen?.visibleFrame ?? window.frame)
+            let visibleAnchor = anchor.intersection(visibleFrame)
+            guard !visibleAnchor.isEmpty, visibleFrame.width >= panel.frame.width,
+                  visibleFrame.height >= panel.frame.height else {
+                self.hideHoverReactions()
+                return
+            }
+            var origin = NSMakePoint(item.isIncoming ? visibleAnchor.minX : visibleAnchor.maxX - panel.frame.width, visibleAnchor.maxY - 5)
+            if origin.y + panel.frame.height > visibleFrame.maxY {
+                origin.y = visibleAnchor.minY - panel.frame.height + 5
+            }
+            origin.x = max(visibleFrame.minX, min(origin.x, visibleFrame.maxX - panel.frame.width))
+            origin.y = max(visibleFrame.minY, min(origin.y, visibleFrame.maxY - panel.frame.height))
+            panel.setFrameOrigin(origin)
+            panel.set(mouseHandler: { [weak self] _ in
+                DispatchQueue.main.async { self?.hideHoverReactions() }
+                return .rejected
+            }, with: self, for: .leftMouseUp)
+            self.hoverReactionsWindow = panel
+            window.addChildWindow(panel, ordered: .above)
+            panel.orderFront(nil)
+            panel.contentView?.layer?.animateAlpha(from: 0.1, to: 1, duration: 0.2)
+            panel.contentView?.layer?.animateScaleSpringFrom(anchor: NSMakePoint(item.isIncoming ? 0 : panel.frame.width, panel.frame.height / 2), from: 0.2, to: 1, duration: 0.28, bounce: true)
+            let timer = SwiftSignalKit.Timer(timeout: 0.15, repeat: true, completion: { [weak self, weak window] in
+                guard let self else { return }
+                guard let window, self.window === window, window.isKeyWindow,
+                      self.item === item, self.hoverReactionsItem === item,
+                      ChargedGramSettings.shared.reactionsOnHover,
+                      item.chatInteraction.presentation.state != .selecting,
+                      item.chatInteraction.presentation.state != .editing,
+                      !contextMenuOnScreen(), !hasModals(window),
+                      window.convertToScreen(self.rowView.convert(self.bubbleFrame(item), to: nil)) == anchor,
+                      anchor.union(panel.frame).insetBy(dx: -8, dy: -8).contains(NSEvent.mouseLocation) else {
+                    self.hideHoverReactions()
+                    return
+                }
+            }, queue: .mainQueue())
+            self.hoverReactionsTimer = timer
+            timer.start()
+        }))
     }
     
     
@@ -2419,6 +2531,9 @@ public class ChatRowView: TableRowView, Notifable, MultipleSelectable, ChatTextS
         #endif
         invalidateFrameCache()
         let previousItem = self.item as? ChatRowItem
+        if self.item !== item {
+            hideHoverReactions()
+        }
 
         super.set(item: item, animated: animated)
 
@@ -2747,6 +2862,8 @@ public class ChatRowView: TableRowView, Notifable, MultipleSelectable, ChatTextS
     }
     
     deinit {
+        hideHoverReactions()
+        hoverReactionsDisposable.dispose()
         contentView.removeAllSubviews()
         observedInteraction?.remove(observer: self)
     }
@@ -2767,6 +2884,9 @@ public class ChatRowView: TableRowView, Notifable, MultipleSelectable, ChatTextS
     
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if window == nil {
+            hideHoverReactions()
+        }
         updateInteractionObserver(window == nil ? nil : (item as? ChatRowItem)?.chatInteraction)
         if window != nil {
             replyHost?.imageLayer?.hostDidMoveToWindow()

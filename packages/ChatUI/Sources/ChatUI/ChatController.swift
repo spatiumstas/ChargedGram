@@ -138,6 +138,41 @@ final class ChatHistoryView {
     }
 }
 
+private final class ChatDeletedMessages {
+    static let shared = ChatDeletedMessages()
+
+    private let lock = NSLock()
+    private var entries: [AccountRecordId: [MessageId: MessageHistoryEntry]] = [:]
+
+    func update(_ view: MessageHistoryView, previous: MessageHistoryView?, location: ChatLocation, context: any AccountContextProtocol, enabled: Bool) -> (entries: [MessageHistoryEntry], deletedIds: Set<MessageId>) {
+        guard enabled, view.tag == nil else {
+            return (view.entries, [])
+        }
+        lock.lock()
+        defer { lock.unlock() }
+
+        let accountId = context.account.id
+        var entries = self.entries[accountId] ?? [:]
+        let currentIds = Set(view.entries.map { $0.message.id })
+        let missing = (previous?.entries ?? []).filter { $0.message.id.namespace == Namespaces.Message.Cloud && !currentIds.contains($0.message.id) }
+        let ids = missing.map { $0.message.id }
+        let deletedIds = Set(context.engine.messages.synchronouslyIsMessageDeletedInteractively(ids: ids) + context.engine.messages.synchronouslyIsMessageDeletedRemotely(ids: ids))
+        for entry in missing where deletedIds.contains(entry.message.id) {
+            entries[entry.message.id] = entry
+        }
+        self.entries[accountId] = entries
+        let visible = entries.values.filter { entry in
+            guard entry.message.id.peerId == location.peerId, location.threadId == nil || entry.message.threadId == location.threadId else {
+                return false
+            }
+            let afterStart = view.earlierId == nil || view.entries.first.map { entry.index >= $0.index } == true
+            let beforeEnd = view.laterId == nil || view.entries.last.map { entry.index <= $0.index } == true
+            return afterStart && beforeEnd
+        }
+        return ((view.entries + visible.filter { !currentIds.contains($0.message.id) }).sorted(), Set(visible.map { $0.message.id }))
+    }
+}
+
 enum ChatControllerViewState {
     case visible
     case progress
@@ -4016,6 +4051,16 @@ open class ChatController<Context: AccountContextProtocol>: TelegramGenericViewC
         })
 
         let previousHistoryViewUpdateId = Atomic<Int?>(value: nil)
+        let deletedMessages = ChatDeletedMessages.shared
+        let showDeletedMessages = Signal<Bool, NoError> { subscriber in
+            let observer = NotificationCenter.default.addObserver(forName: ChargedGramSettings.didChange, object: nil, queue: nil) { _ in
+                subscriber.putNext(ChargedGramSettings.shared.showDeletedMessages)
+            }
+            subscriber.putNext(ChargedGramSettings.shared.showDeletedMessages)
+            return ActionDisposable {
+                NotificationCenter.default.removeObserver(observer)
+            }
+        } |> distinctUntilChanged
         let historyViewTransition = combineLatest(queue: queue,
                                                   historyViewUpdate,
                                                   appearanceSignal,
@@ -4031,8 +4076,9 @@ open class ChatController<Context: AccountContextProtocol>: TelegramGenericViewC
                                                   reactions,
                                                   historyUiState,
                                                   historyPeerView,
-                                                  recommendedChannels
-    ) |> mapToQueue { update, appearance, maxReadIndex, searchState, animatedEmojiStickers, messageEffects, savedMessageTags, customChannelDiscussionReadState, customThreadOutgoingReadState, updatingMedia, adMessages, reactions, uiState, peerView, recommendedChannels -> Signal<(TableUpdateTransition, MessageHistoryView?, ChatHistoryCombinedInitialData, Bool, ChatHistoryView), NoError> in
+                                                  recommendedChannels,
+                                                  showDeletedMessages
+    ) |> mapToQueue { update, appearance, maxReadIndex, searchState, animatedEmojiStickers, messageEffects, savedMessageTags, customChannelDiscussionReadState, customThreadOutgoingReadState, updatingMedia, adMessages, reactions, uiState, peerView, recommendedChannels, showDeletedMessages -> Signal<(TableUpdateTransition, MessageHistoryView?, ChatHistoryCombinedInitialData, Bool, ChatHistoryView), NoError> in
                                     
             let pollAnswersLoading = uiState.pollAnswers
             let threadLoading = uiState.threadLoading
@@ -4119,7 +4165,8 @@ open class ChatController<Context: AccountContextProtocol>: TelegramGenericViewC
                 if let peerView = peerView as? PeerView, let peer = peerView.peers[peerView.peerId], peer.isRestrictedChannel(context.contentSettings) {
                     proccesedView = ChatHistoryView(originalView: view, filteredEntries: [], theme: chatTheme)
                 } else {
-                    let msgEntries = view.entries
+                    let retained = deletedMessages.update(view, previous: previousView.with { $0?.originalView }, location: chatLocation, context: context, enabled: showDeletedMessages && (mode == .history || mode.isThreadMode))
+                    let msgEntries = retained.entries
                     
                     let topMessages: [Message]?
                     switch chatLocation {
@@ -4156,7 +4203,7 @@ open class ChatController<Context: AccountContextProtocol>: TelegramGenericViewC
                         includeJoin = false
                     }
                     
-                    let entries = messageEntries(msgEntries, location: chatLocation, maxReadIndex: view.isAnchorOnlyWhileLoading ? nil : maxReadIndex, dayGrouping: customChatContents == nil, renderType: chatTheme.bubbled ? .bubble : .list, includeBottom: true, timeDifference: timeDifference, ranks: ranks, pollAnswersLoading: pollAnswersLoading, threadLoading: threadLoading, groupingPhotos: true, autoplayMedia: initialData.autoplayMedia, searchState: searchState, animatedEmojiStickers: bigEmojiEnabled ? animatedEmojiStickers : [:], topFixedMessages: topMessages, customChannelDiscussionReadState: customChannelDiscussionReadState, customThreadOutgoingReadState: customThreadOutgoingReadState, addRepliesHeader: peerId == repliesPeerId && view.earlierId == nil, addWelcomeMessagesHeader: customChatContents?.kind == .welcomeMessages, updatingMedia: updatingMedia, adMessage: ads.fixed, dynamicAdMessages: ads.opportunistic, chatTheme: chatTheme, reactions: reactions, transribeState: uiState.transribe, topicCreatorId: uiState.topicCreatorId, mediaRevealed: uiState.mediaRevealed, translate: uiState.translate, storyState: uiState.storyState, peerStoryStats: view.peerStoryStats, cachedData: peerView?.cachedData, peer: peer, holeLater: view.holeLater, holeEarlier: view.holeEarlier, recommendedChannels: recommendedChannels, includeJoin: includeJoin, earlierId: view.earlierId, laterId: view.laterId, automaticDownload: initialData.autodownloadSettings, savedMessageTags: savedMessageTags, contentSettings: context.contentSettings, codeSyntaxData: uiState.codeSyntaxes, messageEffects: messageEffects, factCheckRevealed: uiState.factCheck, solutionRevealed: uiState.solutionRevealed, quoteRevealed: uiState.quoteRevealed, detailsExpanded: uiState.detailsExpanded, peerStatus: uiState.peerStatus, commonGroups: uiState.commonGroups, monoforumState: uiState.monoforumState, accountPeerId: context.peerId, contentConfig: context.contentConfig, walletFiatRate: uiState.walletFiatRate).map { ChatWrappedEntry(appearance: AppearanceWrapperEntry(entry: $0, appearance: appearance), tag: view.tag) }
+                    let entries = messageEntries(msgEntries, location: chatLocation, maxReadIndex: view.isAnchorOnlyWhileLoading ? nil : maxReadIndex, dayGrouping: customChatContents == nil, renderType: chatTheme.bubbled ? .bubble : .list, includeBottom: true, timeDifference: timeDifference, ranks: ranks, pollAnswersLoading: pollAnswersLoading, threadLoading: threadLoading, groupingPhotos: true, autoplayMedia: initialData.autoplayMedia, searchState: searchState, animatedEmojiStickers: bigEmojiEnabled ? animatedEmojiStickers : [:], topFixedMessages: topMessages, customChannelDiscussionReadState: customChannelDiscussionReadState, customThreadOutgoingReadState: customThreadOutgoingReadState, addRepliesHeader: peerId == repliesPeerId && view.earlierId == nil, addWelcomeMessagesHeader: customChatContents?.kind == .welcomeMessages, updatingMedia: updatingMedia, adMessage: ads.fixed, dynamicAdMessages: ads.opportunistic, chatTheme: chatTheme, reactions: reactions, transribeState: uiState.transribe, topicCreatorId: uiState.topicCreatorId, mediaRevealed: uiState.mediaRevealed, translate: uiState.translate, storyState: uiState.storyState, peerStoryStats: view.peerStoryStats, cachedData: peerView?.cachedData, peer: peer, holeLater: view.holeLater, holeEarlier: view.holeEarlier, recommendedChannels: recommendedChannels, includeJoin: includeJoin, earlierId: view.earlierId, laterId: view.laterId, automaticDownload: initialData.autodownloadSettings, savedMessageTags: savedMessageTags, contentSettings: context.contentSettings, codeSyntaxData: uiState.codeSyntaxes, messageEffects: messageEffects, factCheckRevealed: uiState.factCheck, solutionRevealed: uiState.solutionRevealed, quoteRevealed: uiState.quoteRevealed, detailsExpanded: uiState.detailsExpanded, peerStatus: uiState.peerStatus, commonGroups: uiState.commonGroups, monoforumState: uiState.monoforumState, accountPeerId: context.peerId, contentConfig: context.contentConfig, walletFiatRate: uiState.walletFiatRate, deletedMessageIds: retained.deletedIds).map { ChatWrappedEntry(appearance: AppearanceWrapperEntry(entry: $0, appearance: appearance), tag: view.tag) }
                     proccesedView = ChatHistoryView(originalView: view, filteredEntries: entries, theme: chatTheme)
                 }
             } else {

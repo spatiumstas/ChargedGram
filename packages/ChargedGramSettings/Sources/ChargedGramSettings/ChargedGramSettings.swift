@@ -37,6 +37,16 @@ public final class ChargedGramSettings {
         set { set(newValue, forKey: "chargedGram.hideContactsTab") }
     }
 
+    public var showDeletedMessages: Bool {
+        get { defaults.bool(forKey: "chargedGram.showDeletedMessages") }
+        set { set(newValue, forKey: "chargedGram.showDeletedMessages") }
+    }
+
+    public var reactionsOnHover: Bool {
+        get { defaults.bool(forKey: "chargedGram.reactionsOnHover") }
+        set { set(newValue, forKey: "chargedGram.reactionsOnHover") }
+    }
+
     private func set(_ value: Bool, forKey key: String) {
         guard defaults.bool(forKey: key) != value else { return }
         defaults.set(value, forKey: key)

@@ -18,6 +18,8 @@ private struct State: Equatable {
     var confirmCalls: Bool
     var hidePhoneNumbers: Bool
     var hideContactsTab: Bool
+    var showDeletedMessages: Bool
+    var reactionsOnHover: Bool
 }
 
 private func entries(_ state: State, language: TelegramLocalization, arguments: Arguments) -> [InputDataEntry] {
@@ -28,13 +30,17 @@ private func entries(_ state: State, language: TelegramLocalization, arguments: 
         ("KeepChatsUnread", state.keepChatsUnread, { arguments.toggle(\.keepChatsUnread) }),
         ("ConfirmCalls", state.confirmCalls, { arguments.toggle(\.confirmCalls) }),
         ("HidePhoneNumbers", state.hidePhoneNumbers, { arguments.toggle(\.hidePhoneNumbers) }),
-        ("HideContactsTab", state.hideContactsTab, { arguments.toggle(\.hideContactsTab) })
+        ("HideContactsTab", state.hideContactsTab, { arguments.toggle(\.hideContactsTab) }),
+        ("ShowDeletedMessages", state.showDeletedMessages, { arguments.toggle(\.showDeletedMessages) }),
+        ("ReactionsOnHover", state.reactionsOnHover, { arguments.toggle(\.reactionsOnHover) })
     ]
     var result: [InputDataEntry] = [.sectionId(0, type: .normal)]
     for (index, row) in rows.enumerated() {
         let sectionId = Int32(index + 1)
         result.append(.general(sectionId: sectionId, index: Int32(index * 2), value: .none, error: nil, identifier: InputDataIdentifier("chargedGram_" + row.0), data: .init(name: text(row.0), color: theme.colors.text, type: .switchable(row.1), viewType: .singleItem, action: row.2)))
-        result.append(.desc(sectionId: sectionId, index: Int32(index * 2 + 1), text: .plain(text(row.0 + "Info")), data: .init(color: theme.colors.listGrayText, viewType: .textBottomItem)))
+        if row.0 == "ConfirmCalls" || row.0 == "HidePhoneNumbers" {
+            result.append(.desc(sectionId: sectionId, index: Int32(index * 2 + 1), text: .plain(text(row.0 + "Info")), data: .init(color: theme.colors.listGrayText, viewType: .textBottomItem)))
+        }
         result.append(.sectionId(sectionId, type: .normal))
     }
     return result
@@ -43,7 +49,7 @@ private func entries(_ state: State, language: TelegramLocalization, arguments: 
 func ChargedGramSettingsController() -> InputDataController {
     let settings = ChargedGramSettings.shared
     func state() -> State {
-        return State(keepChatsUnread: settings.keepChatsUnread, confirmCalls: settings.confirmCalls, hidePhoneNumbers: settings.hidePhoneNumbers, hideContactsTab: settings.hideContactsTab)
+        return State(keepChatsUnread: settings.keepChatsUnread, confirmCalls: settings.confirmCalls, hidePhoneNumbers: settings.hidePhoneNumbers, hideContactsTab: settings.hideContactsTab, showDeletedMessages: settings.showDeletedMessages, reactionsOnHover: settings.reactionsOnHover)
     }
     let arguments = Arguments(toggle: { key in
         settings[keyPath: key].toggle()

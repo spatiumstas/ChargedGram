@@ -275,7 +275,9 @@ private final class DockIconView : Control {
         
         if progress == nil {
             let signal: Signal<CGImage?, NoError> = Signal { subscriber in
-                let image = createNSImage(fromIcnsFile: context.account.postbox.mediaBox.resourcePath(item.icon.file.resource), withSize: NSMakeSize(60, 60))?._cgImage
+                let image = item.icon.file.fileName == TelegramApplicationIcons.Icon.defaultIconName
+                    ? NSImage(named: "ChargedGramAppIcon")?._cgImage
+                    : createNSImage(fromIcnsFile: context.account.postbox.mediaBox.resourcePath(item.icon.file.resource), withSize: NSMakeSize(60, 60))?._cgImage
                 subscriber.putNext(image)
                 subscriber.putCompletion()
                 return EmptyDisposable
