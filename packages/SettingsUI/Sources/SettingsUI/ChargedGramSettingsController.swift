@@ -17,6 +17,7 @@ private struct State: Equatable {
     var keepChatsUnread: Bool
     var confirmCalls: Bool
     var hidePhoneNumbers: Bool
+    var hideContactsTab: Bool
 }
 
 private func entries(_ state: State, language: TelegramLocalization, arguments: Arguments) -> [InputDataEntry] {
@@ -26,7 +27,8 @@ private func entries(_ state: State, language: TelegramLocalization, arguments: 
     let rows: [(String, Bool, () -> Void)] = [
         ("KeepChatsUnread", state.keepChatsUnread, { arguments.toggle(\.keepChatsUnread) }),
         ("ConfirmCalls", state.confirmCalls, { arguments.toggle(\.confirmCalls) }),
-        ("HidePhoneNumbers", state.hidePhoneNumbers, { arguments.toggle(\.hidePhoneNumbers) })
+        ("HidePhoneNumbers", state.hidePhoneNumbers, { arguments.toggle(\.hidePhoneNumbers) }),
+        ("HideContactsTab", state.hideContactsTab, { arguments.toggle(\.hideContactsTab) })
     ]
     var result: [InputDataEntry] = [.sectionId(0, type: .normal)]
     for (index, row) in rows.enumerated() {
@@ -41,7 +43,7 @@ private func entries(_ state: State, language: TelegramLocalization, arguments: 
 func ChargedGramSettingsController() -> InputDataController {
     let settings = ChargedGramSettings.shared
     func state() -> State {
-        return State(keepChatsUnread: settings.keepChatsUnread, confirmCalls: settings.confirmCalls, hidePhoneNumbers: settings.hidePhoneNumbers)
+        return State(keepChatsUnread: settings.keepChatsUnread, confirmCalls: settings.confirmCalls, hidePhoneNumbers: settings.hidePhoneNumbers, hideContactsTab: settings.hideContactsTab)
     }
     let arguments = Arguments(toggle: { key in
         settings[keyPath: key].toggle()

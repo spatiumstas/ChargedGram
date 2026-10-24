@@ -4,6 +4,8 @@
 "ConfirmCallsInfo" = "Ask for confirmation before starting a voice or video call.";
 "HidePhoneNumbers" = "Hide Phone Numbers";
 "HidePhoneNumbersInfo" = "Cover phone numbers in all profiles and your account header with a spoiler. Click a hidden number to reveal it.";
+"HideContactsTab" = "Hide Contacts Button";
+"HideContactsTabInfo" = "Hide the Contacts button in the tabbar.";
 "ConfirmCallTitle" = "Start Call?";
 "ConfirmVoiceCall" = "Call %@?";
 "ConfirmVideoCall" = "Start a video call with %@?";

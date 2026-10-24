@@ -1,4 +1,5 @@
 import Cocoa
+import ChargedGramSettings
 import TGUIKit
 import TelegramCore
 import InAppSettings
@@ -494,7 +495,9 @@ class MainViewController: TelegramGenericViewController<MainController_View> {
             self.layoutConnectingStatusView()
         }))
                 
-        tabController.add(tab: TabAnimatedItem(.tab_contacts, image: theme.icons.tab_contacts, selectedImage: theme.icons.tab_contacts_active, controller: contacts))
+        if showContactsTab {
+            tabController.add(tab: TabAnimatedItem(.tab_contacts, image: theme.icons.tab_contacts, selectedImage: theme.icons.tab_contacts_active, controller: contacts))
+        }
         
         tabController.add(tab: TabAnimatedItem(.tab_calls, image: theme.icons.tab_calls, selectedImage: theme.icons.tab_calls_active, controller: phoneCalls))
         
@@ -537,10 +540,13 @@ class MainViewController: TelegramGenericViewController<MainController_View> {
     }
 
     private func showCallsTab() {
-        tabController.insert(tab: TabAnimatedItem(.tab_calls, image: theme.icons.tab_calls, selectedImage: theme.icons.tab_calls_active, controller: phoneCalls), at: 1)
+        tabController.insert(tab: TabAnimatedItem(.tab_calls, image: theme.icons.tab_calls, selectedImage: theme.icons.tab_calls_active, controller: phoneCalls), at: callsIndex)
     }
     private func hideCallsTab() {
-        tabController.remove(at: 1)
+        if tabController.current === phoneCalls || tabController.current == nil {
+            tabController.select(index: chatIndex)
+        }
+        tabController.remove(at: callsIndex)
     }
     
     override var removeAfterDisapper: Bool {
@@ -548,22 +554,45 @@ class MainViewController: TelegramGenericViewController<MainController_View> {
     }
     
     private var showCallTabs: Bool = true
+    private var showContactsTab: Bool = !ChargedGramSettings.shared.hideContactsTab
     
     override func viewDidLoad() {
         super.viewDidLoad()
                 
         tabController.navigationController = navigation
                 
-        prefDisposable.set((baseAppSettings(accountManager: context.sharedContext.accountManager) |> deliverOnMainQueue).start(next: { [weak self] settings in
+        let showContacts = Signal<Bool, NoError> { subscriber in
+            let observer = NotificationCenter.default.addObserver(forName: ChargedGramSettings.didChange, object: nil, queue: nil) { _ in
+                subscriber.putNext(!ChargedGramSettings.shared.hideContactsTab)
+            }
+            subscriber.putNext(!ChargedGramSettings.shared.hideContactsTab)
+            return ActionDisposable {
+                NotificationCenter.default.removeObserver(observer)
+            }
+        } |> distinctUntilChanged
+        prefDisposable.set((combineLatest(baseAppSettings(accountManager: context.sharedContext.accountManager), showContacts) |> deliverOnMainQueue).start(next: { [weak self] settings, showContacts in
             guard let `self` = self else {return}
+            guard showContacts != self.showContactsTab || settings.showCallsTab != self.showCallTabs else {return}
+            if showContacts != self.showContactsTab {
+                if showContacts {
+                    self.tabController.insert(tab: TabAnimatedItem(.tab_contacts, image: theme.icons.tab_contacts, selectedImage: theme.icons.tab_contacts_active, controller: self.contacts), at: 0)
+                } else {
+                    if self.tabController.current === self.contacts || self.tabController.current == nil {
+                        self.tabController.select(index: self.chatIndex)
+                    }
+                    self.tabController.remove(at: 0)
+                }
+                self.showContactsTab = showContacts
+            }
             if settings.showCallsTab != self.showCallTabs {
-                self.showCallTabs = settings.showCallsTab
-                if self.showCallTabs {
+                if settings.showCallsTab {
                     self.showCallsTab()
                 } else {
                     self.hideCallsTab()
                 }
+                self.showCallTabs = settings.showCallsTab
             }
+            self.previousIndex = (0..<self.tabController.count).first { self.tabController.tab(at: $0).controller === self.tabController.current }
         }))
 
     }
@@ -719,8 +748,10 @@ class MainViewController: TelegramGenericViewController<MainController_View> {
     private func updateTabsIfNeeded() {
         if !tabController.isEmpty && (previousTheme?.colors != theme.colors ||  previousIconColor != theme.colors.accentIcon) {
             var index: Int = 0
-            tabController.replace(tab: tabController.tab(at: index).withUpdatedImages(theme.icons.tab_contacts, theme.icons.tab_contacts_active), at: index)
-            index += 1
+            if showContactsTab {
+                tabController.replace(tab: tabController.tab(at: index).withUpdatedImages(theme.icons.tab_contacts, theme.icons.tab_contacts_active), at: index)
+                index += 1
+            }
             if showCallTabs {
                 tabController.replace(tab: tabController.tab(at: index).withUpdatedImages(theme.icons.tab_calls, theme.icons.tab_calls_active), at: index)
                 index += 1
@@ -877,12 +908,12 @@ class MainViewController: TelegramGenericViewController<MainController_View> {
         super.didRemovedFromStack()
     }
     
+    private var callsIndex: Int {
+        return showContactsTab ? 1 : 0
+    }
+
     var chatIndex: Int {
-        if showCallTabs {
-            return 2
-        } else {
-            return 1
-        }
+        return callsIndex + (showCallTabs ? 1 : 0)
     }
     
     var settingsIndex: Int {
@@ -917,7 +948,7 @@ class MainViewController: TelegramGenericViewController<MainController_View> {
                 if self.context.layout == .single {
                     self.navigationController?.close()
                 }
-                self.tabController.select(index: 1)
+                self.tabController.select(index: callsIndex)
             }
         }
     }

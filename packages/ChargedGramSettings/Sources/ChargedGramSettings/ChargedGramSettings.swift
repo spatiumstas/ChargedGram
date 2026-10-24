@@ -32,6 +32,11 @@ public final class ChargedGramSettings {
         set { set(newValue, forKey: "chargedGram.hidePhoneNumbers") }
     }
 
+    public var hideContactsTab: Bool {
+        get { defaults.bool(forKey: "chargedGram.hideContactsTab") }
+        set { set(newValue, forKey: "chargedGram.hideContactsTab") }
+    }
+
     private func set(_ value: Bool, forKey key: String) {
         guard defaults.bool(forKey: key) != value else { return }
         defaults.set(value, forKey: key)
