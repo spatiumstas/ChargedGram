@@ -50,6 +50,7 @@ jobs:
         run: |
           cp .build/releases/*/ChargedGram-macos-universal.zip \
             .build/releases/*/ChargedGram-macos-universal.zip.sha256 \
+            .build/releases/*/appcast.xml \
             .build/releases/*/ChargedGram-macos-universal.dSYM.zip \
             "$RUNNER_TEMP/"
       - uses: actions/upload-artifact@v7
@@ -58,6 +59,7 @@ jobs:
           path: |
             ${{ runner.temp }}/ChargedGram-macos-universal.zip
             ${{ runner.temp }}/ChargedGram-macos-universal.zip.sha256
+            ${{ runner.temp }}/appcast.xml
           if-no-files-found: error
           retention-days: 1
       - uses: actions/upload-artifact@v7

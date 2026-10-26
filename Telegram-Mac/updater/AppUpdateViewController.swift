@@ -8,7 +8,6 @@ import Postbox
 import SwiftSignalKit
 import Sparkle
 import CrashRecoveryUI
-import ApiCredentials
 
 
 
@@ -32,22 +31,8 @@ final class TelegramUpdater : NSObject, SUUpdaterPrivate {
 }
 
 extension SUAppcastItem {
-    var updateText: String {
-        var updateText = (itemDescription.html2Attributed?.string ?? itemDescription).replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression, range: nil)
-        while let range = updateText.range(of: "   ") {
-            updateText = updateText.replacingOccurrences(of: "   ", with: "  ", options: [], range: range)
-        }
-        updateText = updateText.replacingOccurrences(of: "•", with: "\n•", options: [], range: nil)
-        
-        if updateText.first == "\n" {
-            updateText.removeFirst()
-        }
-        updateText = updateText.replacingOccurrences(of: "\t", with: "  ", options: [], range: nil)
-        return updateText
-    }
-    
     var versionTitle: String {
-        return "Version \(self.displayVersionString!) (\(self.versionString!))"
+        return "ChargedGram \(self.displayVersionString!) (\(self.versionString!))"
     }
 }
 
@@ -93,10 +78,7 @@ func updateApplication(sharedContext: SharedAccountContext) {
     switch state {
     case let .readyToInstall(item):
         cancelStagedUpdate()
-        var text: String = "Telegram was updated to \(item.versionTitle.lowercased())"
-        text += "\n\n"
-        
-        text += item.updateText
+        let text: String = "\(item.versionTitle) was installed"
         
         
         _ = (sharedContext.activeAccountsWithInfo |> take(1) |> mapToSignal { _, accounts -> Signal<Never, NoError> in
@@ -128,23 +110,6 @@ struct AppUpdateState : Equatable {
     }
     func withUpdatedLoadingState(_ loadingState: AppUpdateLoadingState) -> AppUpdateState {
         return AppUpdateState(items: self.items, loadingState: loadingState)
-    }
-}
-
-extension String{
-    var html2Attributed: NSAttributedString? {
-        do {
-            guard let data = data(using: String.Encoding.utf8) else {
-                return nil
-            }
-            return try NSAttributedString(data: data,
-                                          options: [.documentType: NSAttributedString.DocumentType.html,
-                                                    .characterEncoding: String.Encoding.utf8.rawValue],
-                                          documentAttributes: nil)
-        } catch {
-            print("error: ", error)
-            return nil
-        }
     }
 }
 
@@ -219,7 +184,7 @@ private func appUpdateEntries(state: AppUpdateState) -> [InputDataEntry] {
         entries.append(.sectionId(sectionId, type: .normal))
         sectionId += 1
     
-        let text = "**" + item.versionTitle + "**" + "\n" + item.updateText
+        let text = "**" + item.versionTitle + "**"
         entries.append(InputDataEntry.custom(sectionId: sectionId, index: index, value: .none, identifier: InputDataIdentifier(item.fileURL.path), equatable: nil, comparable: nil, item: { initialSize, stableId in
             return GeneralTextRowItem(initialSize, stableId: stableId, text: text, textColor: theme.colors.listGrayText, fontSize: 13, isTextSelectable: true, viewType: .textTopItem)
         }))
@@ -582,13 +547,9 @@ private class ExternalUpdateDriver : SUBasicUpdateDriver {
 
 private let disposable = MetaDisposable()
 
-func setAppUpdaterBaseDomain(_ domain: String?) {
-    updater.domain = domain
-    if let domain = domain {
-        updater.host = URL(string: domain)?.host
-    } else {
-        updater.host = nil
-    }
+func setAppUpdaterBaseDomain(_ _: String?) {
+    updater.domain = nil
+    updater.host = nil
 }
 
 
@@ -767,8 +728,9 @@ private func resetUpdater() {
 
 private var updaterSource: UpdaterSource? = nil
 
-func updater_resetWithUpdaterSource(_ source: UpdaterSource, force: Bool = true) {
-    guard !ApiEnvironment.isLocalBuild, updateFeedURL != nil else { return }
+func updater_resetWithUpdaterSource(_ _: UpdaterSource, force: Bool = true) {
+    guard updateFeedURL != nil else { return }
+    let source: UpdaterSource = .external(context: nil)
     let state = stateValue.with { $0 }
     switch state.loadingState {
     case .readyToInstall:

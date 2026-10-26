@@ -222,12 +222,12 @@ under `.build/releases/`.
 In GitHub Actions, configure `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `APP_BUNDLE_ID`,
 `SIGNING_CERTIFICATE_BASE64` and `SIGNING_CERTIFICATE_PASSWORD` as repository secrets.
 The certificate secret is your exported `.p12` encoded in Base64. The import step
-sets `RELEASE_SIGNING_IDENTITY` automatically. The workflow uploads the app ZIP and
-checksum together, with debug symbols in a separate artifact.
+sets `RELEASE_SIGNING_IDENTITY` automatically. The workflow uploads the app ZIP,
+checksum and `appcast.xml` together, with debug symbols in a separate artifact.
 
 The app keeps the configured Bundle ID without a `.local` suffix and stores data in
-`~/Library/Application Support/<APP_BUNDLE_ID>/local`. Share Extension and automatic
-updates are excluded. The app is not notarized; downloaded builds may require users
+`~/Library/Application Support/<APP_BUNDLE_ID>/local`. Share Extension is excluded.
+The app is not notarized; downloaded builds may require users
 to allow the first launch in System Settings → Privacy & Security → Open Anyway.
 
 ## Build configurations and release channels

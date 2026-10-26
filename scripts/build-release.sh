@@ -82,7 +82,7 @@ with info_path.open("rb") as stream:
 info["CFBundleName"] = "ChargedGram"
 info["CFBundleDisplayName"] = "ChargedGram"
 info["TelegramLocalBuild"] = True
-info.pop("SUFeedURL", None)
+info["SUFeedURL"] = "https://github.com/spatiumstas/ChargedGram/releases/latest/download/appcast.xml"
 with info_path.open("wb") as stream:
     plistlib.dump(info, stream)
 
@@ -108,6 +108,10 @@ ditto -c -k --sequesterRsrc --keepParent "$RELEASE_APP" "$OUTPUT_DIR/$ARCHIVE_NA
 ditto -c -k --sequesterRsrc --keepParent "$SOURCE_APP.dSYM" "$OUTPUT_DIR/$ARCHIVE_NAME.dSYM.zip"
 cd "$OUTPUT_DIR"
 shasum -a 256 "$ARCHIVE_NAME.zip" > "$ARCHIVE_NAME.zip.sha256"
+if [ "$BUILD_VARIANT" = "universal" ]; then
+    python3 "$ROOT_DIR/scripts/generate-appcast.py" "$OUTPUT_DIR/$ARCHIVE_NAME.zip"
+    echo "Update feed: $OUTPUT_DIR/appcast.xml"
+fi
 echo "Release app: $RELEASE_APP"
 echo "Publish: $OUTPUT_DIR/$ARCHIVE_NAME.zip"
 echo "Checksum: $OUTPUT_DIR/$ARCHIVE_NAME.zip.sha256"
