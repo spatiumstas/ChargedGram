@@ -110,8 +110,8 @@ fi
 #    github.com/gitlab.com, or HTTPS rewrites configured for those hosts.
 # ---------------------------------------------------------------------------
 log "Initialising git submodules (recursive)"
-git -C "$REPO_DIR" submodule sync --recursive
-if ! git -c url.https://github.com/.insteadOf=git@github.com: -C "$REPO_DIR" submodule update --init --recursive; then
+git -C "$REPO_DIR" submodule sync --recursive -- submodules
+if ! git -c url.https://github.com/.insteadOf=git@github.com: -C "$REPO_DIR" submodule update --init --recursive -- submodules; then
   warn "Submodule init failed. Check the failing repository URL, access and pinned commit above."
   die "Submodule initialisation failed; fix repository access and re-run this script."
 fi

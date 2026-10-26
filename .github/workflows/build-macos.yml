@@ -26,11 +26,6 @@ jobs:
           APP_BUNDLE_ID: ${{ secrets.APP_BUNDLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: python3 scripts/configure-fork.py
-      - name: Import signing certificate
-        env:
-          SIGNING_CERTIFICATE_BASE64: ${{ secrets.SIGNING_CERTIFICATE_BASE64 }}
-          SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.SIGNING_CERTIFICATE_PASSWORD }}
-        run: python3 scripts/import-signing-certificate.py
       - name: Select Xcode
         run: |
           sudo xcode-select -s "$DEVELOPER_DIR"
@@ -44,6 +39,11 @@ jobs:
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - name: Prepare dependencies and native libraries
         run: bash scripts/setup_build_env.sh --build
+      - name: Import signing certificate
+        env:
+          SIGNING_CERTIFICATE_BASE64: ${{ secrets.SIGNING_CERTIFICATE_BASE64 }}
+          SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.SIGNING_CERTIFICATE_PASSWORD }}
+        run: python3 scripts/import-signing-certificate.py
       - name: Build and sign release app
         run: bash scripts/build-release.sh
       - name: Collect release archives
