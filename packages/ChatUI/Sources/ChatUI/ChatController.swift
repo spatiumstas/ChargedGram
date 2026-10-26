@@ -558,7 +558,7 @@ public class ChatControllerView : View, ChatInputDelegate {
             case let .thread(data):
                 location = .peer(peerId: data.peerId, fromId: fromId, tags: nil, reactions: tags.map { $0.tag.reaction }, threadId: data.threadId, minDate: nil, maxDate: nil)
             }
-            return context.engine.messages.searchMessages(location: location, query: query, state: state) |> map {($0.0.messages.filter({ !($0.extendedMedia is TelegramMediaAction) }), $0.1)}
+            return context.engine.messages.searchMessages(location: location, query: query, state: state) |> map {($0.0.messages.filter({ !($0.extendedMedia is TelegramMediaAction) }), $0.1, $0.0.totalCount)}
         })
         
         
@@ -2493,6 +2493,7 @@ open class ChatController<Context: AccountContextProtocol>: TelegramGenericViewC
     private let replyMessageDisposable = MetaDisposable()
     private let deleteChatDisposable: MetaDisposable = MetaDisposable()
     private let loadSelectionMessagesDisposable: MetaDisposable = MetaDisposable()
+    private var currentRanks: CachedChannelAdminRanks?
     private let updateMediaDisposable = MetaDisposable()
     private let editCurrentMessagePhotoDisposable = MetaDisposable()
     private var editingSessionId: Int = 0
@@ -4153,6 +4154,7 @@ open class ChatController<Context: AccountContextProtocol>: TelegramGenericViewC
                     if case let .cacheEntry(id, data) = additionalEntry {
                         if id == cachedChannelAdminRanksEntryId(peerId: peerId), let data = data?.get(CachedChannelAdminRanks.self)  {
                             ranks = data
+                            self.currentRanks = data
                         }
                         break
                     }
@@ -5407,7 +5409,7 @@ open class ChatController<Context: AccountContextProtocol>: TelegramGenericViewC
                         _ = peer.id
                         var _mustDeleteForEveryoneMessage: Bool = true
                         for message in messages {
-                            if !canDeleteMessage(message, account: context.account, chatLocation: chatLocation(), mode: mode) {
+                            if !canDeleteMessage(message, account: context.account, chatLocation: chatLocation(), mode: mode, ranks: strongSelf.currentRanks) {
                                 canDelete = false
                             }
                             if !mustDeleteForEveryoneMessage(message) {
@@ -6170,12 +6172,12 @@ open class ChatController<Context: AccountContextProtocol>: TelegramGenericViewC
             }
         }
         
-        chatInteraction.runReactionEffect = { [weak self] value, messageId in
+        chatInteraction.runReactionEffect = { [weak self] value, messageId, isLarge in
             guard let strongSelf = self else {
                 return
             }
             if strongSelf.isOnScreen {
-                strongSelf.emojiEffects.addReactionAnimation(value, index: nil, messageId: messageId, animationSize: NSMakeSize(80, 80), viewFrame: context.window.bounds, for: context.window.contentView!)
+                strongSelf.emojiEffects.addReactionAnimation(value, index: nil, messageId: messageId, animationSize: NSMakeSize(80, 80), isLarge: isLarge, viewFrame: context.window.bounds, for: context.window.contentView!)
             }
         }
         
@@ -6944,11 +6946,12 @@ open class ChatController<Context: AccountContextProtocol>: TelegramGenericViewC
             if let strongSelf = self, let peer = strongSelf.chatInteraction.peer, peer.canSendMessage(strongSelf.mode.isThreadMode, threadData: strongSelf.chatInteraction.presentation.threadInfo, cachedData: strongSelf.chatInteraction.presentation.cachedData) {
                 func apply(_ controller: ChatController, atDate: Date?, repeatPeriod: Int32?) {
                     var commandText = "/" + command.command.text
-                    if controller.chatInteraction.peerId.namespace != Namespaces.Peer.CloudUser {
-                        commandText += "@" + (command.peer.addressName ?? "")
+                    if controller.chatInteraction.peerId.namespace != Namespaces.Peer.CloudUser, let addressName = command.peer.addressName, !addressName.isEmpty {
+                        commandText += "@" + addressName
                     }
                     let destinationPeerId = makePeerId()
-                    _ = Sender.enqueue(input: ChatTextInputState(inputText: commandText), context: context, peerId: destinationPeerId, replyId: takeReplyId(), threadId: threadId64(), atDate: atDate, repeatPeriod: repeatPeriod, customChatContents: customChatContents, sendPaidMessageStars: takePaidMessageStars()).start(completed: scrollAfterSend)
+                    let ephemeralBotPeerId = command.command.isEphemeral ? command.peer.id : nil
+                    _ = Sender.enqueue(input: ChatTextInputState(inputText: commandText), context: context, peerId: destinationPeerId, replyId: takeReplyId(), threadId: threadId64(), atDate: atDate, repeatPeriod: repeatPeriod, customChatContents: customChatContents, sendPaidMessageStars: takePaidMessageStars(), ephemeralBotPeerId: ephemeralBotPeerId).start(completed: scrollAfterSend)
                     controller.chatInteraction.updateInput(with: "")
                     controller.nextTransaction.set(handler: afterSentTransition)
                 }
@@ -7027,6 +7030,11 @@ open class ChatController<Context: AccountContextProtocol>: TelegramGenericViewC
                             if updated.count < urls.count {
                             }
                             let preview = ChatUIHooks.shared.makePreviewSender(updated, self.chatInteraction, asMedia, attributedString)
+                            _ = ChatUIHooks.shared.bindPreviewSendValidation(preview, { [weak self] in
+                                guard let self else { return false }
+                                guard let navigation = self.navigationController else { return true }
+                                return navigation.controller === self
+                            })
                             showModal(with: preview, for: context.window, morphSource: { [weak self] in self?.genericView.inputView.attachView })
                         }
                     } else {
@@ -11244,7 +11252,11 @@ open class ChatController<Context: AccountContextProtocol>: TelegramGenericViewC
         updateBubblesBackButton()
 
         DispatchQueue.main.async { [weak self] in
-            self?.applyCaptureExclusionIfNeeded()
+            guard let self else { return }
+            self.applyCaptureExclusionIfNeeded()
+            if self.genericView.window === self.context.window, self.navigationController?.controller === self, !hasModals(self.context.window) {
+                _ = self.context.window.makeFirstResponder(self.firstResponder())
+            }
         }
 
         let context = self.context
@@ -11454,7 +11466,7 @@ open class ChatController<Context: AccountContextProtocol>: TelegramGenericViewC
                         var canForward:Bool = !messages.isEmpty && !context.isFrozen
                         if let chatInteraction = self?.chatInteraction {
                             for message in messages {
-                                if !canDeleteMessage(message, account: context.account, chatLocation: value.chatLocation, mode: mode) {
+                                if !canDeleteMessage(message, account: context.account, chatLocation: value.chatLocation, mode: mode, ranks: self?.currentRanks) {
                                     canDelete = false
                                 }
                                 if !canForwardMessage(message, chatInteraction: chatInteraction) {

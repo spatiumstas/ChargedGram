@@ -770,7 +770,7 @@ struct ChatSearchInteractions {
     let results:(String)->Void
     let calendarAction:(Date)->Void
     let cancel:()->Void
-    let searchRequest:(String, PeerId?, SearchMessagesState?, [EmojiTag]) -> Signal<([Message], SearchMessagesState?), NoError>
+    let searchRequest:(String, PeerId?, SearchMessagesState?, [EmojiTag]) -> Signal<([Message], SearchMessagesState?, Int32), NoError>
 }
 
 private class ChatSponsoredModel: ChatAccessoryModel {
@@ -2670,8 +2670,9 @@ private final class ChatTranslateHeader : Control, ChatHeaderProtocol {
             }
         })
         
+        let languageCode = Translate.normalizeLanguageCode(appAppearance.languageCode)
         let codeIndex = codes.firstIndex(where: {
-            $0.code.contains(appAppearance.languageCode)
+            $0.code.contains(languageCode)
         })
         if let codeIndex = codeIndex {
             codes.move(at: codeIndex, to: 0)

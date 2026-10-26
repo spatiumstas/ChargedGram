@@ -185,7 +185,7 @@ It prints the temporary directory containing its build logs.
 ### Signing
 
 The project is set up for the Telegram team (`6N38VWS5BX`) with bundle identifier
-`uz.keepcoder.Telegram`, an app group `6N38VWS5BX.uz.keepcoder.Telegram` shared with the
+`ru.keepcoder.Telegram`, an app group `6N38VWS5BX.ru.keepcoder.Telegram` shared with the
 extensions, and iCloud/keychain entitlements tied to that identifier. Building for your
 own team means changing the identifier and team everywhere (see "Forking" below) or
 switching the targets to a personal team with automatic signing and removing the
@@ -374,7 +374,7 @@ cd packages/TGUIKit && swift build
    `apiId` is rate-limited and must not be used for anything but verifying binaries.
 3. Put your `apiId`, `apiHash`, `bundleId` and `teamId` into
    `packages/ApiCredentials/Sources/ApiCredentials/Config.swift`.
-4. Search the project for `uz.keepcoder.Telegram` and `6N38VWS5BX` and replace them with
+4. Search the project for `ru.keepcoder.Telegram` and `6N38VWS5BX` and replace them with
    your bundle identifier and team (project settings, entitlements, app group).
 5. Replace or remove `SFEED_URL`, `DSA_PEM_FILE` and `APPCENTER_SECRET` in the xcconfig
    files. They point at Telegram's Sparkle update feeds and AppCenter crash collection.

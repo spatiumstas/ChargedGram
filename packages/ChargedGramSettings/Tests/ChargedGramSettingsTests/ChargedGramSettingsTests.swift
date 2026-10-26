@@ -90,7 +90,7 @@ final class ChargedGramSettingsTests: XCTestCase {
     }
 
     func testTranslationsAndLanguageFallback() {
-        let keys = ["KeepChatsUnread", "KeepChatsUnreadInfo", "ConfirmCalls", "ConfirmCallsInfo", "HidePhoneNumbers", "HidePhoneNumbersInfo", "ConfirmCallTitle", "ConfirmVoiceCall", "ConfirmVideoCall", "Call"]
+        let keys = ["KeepChatsUnread", "ConfirmCalls", "ConfirmCallsInfo", "HidePhoneNumbers", "HidePhoneNumbersInfo", "HideContactsTab", "ShowDeletedMessages", "ReactionsOnHover", "ConfirmCallTitle", "ConfirmVoiceCall", "ConfirmVideoCall", "Call"]
         for key in keys {
             let english = ChargedGramStrings.text(key, languageCode: "en")
             let russian = ChargedGramStrings.text(key, languageCode: "ru")

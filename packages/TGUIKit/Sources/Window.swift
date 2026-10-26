@@ -268,6 +268,7 @@ open class Window: NSWindow {
     public var keyUpHandler:((NSEvent)->Void)?
     private var responders:[ResponderObserver] = []
     private var mouseHandlers:[UInt:[MouseObserver]] = [:]
+    private var isWindowFrameMouseGesture = false
     private var saver:WindowSaver?
     public  var initFromSaver:Bool = false
     public  var copyhandler:(()->Void)? = nil
@@ -811,6 +812,17 @@ open class Window: NSWindow {
     }
     
     
+    private func isWindowFrameEvent(_ event: NSEvent) -> Bool {
+        guard let contentView = contentView, let frameView = contentView.superview else {
+            return false
+        }
+        let point = frameView.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
+        guard let hitView = frameView.hitTest(point) else {
+            return false
+        }
+        return hitView !== contentView && !hitView.isDescendant(of: contentView)
+    }
+
     open override func sendEvent(_ event: NSEvent) {
         
         //        let testEvent = NSEvent.EventType.init(rawValue: 36)!
@@ -828,6 +840,16 @@ open class Window: NSWindow {
         
         
         let eventType = event.type
+        if eventType == .leftMouseDown {
+            isWindowFrameMouseGesture = isWindowFrameEvent(event)
+        }
+        if isWindowFrameMouseGesture && (eventType == .leftMouseDown || eventType == .leftMouseDragged || eventType == .leftMouseUp) {
+            if eventType == .leftMouseUp {
+                isWindowFrameMouseGesture = false
+            }
+            super.sendEvent(event)
+            return
+        }
         if sheets.isEmpty {
             if eventType == .keyDown {
                 
