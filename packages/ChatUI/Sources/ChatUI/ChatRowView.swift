@@ -357,6 +357,7 @@ public class ChatRowView: TableRowView, Notifable, MultipleSelectable, ChatTextS
     private var hoverReactionsTimer: SwiftSignalKit.Timer?
     private var hoverReactionsWindow: Window?
     private weak var hoverReactionsItem: ChatRowItem?
+    private var hoverReactionsLastInsideTime: TimeInterval = 0
     private var channelCommentsBubbleControl: ChannelCommentsBubbleControl?
     private var channelCommentsBubbleSmallControl: ChannelCommentsSmallControl?
 
@@ -830,9 +831,24 @@ public class ChatRowView: TableRowView, Notifable, MultipleSelectable, ChatTextS
         }
         hoverReactionsWindow = nil
         hoverReactionsItem = nil
+        hoverReactionsLastInsideTime = 0
         if ChatRowView.hoverReactionsOwner === self {
             ChatRowView.hoverReactionsOwner = nil
         }
+    }
+
+    private func shouldKeepHoverReactions() -> Bool {
+        guard let panel = hoverReactionsWindow, let window,
+              let item = hoverReactionsItem, self.item === item else {
+            return false
+        }
+        let anchor = window.convertToScreen(rowView.convert(bubbleFrame(item), to: nil))
+        let now = ProcessInfo.processInfo.systemUptime
+        if anchor.union(panel.frame).insetBy(dx: -8, dy: -8).contains(NSEvent.mouseLocation) {
+            hoverReactionsLastInsideTime = now
+            return true
+        }
+        return now - hoverReactionsLastInsideTime < 0.4
     }
 
     private func updateHoverReactions() {
@@ -853,6 +869,9 @@ public class ChatRowView: TableRowView, Notifable, MultipleSelectable, ChatTextS
             return
         }
         guard hoverReactionsItem !== item else { return }
+        if let owner = ChatRowView.hoverReactionsOwner, owner !== self, owner.shouldKeepHoverReactions() {
+            return
+        }
         ChatRowView.hoverReactionsOwner?.hideHoverReactions()
         ChatRowView.hoverReactionsOwner = self
         hoverReactionsItem = item
@@ -899,6 +918,7 @@ public class ChatRowView: TableRowView, Notifable, MultipleSelectable, ChatTextS
                 return .rejected
             }, with: self, for: .leftMouseUp)
             self.hoverReactionsWindow = panel
+            self.hoverReactionsLastInsideTime = ProcessInfo.processInfo.systemUptime
             window.addChildWindow(panel, ordered: .above)
             panel.orderFront(nil)
             panel.contentView?.layer?.animateAlpha(from: 0.1, to: 1, duration: 0.2)
@@ -912,7 +932,7 @@ public class ChatRowView: TableRowView, Notifable, MultipleSelectable, ChatTextS
                       item.chatInteraction.presentation.state != .editing,
                       !contextMenuOnScreen(), !hasModals(window),
                       window.convertToScreen(self.rowView.convert(self.bubbleFrame(item), to: nil)) == anchor,
-                      anchor.union(panel.frame).insetBy(dx: -8, dy: -8).contains(NSEvent.mouseLocation) else {
+                      self.shouldKeepHoverReactions() else {
                     self.hideHoverReactions()
                     return
                 }
