@@ -756,6 +756,8 @@ public func messageEntries(_ messagesEntries: [MessageHistoryEntry], location: C
     messagesEntries = messagesEntries.filter { entry in
         if isNewThread, entry.message.threadId != EngineMessage.newTopicThreadId {
             return false
+        } else if chatHistoryMessageIsUndisplayedForumRoot(entry.message, location: location, peer: peer) {
+            return false
         } else if topicCreatorId != nil {
             if let action = entry.message.media.first as? TelegramMediaAction {
                 switch action.action {
@@ -854,6 +856,9 @@ public func messageEntries(_ messagesEntries: [MessageHistoryEntry], location: C
 
     let insertTopicSeparator:(ChatHistoryEntry, MessageHistoryEntry?, MessageHistoryEntry?)->Void = { entry, prev, next in
         if let message = entry.firstMessage, let _ = monoforumState {
+            if let accountPeerId, (location?.peerId ?? message.id.peerId).isRepliesOrSavedMessages(accountPeerId: accountPeerId) {
+                return
+            }
             let nextId = next?.message.threadId
             if let nextId, nextId != message.threadId, location?.threadId == nil {
                 let nextPeerId = PeerId(nextId)
@@ -917,7 +922,7 @@ public func messageEntries(_ messagesEntries: [MessageHistoryEntry], location: C
         if peer?.isUser == false {
             return true
         }
-        return peerStatus?.contains(.canReport) == true ? false : true
+        return peerStatus?.flags.isDisjoint(with: .suspiciousPeer) ?? true
     }()
 
     var hasIncomingAfter = [Bool](repeating: false, count: messagesEntries.count)
@@ -1102,7 +1107,7 @@ public func messageEntries(_ messagesEntries: [MessageHistoryEntry], location: C
         var itemType:ChatItemType = .Full(rank: rank, rankType: rankType, header: .normal)
         var fwdType:ForwardItemType? = nil
         
-        if message.itHasRestrictedContent, message.restrictedText(contentSettings, contentConfig: contentConfig) != nil {
+        if message.hasRestrictedContent(contentSettings), message.restrictedText(contentSettings, contentConfig: contentConfig) != nil {
             message = message.withUpdatedMedia([]).withUpdatedText(" ")
         }
                 
@@ -1480,10 +1485,6 @@ public func messageEntries(_ messagesEntries: [MessageHistoryEntry], location: C
         entries.insert(.topThreadInset(addTopThreadInset, MessageIndex.absoluteLowerBound(), renderType), at: 0)
     }
     
-    if let monoforumState, monoforumState == .horizontal {
-        entries.insert(.topThreadInset(40, MessageIndex.absoluteLowerBound(), renderType), at: 0)
-    }
-
   
     if !dynamicAdMessages.isEmpty {
         for message in dynamicAdMessages {

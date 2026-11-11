@@ -4,6 +4,7 @@ import PackageDescription
 
 let deps: [(String, String)] = [
     ("ChargedGramSettings", "../ChargedGramSettings"),
+    ("AppAnalytics", "../AppAnalytics"),
     ("AlertsUI", "../AlertsUI"),
     ("AvatarEditorUI", "../AvatarEditorUI"),
     ("AvatarUI", "../AvatarUI"),
